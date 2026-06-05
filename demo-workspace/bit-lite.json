@@ -1,0 +1,30 @@
+{
+  "defaultEnv": "node",
+  "envs": {
+    "node": {
+      "services": {
+        "inspect": {
+          "label": "node components"
+        },
+        "typescript": {
+          "tsconfig": "tsconfig.json"
+        },
+        "test": {
+          "args": ["run"]
+        }
+      }
+    },
+    "react": {
+      "extends": "node",
+      "services": {
+        "inspect": {
+          "label": "react components"
+        }
+      }
+    }
+  },
+  "components": {
+    "components/lib/**": "node",
+    "components/ui/**": "react"
+  }
+}

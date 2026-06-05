@@ -133,7 +133,7 @@ The loader may also accept a default `BitLiteService` export if it is easy, but 
 }
 ```
 
-For the demo workspace, local service module paths are fine. Package-name services can come later once package/install mechanics are ready.
+For the phase-1 demo, built-in service names (`inspect`, `typescript`, `test`) are the default path. Local module paths and package names are supported by the service loader, but package-name services can become the primary story once package/install mechanics are ready.
 
 ## Demo Workspace
 
@@ -148,6 +148,16 @@ Suggested content:
 - local demo services if phase 1 keeps services in-repo
 
 The demo should be runnable from its own root so command behavior is easy to inspect.
+
+Implemented demo commands:
+
+```sh
+npm run demo:components
+npm run demo:envs
+npm run demo:inspect
+npm run demo:typescript
+npm run demo:test
+```
 
 ## Deferred
 
@@ -168,3 +178,4 @@ Do not implement these in phase 1:
 - Service loading by package name will eventually need dependency installation and module resolution policy.
 - If services run subprocesses, result reporting and cancellation will need a more explicit contract later.
 - Component identity is only path-based in phase 1. Real package names or stable ids can wait.
+- Services currently run once per env group. This keeps the phase-1 contract tiny, but workspace-wide services such as `typescript` and `test` may do duplicate work when multiple envs inherit them.

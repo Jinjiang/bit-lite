@@ -3,10 +3,18 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "bin": {
+    "bit-lite": "dist/index.js"
+  },
   "scripts": {
     "test": "vitest run",
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "demo:components": "tsx src/index.ts --workspace demo-workspace components",
+    "demo:envs": "tsx src/index.ts --workspace demo-workspace envs",
+    "demo:inspect": "tsx src/index.ts --workspace demo-workspace run inspect",
+    "demo:typescript": "tsx src/index.ts --workspace demo-workspace run typescript",
+    "demo:test": "tsx src/index.ts --workspace demo-workspace run test"
   },
   "keywords": [],
   "author": "",
