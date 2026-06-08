@@ -12,6 +12,7 @@ export type {
   ServiceResult,
 } from "./types.js";
 export { loadConfig, resolveEnvs, validateConfig } from "./config.js";
+export { fileHasKind, findFilesByKind, findFirstFileByKind } from "./file-matcher.js";
 export { runService } from "./runtime.js";
 export { loadWorkspace } from "./workspace.js";
 

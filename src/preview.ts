@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import type { IncomingMessage, Server as HttpServer, ServerResponse } from "node:http";
 import { createRequire } from "node:module";
@@ -7,6 +7,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createServer as createViteServer } from "vite";
 import type { PluginOption, ViteDevServer } from "vite";
+import { findFirstFileByKind } from "./file-matcher.js";
 import { toPosixPath } from "./path-utils.js";
 import type { ComponentRef, ServiceFactory, ServiceResult } from "./types.js";
 
@@ -19,7 +20,6 @@ type PreviewServiceConfig = {
   host?: string;
   centralHost?: string;
   strictPort?: boolean;
-  previewPatterns?: string[];
 };
 
 type PreviewEntry = {
@@ -51,17 +51,6 @@ type PreviewCoordinator = {
 const DEFAULT_ENV_PORT = 3301;
 const DEFAULT_CENTRAL_PORT = 3000;
 const DEFAULT_HOST = "127.0.0.1";
-const DEFAULT_PREVIEW_PATTERNS = [
-  "preview.ts",
-  "preview.tsx",
-  "preview.js",
-  "preview.jsx",
-  "*.preview.ts",
-  "*.preview.tsx",
-  "*.preview.js",
-  "*.preview.jsx",
-  "*.preview.vue",
-];
 
 const viteServers = new Set<ViteDevServer>();
 let coordinator: PreviewCoordinator | undefined;
@@ -135,7 +124,7 @@ async function discoverPreviewEntries(
 ) {
   const entries: PreviewEntry[] = [];
   for (const component of components) {
-    const previewFile = await findPreviewFile(component, config.previewPatterns ?? DEFAULT_PREVIEW_PATTERNS);
+    const previewFile = await findFirstFileByKind(component.rootDir, "preview");
     if (!previewFile) continue;
     entries.push({
       id: component.id,
@@ -146,27 +135,6 @@ async function discoverPreviewEntries(
     });
   }
   return entries.sort((left, right) => left.id.localeCompare(right.id));
-}
-
-async function findPreviewFile(component: ComponentRef, patterns: string[]) {
-  let entries;
-  try {
-    entries = await readdir(component.rootDir, { withFileTypes: true });
-  } catch {
-    return undefined;
-  }
-  const files = entries.filter((entry) => entry.isFile()).map((entry) => entry.name);
-  const match = files.find((fileName) => patterns.some((pattern) => matchPreviewPattern(fileName, pattern)));
-  return match ? path.join(component.rootDir, match) : undefined;
-}
-
-function matchPreviewPattern(fileName: string, pattern: string) {
-  if (!pattern.includes("*")) return fileName === pattern;
-  const escaped = pattern
-    .split("*")
-    .map((part) => part.replace(/[\\^$+?.()|[\]{}]/g, "\\$&"))
-    .join(".*");
-  return new RegExp(`^${escaped}$`).test(fileName);
 }
 
 async function ensureCoordinator(config: PreviewServiceConfig): Promise<PreviewCoordinator> {
@@ -334,9 +302,6 @@ function readPreviewConfig(value: unknown): PreviewServiceConfig {
   if (typeof input.host === "string") config.host = input.host;
   if (typeof input.centralHost === "string") config.centralHost = input.centralHost;
   if (typeof input.strictPort === "boolean") config.strictPort = input.strictPort;
-  if (Array.isArray(input.previewPatterns)) {
-    config.previewPatterns = input.previewPatterns.filter((item): item is string => typeof item === "string");
-  }
   return config;
 }
 
