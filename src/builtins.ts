@@ -46,7 +46,7 @@ export const builtinServices: Record<string, ServiceFactory> = {
     name: "test",
     async run(context) {
       const serviceConfig = readObjectConfig(config);
-      const args = Array.isArray(serviceConfig.args) ? serviceConfig.args.filter(isString) : ["run"];
+      const args = readTestArgs(serviceConfig);
       const vitestPath = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
       const exitCode = await runNodeScript(vitestPath, {
         cwd: context.workspaceRoot,
@@ -73,4 +73,9 @@ function readObjectConfig(config: unknown): Record<string, unknown> {
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
+}
+
+function readTestArgs(config: Record<string, unknown>) {
+  if (config.watch === true) return ["--watch"];
+  return Array.isArray(config.args) ? config.args.filter(isString) : ["run"];
 }

@@ -22,13 +22,17 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
       case "envs":
         printEnvs(workspace.envs);
         return 0;
+      case "start": {
+        const results = await runService(overrideServiceConfig(workspace, "preview", { start: true }), "preview");
+        printServiceResults("start", results);
+        return results.every(({ result }) => result.ok) ? 0 : 1;
+      }
       case "run": {
         if (!parsed.serviceName) throw new BitLiteError("run requires a service name");
-        const results = await runService(workspace, parsed.serviceName);
-        results.forEach(({ envName, result }) => {
-          if (result.message) console.log(result.message);
-          console.log(`${result.ok ? "ok" : "failed"} ${parsed.serviceName} (${envName})`);
-        });
+        const serviceWorkspace =
+          parsed.serviceName === "test" && parsed.watch ? overrideServiceConfig(workspace, "test", { watch: true }) : workspace;
+        const results = await runService(serviceWorkspace, parsed.serviceName);
+        printServiceResults(parsed.serviceName, results);
         return results.every(({ result }) => result.ok) ? 0 : 1;
       }
       default:
@@ -46,6 +50,7 @@ type ParsedArgs = {
   serviceName: string | undefined;
   workspaceRoot: string;
   filterPattern: string | undefined;
+  watch: boolean;
   help: boolean;
 };
 
@@ -53,6 +58,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   const remaining: string[] = [];
   let workspaceRoot = process.cwd();
   let filterPattern: string | undefined;
+  let watch = false;
   let help = false;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -70,6 +76,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       if (!value) throw new BitLiteError("--filter requires a pattern");
       filterPattern = value;
       index += 1;
+    } else if (arg === "--watch") {
+      watch = true;
     } else if (arg) {
       remaining.push(arg);
     }
@@ -80,6 +88,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     serviceName: remaining[1],
     workspaceRoot,
     filterPattern,
+    watch,
     help,
   };
 }
@@ -90,7 +99,8 @@ function printUsage() {
 Usage:
   bit-lite components [--workspace <dir>] [--filter <pattern>]
   bit-lite envs [--workspace <dir>]
-  bit-lite run <service> [--workspace <dir>] [--filter <pattern>]
+  bit-lite start [--workspace <dir>] [--filter <pattern>]
+  bit-lite run <service> [--workspace <dir>] [--filter <pattern>] [--watch]
 `);
 }
 
@@ -109,6 +119,37 @@ function filterWorkspace(workspace: WorkspaceRuntime, pattern: string): Workspac
     components,
     groups,
   };
+}
+
+function overrideServiceConfig(workspace: WorkspaceRuntime, serviceName: string, override: Record<string, unknown>): WorkspaceRuntime {
+  return {
+    ...workspace,
+    groups: workspace.groups.map((group) => ({
+      ...group,
+      env: {
+        ...group.env,
+        services: {
+          ...group.env.services,
+          [serviceName]: {
+            ...readObjectConfig(group.env.services[serviceName]),
+            ...override,
+          },
+        },
+      },
+    })),
+  };
+}
+
+function printServiceResults(serviceName: string, results: Awaited<ReturnType<typeof runService>>) {
+  results.forEach(({ envName, result }) => {
+    if (result.message) console.log(result.message);
+    console.log(`${result.ok ? "ok" : "failed"} ${serviceName} (${envName})`);
+  });
+}
+
+function readObjectConfig(config: unknown): Record<string, unknown> {
+  if (typeof config === "object" && config !== null && !Array.isArray(config)) return config as Record<string, unknown>;
+  return {};
 }
 
 function printComponents(components: Array<{ id: string; rootDir: string; envName: string }>) {

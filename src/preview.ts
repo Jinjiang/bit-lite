@@ -1,4 +1,6 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import type { IncomingMessage, Server as HttpServer, ServerResponse } from "node:http";
 import { createRequire } from "node:module";
@@ -20,6 +22,7 @@ type PreviewServiceConfig = {
   host?: string;
   centralHost?: string;
   strictPort?: boolean;
+  start?: boolean;
 };
 
 type PreviewEntry = {
@@ -28,6 +31,7 @@ type PreviewEntry = {
   framework: PreviewFramework;
   rootDir: string;
   previewFile: string;
+  docsFile?: string;
 };
 
 type RunningEnvPreview = {
@@ -56,6 +60,14 @@ const viteServers = new Set<ViteDevServer>();
 let coordinator: PreviewCoordinator | undefined;
 let nextEnvPort = DEFAULT_ENV_PORT;
 let signalHandlersInstalled = false;
+type TestWatcherState = {
+  envName: string;
+  process?: ChildProcess;
+  output: string;
+  status: "idle" | "running" | "exited";
+  exitCode?: number;
+};
+const testWatchers = new Map<string, TestWatcherState>();
 
 export const createPreviewService: ServiceFactory = (config) => ({
   name: "preview",
@@ -73,7 +85,7 @@ export const createPreviewService: ServiceFactory = (config) => ({
       };
     }
 
-    const central = await ensureCoordinator(serviceConfig);
+    const central = await ensureCoordinator(serviceConfig, context.workspaceRoot, context.envName);
     const port = nextPreviewPort();
     const host = serviceConfig.host ?? DEFAULT_HOST;
     const base = `/env/${encodeURIComponent(context.envName)}/`;
@@ -126,19 +138,24 @@ async function discoverPreviewEntries(
   for (const component of components) {
     const previewFile = await findFirstFileByKind(component.rootDir, "preview");
     if (!previewFile) continue;
+    const docsFile = await findFirstFileByKind(component.rootDir, "docs");
     entries.push({
       id: component.id,
       envName,
       framework,
       rootDir: component.rootDir,
       previewFile,
+      ...(docsFile ? { docsFile } : {}),
     });
   }
   return entries.sort((left, right) => left.id.localeCompare(right.id));
 }
 
-async function ensureCoordinator(config: PreviewServiceConfig): Promise<PreviewCoordinator> {
-  if (coordinator) return coordinator;
+async function ensureCoordinator(config: PreviewServiceConfig, workspaceRoot: string, envName: string): Promise<PreviewCoordinator> {
+  if (coordinator) {
+    if (config.start) startTestWatcher(workspaceRoot, envName);
+    return coordinator;
+  }
   const host = config.centralHost ?? config.host ?? DEFAULT_HOST;
   const port = DEFAULT_CENTRAL_PORT;
   const server = createHttpServer(handleCentralRequest);
@@ -156,6 +173,7 @@ async function ensureCoordinator(config: PreviewServiceConfig): Promise<PreviewC
     url: `http://${host}:${port}/`,
     envs: new Map(),
   };
+  if (config.start) startTestWatcher(workspaceRoot, envName);
   return coordinator;
 }
 
@@ -172,6 +190,14 @@ function handleCentralRequest(req: IncomingMessage, res: ServerResponse) {
   }
   if (url.pathname === "/api/previews") {
     sendJson(res, getPreviewRegistry());
+    return;
+  }
+  if (url.pathname === "/api/tests") {
+    sendJson(res, getTestWatcherState(url.searchParams.get("env") ?? undefined));
+    return;
+  }
+  if (url.pathname === "/tests") {
+    sendHtml(res, TESTS_HTML);
     return;
   }
   const envMatch = url.pathname.match(/^\/env\/([^/]+)(\/.*)?$/);
@@ -219,6 +245,7 @@ function getPreviewRegistry() {
       components: env.components.map((component) => ({
         id: component.id,
         rootDir: component.rootDir,
+        hasDocs: Boolean(component.docsFile),
       })),
     })),
   };
@@ -288,6 +315,7 @@ function renderRegistry(entries: PreviewEntry[], base: string) {
     framework: entry.framework,
     rootDir: entry.rootDir,
     modulePath: `${base}@fs${toPosixPath(entry.previewFile)}`,
+    docsModulePath: entry.docsFile ? `${base}@fs${toPosixPath(entry.docsFile)}?raw` : undefined,
   }));
   return `export const previews = ${JSON.stringify(serialized, null, 2)};\n`;
 }
@@ -302,6 +330,7 @@ function readPreviewConfig(value: unknown): PreviewServiceConfig {
   if (typeof input.host === "string") config.host = input.host;
   if (typeof input.centralHost === "string") config.centralHost = input.centralHost;
   if (typeof input.strictPort === "boolean") config.strictPort = input.strictPort;
+  if (typeof input.start === "boolean") config.start = input.start;
   return config;
 }
 
@@ -318,11 +347,75 @@ function installSignalHandlers() {
     for (const server of viteServers) {
       await server.close();
     }
+    for (const watcher of testWatchers.values()) {
+      watcher.process?.kill();
+    }
     await new Promise<void>((resolve) => coordinator?.server.close(() => resolve()) ?? resolve());
-    console.log("preview stopped");
+    console.log("start stopped");
   };
   process.on("SIGINT", close);
   process.on("SIGTERM", close);
+}
+
+function startTestWatcher(workspaceRoot: string, envName: string) {
+  if (testWatchers.get(envName)?.process) return;
+  const vitestPath = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
+  const state: TestWatcherState = {
+    envName,
+    status: "running",
+    output: `Starting tests for ${envName}...`,
+  };
+  testWatchers.set(envName, state);
+  state.process = spawn(process.execPath, [vitestPath, "--watch"], {
+    cwd: workspaceRoot,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  state.process.stdout?.on("data", (chunk) => appendTestOutput(state, String(chunk)));
+  state.process.stderr?.on("data", (chunk) => appendTestOutput(state, String(chunk)));
+  state.process.on("exit", (code) => {
+    state.status = "exited";
+    if (code !== null) state.exitCode = code;
+    appendTestOutput(state, `\nTest watcher for ${envName} exited with code ${code ?? 1}.\n`);
+  });
+}
+
+function appendTestOutput(state: TestWatcherState, chunk: string) {
+  state.output += stripAnsi(chunk);
+  if (state.output.length > 20000) {
+    state.output = state.output.slice(state.output.length - 20000);
+  }
+}
+
+function getTestWatcherState(envName?: string) {
+  if (envName) {
+    const state = testWatchers.get(envName);
+    if (!state) {
+      return {
+        envName,
+        status: "idle",
+        output: `Tests have not started for ${envName}.`,
+      };
+    }
+    return serializeTestWatcher(state);
+  }
+  return {
+    envs: Array.from(testWatchers.values())
+      .sort((left, right) => left.envName.localeCompare(right.envName))
+      .map(serializeTestWatcher),
+  };
+}
+
+function serializeTestWatcher(state: TestWatcherState) {
+  return {
+    envName: state.envName,
+    status: state.status,
+    exitCode: state.exitCode,
+    output: state.output,
+  };
+}
+
+function stripAnsi(value: string) {
+  return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
 }
 
 const INDEX_HTML = `<!doctype html>
@@ -348,6 +441,7 @@ type PreviewMeta = {
   framework: "html" | "react" | "vue";
   rootDir: string;
   modulePath: string;
+  docsModulePath?: string;
 };
 
 type PreviewModule = {
@@ -364,6 +458,7 @@ const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("missing #app");
 
 const selectedId = new URLSearchParams(window.location.search).get("component") ?? previews[0]?.id;
+const selectedView = new URLSearchParams(window.location.search).get("view") ?? "preview";
 
 app.innerHTML = \`
   <main class="stage">
@@ -376,6 +471,8 @@ const previewRoot = app.querySelector<HTMLElement>("#preview-root")!;
 const selected = (previews as PreviewMeta[]).find((preview) => preview.id === selectedId) ?? previews[0];
 if (!selected) {
   previewRoot.textContent = "No component preview files were found.";
+} else if (selectedView === "docs") {
+  await mountDocs(selected, previewRoot);
 } else {
   await mountPreview(selected, previewRoot);
 }
@@ -399,6 +496,83 @@ async function mountPreview(meta: PreviewMeta, root: HTMLElement) {
     return;
   }
   throw new Error(\`Preview module for "\${meta.id}" must export a mount function or render function.\`);
+}
+
+async function mountDocs(meta: PreviewMeta, root: HTMLElement) {
+  root.replaceChildren();
+  if (!meta.docsModulePath) {
+    root.innerHTML = '<div class="empty">No docs file found for this component.</div>';
+    return;
+  }
+  const markdown = (await import(/* @vite-ignore */ meta.docsModulePath)).default as string;
+  const article = document.createElement("article");
+  article.className = "docs";
+  article.innerHTML = renderMarkdown(markdown);
+  root.appendChild(article);
+}
+
+function renderMarkdown(markdown: string) {
+  const lines = markdown.split(/\\r?\\n/);
+  const html: string[] = [];
+  let paragraph: string[] = [];
+  let inCode = false;
+  let code: string[] = [];
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    html.push('<p>' + inlineMarkdown(paragraph.join(" ")) + '</p>');
+    paragraph = [];
+  };
+
+  for (const line of lines) {
+    if (line.startsWith("\`\`\`")) {
+      if (inCode) {
+        html.push('<pre><code>' + escapeHtml(code.join("\\n")) + '</code></pre>');
+        code = [];
+        inCode = false;
+      } else {
+        flushParagraph();
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) {
+      code.push(line);
+      continue;
+    }
+    if (!line.trim()) {
+      flushParagraph();
+      continue;
+    }
+    const heading = line.match(/^(#{1,4})\\s+(.*)$/);
+    if (heading) {
+      flushParagraph();
+      const level = heading[1].length;
+      html.push('<h' + level + '>' + inlineMarkdown(heading[2]) + '</h' + level + '>');
+      continue;
+    }
+    paragraph.push(line.trim());
+  }
+  flushParagraph();
+  if (inCode) html.push('<pre><code>' + escapeHtml(code.join("\\n")) + '</code></pre>');
+  return html.join("\\n");
+}
+
+function inlineMarkdown(value: string) {
+  const tick = String.fromCharCode(96);
+  return escapeHtml(value)
+    .replace(new RegExp(tick + '([^' + tick + ']+)' + tick, 'g'), '<code>$1</code>')
+    .replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => {
+    if (char === "&") return "&amp;";
+    if (char === "<") return "&lt;";
+    if (char === ">") return "&gt;";
+    if (char === '"') return "&quot;";
+    return "&#39;";
+  });
 }
 `;
 
@@ -439,11 +613,11 @@ const CENTRAL_INDEX_HTML = `<!doctype html>
         margin: 0 8px 6px;
       }
       a {
-        display: block;
+        display: inline-flex;
         color: #343b45;
         text-decoration: none;
         border-radius: 7px;
-        padding: 9px 10px;
+        padding: 7px 9px;
         font-size: 14px;
       }
       a:hover, a.active {
@@ -455,6 +629,21 @@ const CENTRAL_INDEX_HTML = `<!doctype html>
         height: 100vh;
         border: 0;
         background: #fff;
+      }
+      .component-row {
+        display: grid;
+        gap: 4px;
+        margin: 0 0 8px;
+      }
+      .component-name {
+        color: #111827;
+        font-size: 14px;
+        padding: 0 8px;
+      }
+      .actions {
+        display: flex;
+        gap: 4px;
+        padding: 0 0 0 2px;
       }
     </style>
   </head>
@@ -471,6 +660,7 @@ const CENTRAL_INDEX_HTML = `<!doctype html>
       const frame = document.querySelector("#frame");
       const params = new URLSearchParams(location.search);
       const selected = params.get("component");
+      const selectedView = params.get("view") ?? "preview";
       const registry = await fetch("/api/previews").then((res) => res.json());
       let firstHref;
       for (const env of registry.envs) {
@@ -478,25 +668,121 @@ const CENTRAL_INDEX_HTML = `<!doctype html>
         group.className = "group";
         group.innerHTML = '<div class="group-title">' + env.envName + ' / ' + env.framework + '</div>';
         for (const component of env.components) {
-          const href = env.proxyBase + "?component=" + encodeURIComponent(component.id);
-          firstHref ??= href;
-          const link = document.createElement("a");
-          link.href = "?component=" + encodeURIComponent(component.id);
-          link.textContent = component.id;
-          link.className = component.id === selected ? "active" : "";
-          link.addEventListener("click", (event) => {
-            event.preventDefault();
-            history.pushState(null, "", link.href);
-            document.querySelectorAll("a").forEach((item) => item.classList.remove("active"));
-            link.classList.add("active");
-            frame.src = href;
-          });
-          group.appendChild(link);
-          if (component.id === selected) frame.src = href;
+          const row = document.createElement("div");
+          row.className = "component-row";
+          row.innerHTML = '<div class="component-name">' + component.id + '</div>';
+          const actions = document.createElement("div");
+          actions.className = "actions";
+          row.appendChild(actions);
+          actions.appendChild(createAction(env, component, "preview", "Preview"));
+          if (component.hasDocs) actions.appendChild(createAction(env, component, "docs", "Docs"));
+          actions.appendChild(createAction(env, component, "tests", "Tests"));
+          group.appendChild(row);
         }
         nav.appendChild(group);
       }
       if (!frame.src && firstHref) frame.src = firstHref;
+
+      function createAction(env, component, view, label) {
+        const href =
+          view === "tests"
+            ? "/tests?env=" + encodeURIComponent(env.envName) + "&component=" + encodeURIComponent(component.id)
+            : env.proxyBase + "?component=" + encodeURIComponent(component.id) + "&view=" + view;
+        firstHref ??= href;
+        const link = document.createElement("a");
+        link.href = "?component=" + encodeURIComponent(component.id) + "&view=" + view;
+        link.textContent = label;
+        link.className = component.id === selected && selectedView === view ? "active" : "";
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          history.pushState(null, "", link.href);
+          document.querySelectorAll("a").forEach((item) => item.classList.remove("active"));
+          link.classList.add("active");
+          frame.src = href;
+        });
+        if (component.id === selected && selectedView === view) frame.src = href;
+        return link;
+      }
+    </script>
+  </body>
+</html>
+`;
+
+const TESTS_HTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>bit-lite tests</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: #1b1f24;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #fff;
+      }
+      main {
+        min-height: 100vh;
+        padding: 28px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin: 0 0 18px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 20px;
+      }
+      .status {
+        border: 1px solid #cfd6e1;
+        border-radius: 999px;
+        padding: 4px 10px;
+        color: #3d4654;
+        background: #f9fafb;
+        font-size: 12px;
+      }
+      pre {
+        min-height: 420px;
+        overflow: auto;
+        margin: 0;
+        border-radius: 8px;
+        background: #111827;
+        color: #f9fafb;
+        padding: 16px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Tests</h1>
+        <div class="status" id="status">loading</div>
+      </header>
+      <pre id="output">Loading test results...</pre>
+    </main>
+    <script type="module">
+      const status = document.querySelector("#status");
+      const output = document.querySelector("#output");
+      const envName = new URLSearchParams(location.search).get("env");
+
+      async function refresh() {
+        const url = envName ? "/api/tests?env=" + encodeURIComponent(envName) : "/api/tests";
+        const result = await fetch(url).then((res) => res.json());
+        status.textContent =
+          (result.envName ? result.envName + " / " : "") +
+          result.status +
+          (result.exitCode === undefined ? "" : " / " + result.exitCode);
+        output.textContent = result.output || "No test output yet.";
+      }
+
+      await refresh();
+      setInterval(refresh, 1000);
     </script>
   </body>
 </html>
@@ -527,5 +813,45 @@ body {
   min-height: calc(100vh - 56px);
   background: #ffffff;
   padding: 28px;
+}
+
+.empty {
+  color: #667085;
+}
+
+.docs {
+  max-width: 760px;
+  line-height: 1.65;
+}
+
+.docs h1,
+.docs h2,
+.docs h3,
+.docs h4 {
+  line-height: 1.25;
+  margin: 0 0 14px;
+}
+
+.docs p {
+  margin: 0 0 14px;
+}
+
+.docs code {
+  background: #eef2f7;
+  border-radius: 4px;
+  padding: 2px 5px;
+}
+
+.docs pre {
+  overflow: auto;
+  background: #111827;
+  color: #f9fafb;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.docs pre code {
+  background: transparent;
+  padding: 0;
 }
 `;
