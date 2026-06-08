@@ -14,7 +14,8 @@
         },
         "preview": {
           "framework": "html",
-          "port": 3100
+          "port": 3101,
+          "centralPort": 3000
         }
       }
     },
@@ -26,7 +27,8 @@
         },
         "preview": {
           "framework": "react",
-          "port": 3100
+          "port": 3102,
+          "centralPort": 3000
         }
       }
     }

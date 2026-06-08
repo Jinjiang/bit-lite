@@ -10,7 +10,6 @@ export type {
   ServiceContext,
   ServiceFactory,
   ServiceResult,
-  WorkspaceServiceContext,
 } from "./types.js";
 export { loadConfig, resolveEnvs, validateConfig } from "./config.js";
 export { runService } from "./runtime.js";
