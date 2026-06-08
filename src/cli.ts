@@ -1,7 +1,9 @@
 import path from "node:path";
 import { BitLiteError } from "./errors.js";
+import { matchPattern } from "./patterns.js";
 import { runService } from "./runtime.js";
 import { loadWorkspace } from "./workspace.js";
+import type { WorkspaceRuntime } from "./types.js";
 
 export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   const parsed = parseArgs(argv);
@@ -11,7 +13,8 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   }
 
   try {
-    const workspace = await loadWorkspace(parsed.workspaceRoot);
+    const loadedWorkspace = await loadWorkspace(parsed.workspaceRoot);
+    const workspace = parsed.filterPattern ? filterWorkspace(loadedWorkspace, parsed.filterPattern) : loadedWorkspace;
     switch (parsed.command) {
       case "components":
         printComponents(workspace.components);
@@ -42,12 +45,14 @@ type ParsedArgs = {
   command: string | undefined;
   serviceName: string | undefined;
   workspaceRoot: string;
+  filterPattern: string | undefined;
   help: boolean;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
   const remaining: string[] = [];
   let workspaceRoot = process.cwd();
+  let filterPattern: string | undefined;
   let help = false;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -60,6 +65,11 @@ function parseArgs(argv: string[]): ParsedArgs {
       if (!value) throw new BitLiteError("--workspace requires a path");
       workspaceRoot = path.resolve(value);
       index += 1;
+    } else if (arg === "--filter") {
+      const value = argv[index + 1];
+      if (!value) throw new BitLiteError("--filter requires a pattern");
+      filterPattern = value;
+      index += 1;
     } else if (arg) {
       remaining.push(arg);
     }
@@ -69,6 +79,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     command: remaining[0],
     serviceName: remaining[1],
     workspaceRoot,
+    filterPattern,
     help,
   };
 }
@@ -77,10 +88,27 @@ function printUsage() {
   console.log(`bit-lite
 
 Usage:
-  bit-lite components [--workspace <dir>]
+  bit-lite components [--workspace <dir>] [--filter <pattern>]
   bit-lite envs [--workspace <dir>]
-  bit-lite run <service> [--workspace <dir>]
+  bit-lite run <service> [--workspace <dir>] [--filter <pattern>]
 `);
+}
+
+function filterWorkspace(workspace: WorkspaceRuntime, pattern: string): WorkspaceRuntime {
+  const components = workspace.components.filter((component) => matchPattern(component.id, pattern));
+  const componentIds = new Set(components.map((component) => component.id));
+  const groups = workspace.groups
+    .map((group) => ({
+      ...group,
+      components: group.components.filter((component) => componentIds.has(component.id)),
+    }))
+    .filter((group) => group.components.length > 0);
+
+  return {
+    ...workspace,
+    components,
+    groups,
+  };
 }
 
 function printComponents(components: Array<{ id: string; rootDir: string; envName: string }>) {
