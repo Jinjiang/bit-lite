@@ -16,9 +16,7 @@ type PreviewFramework = "html" | "react" | "vue";
 
 type PreviewServiceConfig = {
   framework?: PreviewFramework;
-  port?: number;
   host?: string;
-  centralPort?: number;
   centralHost?: string;
   strictPort?: boolean;
   previewPatterns?: string[];
@@ -50,7 +48,7 @@ type PreviewCoordinator = {
   envs: Map<string, RunningEnvPreview>;
 };
 
-const DEFAULT_ENV_PORT = 3100;
+const DEFAULT_ENV_PORT = 3301;
 const DEFAULT_CENTRAL_PORT = 3000;
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PREVIEW_PATTERNS = [
@@ -87,7 +85,7 @@ export const createPreviewService: ServiceFactory = (config) => ({
     }
 
     const central = await ensureCoordinator(serviceConfig);
-    const port = serviceConfig.port ?? nextPreviewPort();
+    const port = nextPreviewPort();
     const host = serviceConfig.host ?? DEFAULT_HOST;
     const base = `/env/${encodeURIComponent(context.envName)}/`;
     const appRoot = await generatePreviewApp(entries, base);
@@ -174,7 +172,7 @@ function matchPreviewPattern(fileName: string, pattern: string) {
 async function ensureCoordinator(config: PreviewServiceConfig): Promise<PreviewCoordinator> {
   if (coordinator) return coordinator;
   const host = config.centralHost ?? config.host ?? DEFAULT_HOST;
-  const port = config.centralPort ?? DEFAULT_CENTRAL_PORT;
+  const port = DEFAULT_CENTRAL_PORT;
   const server = createHttpServer(handleCentralRequest);
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -333,9 +331,7 @@ function readPreviewConfig(value: unknown): PreviewServiceConfig {
   if (input.framework === "html" || input.framework === "react" || input.framework === "vue") {
     config.framework = input.framework;
   }
-  if (typeof input.port === "number") config.port = input.port;
   if (typeof input.host === "string") config.host = input.host;
-  if (typeof input.centralPort === "number") config.centralPort = input.centralPort;
   if (typeof input.centralHost === "string") config.centralHost = input.centralHost;
   if (typeof input.strictPort === "boolean") config.strictPort = input.strictPort;
   if (Array.isArray(input.previewPatterns)) {

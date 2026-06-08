@@ -13,9 +13,7 @@
           "args": ["run"]
         },
         "preview": {
-          "framework": "html",
-          "port": 3101,
-          "centralPort": 3000
+          "framework": "html"
         }
       }
     },
@@ -26,9 +24,7 @@
           "label": "react components"
         },
         "preview": {
-          "framework": "react",
-          "port": 3102,
-          "centralPort": 3000
+          "framework": "react"
         }
       }
     }
