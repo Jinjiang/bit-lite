@@ -11,6 +11,10 @@
         },
         "test": {
           "args": ["run"]
+        },
+        "preview": {
+          "framework": "html",
+          "port": 3100
         }
       }
     },
@@ -19,6 +23,10 @@
       "services": {
         "inspect": {
           "label": "react components"
+        },
+        "preview": {
+          "framework": "react",
+          "port": 3100
         }
       }
     }

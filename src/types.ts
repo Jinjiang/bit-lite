@@ -15,9 +15,16 @@ export type ServiceContext = {
   serviceConfig: unknown;
 };
 
+export type WorkspaceServiceContext = {
+  workspaceRoot: string;
+  groups: EnvRuntime[];
+  serviceConfigs: Record<string, unknown>;
+};
+
 export type BitLiteService = {
   name: string;
   run(context: ServiceContext): Promise<ServiceResult>;
+  runWorkspace?(context: WorkspaceServiceContext): Promise<ServiceResult>;
 };
 
 export type ServiceFactory = (config: unknown) => BitLiteService;

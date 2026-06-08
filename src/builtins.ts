@@ -2,10 +2,12 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import type { BitLiteService, ServiceFactory } from "./types.js";
 import { runNodeScript } from "./process.js";
+import { createPreviewService } from "./preview.js";
 
 const require = createRequire(import.meta.url);
 
 export const builtinServices: Record<string, ServiceFactory> = {
+  preview: createPreviewService,
   inspect: (config) => ({
     name: "inspect",
     async run(context) {
