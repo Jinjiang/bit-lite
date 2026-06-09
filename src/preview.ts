@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { createServer as createHttpServer, request as httpRequest } from "node:http";
@@ -9,7 +9,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createServer as createViteServer } from "vite";
 import type { PluginOption, ViteDevServer } from "vite";
-import { findFirstFileByKind } from "./file-matcher.js";
+import { fileHasKind, findFilesByKind, findFirstFileByKind } from "./file-matcher.js";
 import { toPosixPath } from "./path-utils.js";
 import type { ComponentRef, ServiceFactory, ServiceResult } from "./types.js";
 
@@ -32,6 +32,7 @@ type PreviewEntry = {
   rootDir: string;
   previewFile: string;
   docsFile?: string;
+  sourceFile?: string;
 };
 
 type RunningEnvPreview = {
@@ -85,7 +86,7 @@ export const createPreviewService: ServiceFactory = (config) => ({
       };
     }
 
-    const central = await ensureCoordinator(serviceConfig, context.workspaceRoot, context.envName);
+    const central = await ensureCoordinator(serviceConfig, context.workspaceRoot, context.envName, context.components);
     const port = nextPreviewPort();
     const host = serviceConfig.host ?? DEFAULT_HOST;
     const base = `/env/${encodeURIComponent(context.envName)}/`;
@@ -139,6 +140,7 @@ async function discoverPreviewEntries(
     const previewFile = await findFirstFileByKind(component.rootDir, "preview");
     if (!previewFile) continue;
     const docsFile = await findFirstFileByKind(component.rootDir, "docs");
+    const sourceFile = await findSourceFile(component.rootDir);
     entries.push({
       id: component.id,
       envName,
@@ -146,14 +148,35 @@ async function discoverPreviewEntries(
       rootDir: component.rootDir,
       previewFile,
       ...(docsFile ? { docsFile } : {}),
+      ...(sourceFile ? { sourceFile } : {}),
     });
   }
   return entries.sort((left, right) => left.id.localeCompare(right.id));
 }
 
-async function ensureCoordinator(config: PreviewServiceConfig, workspaceRoot: string, envName: string): Promise<PreviewCoordinator> {
+async function findSourceFile(componentRoot: string) {
+  let entries;
+  try {
+    entries = await readdir(componentRoot, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  const files = entries
+    .filter((entry) => entry.isFile() && !["preview", "docs", "test", "spec"].some((kind) => fileHasKind(entry.name, kind)))
+    .map((entry) => entry.name)
+    .sort();
+  const fileName = files.find((file) => file.split(".")[0] === "index") ?? files[0];
+  return fileName ? path.join(componentRoot, fileName) : undefined;
+}
+
+async function ensureCoordinator(
+  config: PreviewServiceConfig,
+  workspaceRoot: string,
+  envName: string,
+  components: ComponentRef[]
+): Promise<PreviewCoordinator> {
   if (coordinator) {
-    if (config.start) startTestWatcher(workspaceRoot, envName);
+    if (config.start) await startTestWatcher(workspaceRoot, envName, components);
     return coordinator;
   }
   const host = config.centralHost ?? config.host ?? DEFAULT_HOST;
@@ -173,7 +196,7 @@ async function ensureCoordinator(config: PreviewServiceConfig, workspaceRoot: st
     url: `http://${host}:${port}/`,
     envs: new Map(),
   };
-  if (config.start) startTestWatcher(workspaceRoot, envName);
+  if (config.start) await startTestWatcher(workspaceRoot, envName, components);
   return coordinator;
 }
 
@@ -246,6 +269,7 @@ function getPreviewRegistry() {
         id: component.id,
         rootDir: component.rootDir,
         hasDocs: Boolean(component.docsFile),
+        hasSource: Boolean(component.sourceFile),
       })),
     })),
   };
@@ -316,6 +340,7 @@ function renderRegistry(entries: PreviewEntry[], base: string) {
     rootDir: entry.rootDir,
     modulePath: `${base}@fs${toPosixPath(entry.previewFile)}`,
     docsModulePath: entry.docsFile ? `${base}@fs${toPosixPath(entry.docsFile)}?raw` : undefined,
+    sourceModulePath: entry.sourceFile ? `${base}@fs${toPosixPath(entry.sourceFile)}?raw` : undefined,
   }));
   return `export const previews = ${JSON.stringify(serialized, null, 2)};\n`;
 }
@@ -357,16 +382,21 @@ function installSignalHandlers() {
   process.on("SIGTERM", close);
 }
 
-function startTestWatcher(workspaceRoot: string, envName: string) {
+async function startTestWatcher(workspaceRoot: string, envName: string, components: ComponentRef[]) {
   if (testWatchers.get(envName)?.process) return;
   const vitestPath = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
+  const testFiles = await findTestFiles(components);
   const state: TestWatcherState = {
     envName,
-    status: "running",
-    output: `Starting tests for ${envName}...`,
+    status: testFiles.length > 0 ? "running" : "idle",
+    output:
+      testFiles.length > 0
+        ? `Starting tests for ${envName}...`
+        : `No test files found for ${envName}.`,
   };
   testWatchers.set(envName, state);
-  state.process = spawn(process.execPath, [vitestPath, "--watch"], {
+  if (testFiles.length === 0) return;
+  state.process = spawn(process.execPath, [vitestPath, "--watch", ...testFiles], {
     cwd: workspaceRoot,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -377,6 +407,17 @@ function startTestWatcher(workspaceRoot: string, envName: string) {
     if (code !== null) state.exitCode = code;
     appendTestOutput(state, `\nTest watcher for ${envName} exited with code ${code ?? 1}.\n`);
   });
+}
+
+async function findTestFiles(components: ComponentRef[]) {
+  const files = await Promise.all(
+    components.map(async (component) => {
+      const testFiles = await findFilesByKind(component.rootDir, "test");
+      const specFiles = await findFilesByKind(component.rootDir, "spec");
+      return [...testFiles, ...specFiles];
+    })
+  );
+  return files.flat().sort();
 }
 
 function appendTestOutput(state: TestWatcherState, chunk: string) {
@@ -442,6 +483,7 @@ type PreviewMeta = {
   rootDir: string;
   modulePath: string;
   docsModulePath?: string;
+  sourceModulePath?: string;
 };
 
 type PreviewModule = {
@@ -473,6 +515,8 @@ if (!selected) {
   previewRoot.textContent = "No component preview files were found.";
 } else if (selectedView === "docs") {
   await mountDocs(selected, previewRoot);
+} else if (selectedView === "source") {
+  await mountSource(selected, previewRoot);
 } else {
   await mountPreview(selected, previewRoot);
 }
@@ -509,6 +553,21 @@ async function mountDocs(meta: PreviewMeta, root: HTMLElement) {
   article.className = "docs";
   article.innerHTML = renderMarkdown(markdown);
   root.appendChild(article);
+}
+
+async function mountSource(meta: PreviewMeta, root: HTMLElement) {
+  root.replaceChildren();
+  if (!meta.sourceModulePath) {
+    root.innerHTML = '<div class="empty">No source file found for this component.</div>';
+    return;
+  }
+  const source = (await import(/* @vite-ignore */ meta.sourceModulePath)).default as string;
+  const pre = document.createElement("pre");
+  pre.className = "source";
+  const code = document.createElement("code");
+  code.textContent = source;
+  pre.appendChild(code);
+  root.appendChild(pre);
 }
 
 function renderMarkdown(markdown: string) {
@@ -674,8 +733,9 @@ const CENTRAL_INDEX_HTML = `<!doctype html>
           const actions = document.createElement("div");
           actions.className = "actions";
           row.appendChild(actions);
-          actions.appendChild(createAction(env, component, "preview", "Preview"));
+          actions.appendChild(createAction(env, component, "preview", "Demo"));
           if (component.hasDocs) actions.appendChild(createAction(env, component, "docs", "Docs"));
+          if (component.hasSource) actions.appendChild(createAction(env, component, "source", "Source"));
           actions.appendChild(createAction(env, component, "tests", "Tests"));
           group.appendChild(row);
         }
@@ -853,5 +913,19 @@ body {
 .docs pre code {
   background: transparent;
   padding: 0;
+}
+
+.source {
+  overflow: auto;
+  margin: 0;
+  border-radius: 8px;
+  background: #111827;
+  color: #f9fafb;
+  padding: 16px;
+  line-height: 1.5;
+}
+
+.source code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 `;
