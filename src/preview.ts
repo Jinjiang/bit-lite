@@ -1,6 +1,4 @@
 import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
-import type { ChildProcess } from "node:child_process";
 import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import type { IncomingMessage, Server as HttpServer, ServerResponse } from "node:http";
 import { createRequire } from "node:module";
@@ -9,8 +7,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createServer as createViteServer } from "vite";
 import type { PluginOption, ViteDevServer } from "vite";
-import { fileHasKind, findFilesByKind, findFirstFileByKind } from "./file-matcher.js";
+import { fileHasKind, findFirstFileByKind } from "./file-matcher.js";
 import { toPosixPath } from "./path-utils.js";
+import { loadServicesForEnv } from "./services.js";
 import type { ComponentRef, ServiceFactory, ServiceResult } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -63,7 +62,7 @@ let nextEnvPort = DEFAULT_ENV_PORT;
 let signalHandlersInstalled = false;
 type TestWatcherState = {
   envName: string;
-  process?: ChildProcess;
+  controller?: AbortController;
   output: string;
   status: "idle" | "running" | "exited";
   exitCode?: number;
@@ -86,7 +85,13 @@ export const createPreviewService: ServiceFactory = (config) => ({
       };
     }
 
-    const central = await ensureCoordinator(serviceConfig, context.workspaceRoot, context.envName, context.components);
+    const central = await ensureCoordinator(
+      serviceConfig,
+      context.workspaceRoot,
+      context.envName,
+      context.components,
+      context.envServices
+    );
     const port = nextPreviewPort();
     const host = serviceConfig.host ?? DEFAULT_HOST;
     const base = `/env/${encodeURIComponent(context.envName)}/`;
@@ -173,10 +178,11 @@ async function ensureCoordinator(
   config: PreviewServiceConfig,
   workspaceRoot: string,
   envName: string,
-  components: ComponentRef[]
+  components: ComponentRef[],
+  envServices: Record<string, unknown>
 ): Promise<PreviewCoordinator> {
   if (coordinator) {
-    if (config.start) await startTestWatcher(workspaceRoot, envName, components);
+    if (config.start) await startTestWatcher(workspaceRoot, envName, components, envServices);
     return coordinator;
   }
   const host = config.centralHost ?? config.host ?? DEFAULT_HOST;
@@ -196,7 +202,7 @@ async function ensureCoordinator(
     url: `http://${host}:${port}/`,
     envs: new Map(),
   };
-  if (config.start) await startTestWatcher(workspaceRoot, envName, components);
+  if (config.start) await startTestWatcher(workspaceRoot, envName, components, envServices);
   return coordinator;
 }
 
@@ -373,7 +379,7 @@ function installSignalHandlers() {
       await server.close();
     }
     for (const watcher of testWatchers.values()) {
-      watcher.process?.kill();
+      watcher.controller?.abort();
     }
     await new Promise<void>((resolve) => coordinator?.server.close(() => resolve()) ?? resolve());
     console.log("start stopped");
@@ -382,42 +388,48 @@ function installSignalHandlers() {
   process.on("SIGTERM", close);
 }
 
-async function startTestWatcher(workspaceRoot: string, envName: string, components: ComponentRef[]) {
-  if (testWatchers.get(envName)?.process) return;
-  const vitestPath = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
-  const testFiles = await findTestFiles(components);
+async function startTestWatcher(
+  workspaceRoot: string,
+  envName: string,
+  components: ComponentRef[],
+  envServices: Record<string, unknown>
+) {
+  if (testWatchers.get(envName)?.status === "running") return;
+  const services = await loadServicesForEnv(workspaceRoot, envServices);
+  const runnable = services.find(({ serviceRef, service }) => serviceRef === "test" || service.name === "test");
   const state: TestWatcherState = {
     envName,
-    status: testFiles.length > 0 ? "running" : "idle",
-    output:
-      testFiles.length > 0
-        ? `Starting tests for ${envName}...`
-        : `No test files found for ${envName}.`,
+    status: runnable ? "running" : "idle",
+    output: runnable ? `Starting tests for ${envName}...` : `No test service configured for ${envName}.`,
   };
   testWatchers.set(envName, state);
-  if (testFiles.length === 0) return;
-  state.process = spawn(process.execPath, [vitestPath, "--watch", ...testFiles], {
-    cwd: workspaceRoot,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  state.process.stdout?.on("data", (chunk) => appendTestOutput(state, String(chunk)));
-  state.process.stderr?.on("data", (chunk) => appendTestOutput(state, String(chunk)));
-  state.process.on("exit", (code) => {
-    state.status = "exited";
-    if (code !== null) state.exitCode = code;
-    appendTestOutput(state, `\nTest watcher for ${envName} exited with code ${code ?? 1}.\n`);
-  });
-}
-
-async function findTestFiles(components: ComponentRef[]) {
-  const files = await Promise.all(
-    components.map(async (component) => {
-      const testFiles = await findFilesByKind(component.rootDir, "test");
-      const specFiles = await findFilesByKind(component.rootDir, "spec");
-      return [...testFiles, ...specFiles];
+  if (!runnable) return;
+  const controller = new AbortController();
+  state.controller = controller;
+  void runnable.service
+    .run({
+      workspaceRoot,
+      envName,
+      components,
+      serviceConfig: runnable.config,
+      envServices,
+      mode: "watch",
+      output: "capture",
+      signal: controller.signal,
+      reporter: {
+        output: (chunk) => appendTestOutput(state, chunk),
+      },
     })
-  );
-  return files.flat().sort();
+    .then((result) => {
+      state.status = "exited";
+      appendTestOutput(state, `\n${result.message ?? `Test watcher for ${envName} exited.`}\n`);
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      state.status = "exited";
+      state.exitCode = 1;
+      appendTestOutput(state, `\nTest watcher for ${envName} failed: ${message}\n`);
+    });
 }
 
 function appendTestOutput(state: TestWatcherState, chunk: string) {

@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
 import type { StdioOptions } from "node:child_process";
+import type { ServiceReporter } from "./types.js";
 
 export type RunCommandOptions = {
   cwd: string;
   args: string[];
   outputPrefix?: string;
   preserveOutputTty?: boolean;
+  reporter?: ServiceReporter;
   signal?: AbortSignal;
 };
 
@@ -13,16 +15,16 @@ export async function runNodeScript(scriptPath: string, options: RunCommandOptio
   return new Promise<number>((resolve) => {
     const stdio: StdioOptions = options.preserveOutputTty
       ? ["ignore", "inherit", "inherit"]
-      : options.outputPrefix
+      : options.reporter || options.outputPrefix
         ? ["ignore", "pipe", "pipe"]
         : "inherit";
     const child = spawn(process.execPath, [scriptPath, ...options.args], {
       cwd: options.cwd,
       stdio,
     });
-    if (options.outputPrefix && !options.preserveOutputTty) {
-      child.stdout?.on("data", (chunk) => writePrefixed(process.stdout, options.outputPrefix ?? "", String(chunk)));
-      child.stderr?.on("data", (chunk) => writePrefixed(process.stderr, options.outputPrefix ?? "", String(chunk)));
+    if (!options.preserveOutputTty) {
+      child.stdout?.on("data", (chunk) => writeOutput(process.stdout, options, String(chunk)));
+      child.stderr?.on("data", (chunk) => writeOutput(process.stderr, options, String(chunk)));
     }
     const abort = () => child.kill();
     if (options.signal?.aborted) abort();
@@ -32,6 +34,14 @@ export async function runNodeScript(scriptPath: string, options: RunCommandOptio
       resolve(options.signal?.aborted ? 0 : code ?? 1);
     });
   });
+}
+
+function writeOutput(stream: NodeJS.WriteStream, options: RunCommandOptions, chunk: string) {
+  if (options.reporter) {
+    options.reporter.output(chunk);
+  } else if (options.outputPrefix) {
+    writePrefixed(stream, options.outputPrefix, chunk);
+  }
 }
 
 function writePrefixed(stream: NodeJS.WriteStream, prefix: string, value: string) {

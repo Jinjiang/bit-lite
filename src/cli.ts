@@ -2,7 +2,6 @@ import path from "node:path";
 import { BitLiteError } from "./errors.js";
 import { matchPattern } from "./patterns.js";
 import { runService } from "./runtime.js";
-import { loadServicesForEnv } from "./services.js";
 import { loadWorkspace } from "./workspace.js";
 import type { ServiceResult, WorkspaceRuntime } from "./types.js";
 
@@ -30,14 +29,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
       }
       case "run": {
         if (!parsed.serviceName) throw new BitLiteError("run requires a service name");
-        if (parsed.serviceName === "test" && parsed.watch) {
-          const results = await runTestWatch(workspace);
-          printServiceResults("test", results);
-          return results.every(({ result }) => result.ok) ? 0 : 1;
-        }
-        const results = await runService(workspace, parsed.serviceName);
-        printServiceResults(parsed.serviceName, results);
-        return results.every(({ result }) => result.ok) ? 0 : 1;
+        return runServiceCommand(workspace, parsed.serviceName, parsed.watch);
       }
       default:
         throw new BitLiteError(`unknown command "${parsed.command}"`);
@@ -149,56 +141,35 @@ type PrintableServiceResult = {
   result: ServiceResult;
 };
 
-async function runTestWatch(workspace: WorkspaceRuntime) {
-  const runnableGroups = [];
-  for (const group of workspace.groups) {
-    const services = await loadServicesForEnv(workspace.workspaceRoot, group.env.services);
-    const runnable = services.find(({ serviceRef, service }) => serviceRef === "test" || service.name === "test");
-    if (!runnable) continue;
-    runnableGroups.push({ group, runnable });
+async function runServiceCommand(workspace: WorkspaceRuntime, serviceName: string, watch: boolean) {
+  if (!watch) {
+    const results = await runService(workspace, serviceName);
+    printServiceResults(serviceName, results);
+    return results.every(({ result }) => result.ok) ? 0 : 1;
   }
-
-  if (runnableGroups.length === 0) {
-    throw new BitLiteError('service "test" is not configured for any discovered env');
-  }
-
-  console.log(`watching tests for ${runnableGroups.map(({ group }) => group.envName).join(", ")}`);
+  console.log(`watching ${serviceName}`);
   console.log("press q to quit");
   const controller = new AbortController();
-  const cleanupControls = installWatchControls(controller);
+  const cleanupControls = installWatchControls(controller, serviceName);
   try {
-    return await Promise.all(
-      runnableGroups.map(async ({ group, runnable }) => {
-        console.log(`[${group.envName}] starting test watcher`);
-        const result = await runnable.service.run({
-          workspaceRoot: workspace.workspaceRoot,
-          envName: group.envName,
-          components: group.components,
-          serviceConfig: {
-            ...readObjectConfig(runnable.config),
-            watch: true,
-            signal: controller.signal,
-          },
-        });
-        console.log(`[${group.envName}] test watcher exited`);
-        return {
-          envName: group.envName,
-          serviceName: runnable.service.name,
-          result,
-        };
-      })
-    );
+    const results = await runService(workspace, serviceName, {
+      mode: "watch",
+      output: "inherit",
+      signal: controller.signal,
+    });
+    printServiceResults(serviceName, results);
+    return results.every(({ result }) => result.ok) ? 0 : 1;
   } finally {
     cleanupControls();
   }
 }
 
-function installWatchControls(controller: AbortController) {
+function installWatchControls(controller: AbortController, serviceName: string) {
   let stopped = false;
   const stop = () => {
     if (stopped) return;
     stopped = true;
-    console.log("\nstopping test watchers");
+    console.log(`\nstopping ${serviceName} watchers`);
     controller.abort();
   };
   const onData = (chunk: Buffer) => {

@@ -50,14 +50,21 @@ export const builtinServices: Record<string, ServiceFactory> = {
         ...readObjectConfig(config),
         ...readObjectConfig(context.serviceConfig),
       };
-      const args = await readTestArgs(serviceConfig, context.components);
+      const testFiles = await findTestFiles(context.components);
+      if (testFiles.length === 0) {
+        const message = `no test files found for ${context.envName}`;
+        context.reporter.output(`${message}\n`);
+        return { ok: true, message };
+      }
+      const args = readTestArgs(serviceConfig, context.mode, testFiles);
       const vitestPath = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
       const runOptions = {
         cwd: context.workspaceRoot,
         args,
         ...(typeof serviceConfig.outputPrefix === "string" ? { outputPrefix: serviceConfig.outputPrefix } : {}),
-        ...(serviceConfig.watch === true ? { preserveOutputTty: true } : {}),
-        ...(serviceConfig.signal instanceof AbortSignal ? { signal: serviceConfig.signal } : {}),
+        ...(context.mode === "watch" && context.output === "inherit" ? { preserveOutputTty: true } : {}),
+        ...(context.output === "capture" ? { reporter: context.reporter } : {}),
+        signal: context.signal,
       };
       const exitCode = await runNodeScript(vitestPath, runOptions);
       return {
@@ -83,10 +90,9 @@ function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 
-async function readTestArgs(config: Record<string, unknown>, components: Array<{ rootDir: string }>) {
+function readTestArgs(config: Record<string, unknown>, mode: "run" | "watch", testFiles: string[]) {
   const configuredArgs = Array.isArray(config.args) ? config.args.filter(isString) : [];
-  const testFiles = await findTestFiles(components);
-  const modeArgs = config.watch === true ? ["watch"] : configuredArgs.length ? configuredArgs : ["run"];
+  const modeArgs = mode === "watch" ? ["watch"] : configuredArgs.length ? configuredArgs : ["run"];
   return [...modeArgs, ...testFiles];
 }
 
