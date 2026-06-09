@@ -47,13 +47,20 @@ export const builtinServices: Record<string, ServiceFactory> = {
   test: (config) => ({
     name: "test",
     async run(context) {
-      const serviceConfig = readObjectConfig(config);
+      const serviceConfig = {
+        ...readObjectConfig(config),
+        ...readObjectConfig(context.serviceConfig),
+      };
       const args = await readTestArgs(serviceConfig, context.components);
       const vitestPath = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
-      const exitCode = await runNodeScript(vitestPath, {
+      const runOptions = {
         cwd: context.workspaceRoot,
         args,
-      });
+        ...(typeof serviceConfig.outputPrefix === "string" ? { outputPrefix: serviceConfig.outputPrefix } : {}),
+        ...(serviceConfig.watch === true ? { preserveOutputTty: true } : {}),
+        ...(serviceConfig.signal instanceof AbortSignal ? { signal: serviceConfig.signal } : {}),
+      };
+      const exitCode = await runNodeScript(vitestPath, runOptions);
       return {
         ok: exitCode === 0,
         message: exitCode === 0 ? `tests passed for ${context.envName}` : `tests failed for ${context.envName}`,
@@ -80,8 +87,8 @@ function isString(value: unknown): value is string {
 async function readTestArgs(config: Record<string, unknown>, components: Array<{ rootDir: string }>) {
   const configuredArgs = Array.isArray(config.args) ? config.args.filter(isString) : [];
   const testFiles = await findTestFiles(components);
-  const modeArgs = config.watch === true ? ["--watch"] : ["run"];
-  return [...(configuredArgs.length ? configuredArgs : modeArgs), ...testFiles];
+  const modeArgs = config.watch === true ? ["watch"] : configuredArgs.length ? configuredArgs : ["run"];
+  return [...modeArgs, ...testFiles];
 }
 
 async function findTestFiles(components: Array<{ rootDir: string }>) {

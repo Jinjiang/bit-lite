@@ -2,8 +2,9 @@ import path from "node:path";
 import { BitLiteError } from "./errors.js";
 import { matchPattern } from "./patterns.js";
 import { runService } from "./runtime.js";
+import { loadServicesForEnv } from "./services.js";
 import { loadWorkspace } from "./workspace.js";
-import type { WorkspaceRuntime } from "./types.js";
+import type { ServiceResult, WorkspaceRuntime } from "./types.js";
 
 export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   const parsed = parseArgs(argv);
@@ -29,9 +30,12 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
       }
       case "run": {
         if (!parsed.serviceName) throw new BitLiteError("run requires a service name");
-        const serviceWorkspace =
-          parsed.serviceName === "test" && parsed.watch ? overrideServiceConfig(workspace, "test", { watch: true }) : workspace;
-        const results = await runService(serviceWorkspace, parsed.serviceName);
+        if (parsed.serviceName === "test" && parsed.watch) {
+          const results = await runTestWatch(workspace);
+          printServiceResults("test", results);
+          return results.every(({ result }) => result.ok) ? 0 : 1;
+        }
+        const results = await runService(workspace, parsed.serviceName);
         printServiceResults(parsed.serviceName, results);
         return results.every(({ result }) => result.ok) ? 0 : 1;
       }
@@ -140,7 +144,84 @@ function overrideServiceConfig(workspace: WorkspaceRuntime, serviceName: string,
   };
 }
 
-function printServiceResults(serviceName: string, results: Awaited<ReturnType<typeof runService>>) {
+type PrintableServiceResult = {
+  envName: string;
+  result: ServiceResult;
+};
+
+async function runTestWatch(workspace: WorkspaceRuntime) {
+  const runnableGroups = [];
+  for (const group of workspace.groups) {
+    const services = await loadServicesForEnv(workspace.workspaceRoot, group.env.services);
+    const runnable = services.find(({ serviceRef, service }) => serviceRef === "test" || service.name === "test");
+    if (!runnable) continue;
+    runnableGroups.push({ group, runnable });
+  }
+
+  if (runnableGroups.length === 0) {
+    throw new BitLiteError('service "test" is not configured for any discovered env');
+  }
+
+  console.log(`watching tests for ${runnableGroups.map(({ group }) => group.envName).join(", ")}`);
+  console.log("press q to quit");
+  const controller = new AbortController();
+  const cleanupControls = installWatchControls(controller);
+  try {
+    return await Promise.all(
+      runnableGroups.map(async ({ group, runnable }) => {
+        console.log(`[${group.envName}] starting test watcher`);
+        const result = await runnable.service.run({
+          workspaceRoot: workspace.workspaceRoot,
+          envName: group.envName,
+          components: group.components,
+          serviceConfig: {
+            ...readObjectConfig(runnable.config),
+            watch: true,
+            signal: controller.signal,
+          },
+        });
+        console.log(`[${group.envName}] test watcher exited`);
+        return {
+          envName: group.envName,
+          serviceName: runnable.service.name,
+          result,
+        };
+      })
+    );
+  } finally {
+    cleanupControls();
+  }
+}
+
+function installWatchControls(controller: AbortController) {
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    console.log("\nstopping test watchers");
+    controller.abort();
+  };
+  const onData = (chunk: Buffer) => {
+    const value = chunk.toString("utf8");
+    if (value.includes("q") || value.includes("\u0003")) stop();
+  };
+  const onSigint = () => stop();
+
+  process.on("SIGINT", onSigint);
+  process.stdin.on("data", onData);
+  process.stdin.resume();
+  const wasRaw = process.stdin.isTTY ? process.stdin.isRaw : false;
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
+
+  return () => {
+    process.off("SIGINT", onSigint);
+    process.stdin.off("data", onData);
+    if (process.stdin.isTTY) process.stdin.setRawMode(wasRaw);
+    process.stdin.pause();
+  };
+}
+
+function printServiceResults(serviceName: string, results: PrintableServiceResult[]) {
   results.forEach(({ envName, result }) => {
     if (result.message) console.log(result.message);
     console.log(`${result.ok ? "ok" : "failed"} ${serviceName} (${envName})`);
