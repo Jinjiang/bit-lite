@@ -29,7 +29,6 @@ export const builtinServices: Record<string, ServiceFactory> = {
   }),
   typescript: (config) => ({
     name: "typescript",
-    scope: "workspace",
     async run(context) {
       const serviceConfig = readObjectConfig(config);
       const tsconfig = typeof serviceConfig.tsconfig === "string" ? serviceConfig.tsconfig : "tsconfig.json";
@@ -40,7 +39,7 @@ export const builtinServices: Record<string, ServiceFactory> = {
       });
       return {
         ok: exitCode === 0,
-        message: exitCode === 0 ? "typescript passed" : "typescript failed",
+        message: exitCode === 0 ? `typescript passed for ${context.envName}` : `typescript failed for ${context.envName}`,
       };
     },
   }),
