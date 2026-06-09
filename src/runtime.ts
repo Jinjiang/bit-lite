@@ -22,6 +22,23 @@ export async function runService(workspace: WorkspaceRuntime, serviceName: strin
     throw new BitLiteError(`service "${serviceName}" is not configured for any discovered env`);
   }
 
+  const workspaceRunnable = runnableGroups.find(({ runnable }) => runnable.service.scope === "workspace");
+  if (workspaceRunnable) {
+    const result = await workspaceRunnable.runnable.service.run({
+      workspaceRoot: workspace.workspaceRoot,
+      envName: "workspace",
+      components: workspace.components,
+      serviceConfig: workspaceRunnable.runnable.config,
+    });
+    return [
+      {
+        envName: "workspace",
+        serviceName: workspaceRunnable.runnable.service.name,
+        result,
+      },
+    ];
+  }
+
   const results: ServiceRunResult[] = [];
 
   for (const { group, runnable } of runnableGroups) {

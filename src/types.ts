@@ -17,6 +17,7 @@ export type ServiceContext = {
 
 export type BitLiteService = {
   name: string;
+  scope?: "env" | "workspace";
   run(context: ServiceContext): Promise<ServiceResult>;
 };
 

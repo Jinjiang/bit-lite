@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import path from "node:path";
+import { findFilesByKind } from "./file-matcher.js";
 import type { BitLiteService, ServiceFactory } from "./types.js";
 import { runNodeScript } from "./process.js";
 import { createPreviewService } from "./preview.js";
@@ -28,6 +29,7 @@ export const builtinServices: Record<string, ServiceFactory> = {
   }),
   typescript: (config) => ({
     name: "typescript",
+    scope: "workspace",
     async run(context) {
       const serviceConfig = readObjectConfig(config);
       const tsconfig = typeof serviceConfig.tsconfig === "string" ? serviceConfig.tsconfig : "tsconfig.json";
@@ -38,7 +40,7 @@ export const builtinServices: Record<string, ServiceFactory> = {
       });
       return {
         ok: exitCode === 0,
-        message: exitCode === 0 ? `typescript passed for ${context.envName}` : `typescript failed for ${context.envName}`,
+        message: exitCode === 0 ? "typescript passed" : "typescript failed",
       };
     },
   }),
@@ -46,7 +48,7 @@ export const builtinServices: Record<string, ServiceFactory> = {
     name: "test",
     async run(context) {
       const serviceConfig = readObjectConfig(config);
-      const args = readTestArgs(serviceConfig);
+      const args = await readTestArgs(serviceConfig, context.components);
       const vitestPath = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
       const exitCode = await runNodeScript(vitestPath, {
         cwd: context.workspaceRoot,
@@ -75,7 +77,20 @@ function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 
-function readTestArgs(config: Record<string, unknown>) {
-  if (config.watch === true) return ["--watch"];
-  return Array.isArray(config.args) ? config.args.filter(isString) : ["run"];
+async function readTestArgs(config: Record<string, unknown>, components: Array<{ rootDir: string }>) {
+  const configuredArgs = Array.isArray(config.args) ? config.args.filter(isString) : [];
+  const testFiles = await findTestFiles(components);
+  const modeArgs = config.watch === true ? ["--watch"] : ["run"];
+  return [...(configuredArgs.length ? configuredArgs : modeArgs), ...testFiles];
+}
+
+async function findTestFiles(components: Array<{ rootDir: string }>) {
+  const files = await Promise.all(
+    components.map(async (component) => {
+      const testFiles = await findFilesByKind(component.rootDir, "test");
+      const specFiles = await findFilesByKind(component.rootDir, "spec");
+      return [...testFiles, ...specFiles];
+    })
+  );
+  return files.flat().sort();
 }
