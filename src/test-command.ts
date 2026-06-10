@@ -1,20 +1,10 @@
 import { BitLiteError } from "./errors.js";
-import { createServiceHost } from "./runtime.js";
-import { loadServicesForEnv } from "./services.js";
+import { runService } from "./runtime.js";
 import type {
-  ComponentRef,
   ServiceCommandHandler,
-  ServiceEvent,
-  ServiceOutputMode,
   ServiceRunResult,
   WorkspaceRuntime,
 } from "./types.js";
-
-type TestRunnableGroup = {
-  envName: string;
-  components: ComponentRef[];
-  runnable: Awaited<ReturnType<typeof loadServicesForEnv>>[number];
-};
 
 export type TestWatchEvent =
   | {
@@ -30,7 +20,8 @@ export type TestWatchEvent =
   | {
       type: "service-event";
       envName: string;
-      event: ServiceEvent;
+      eventType: string;
+      payload: unknown;
     }
   | {
       type: "exit";
@@ -44,7 +35,6 @@ export type TestWatchEvent =
     };
 
 export type TestWatchOptions = {
-  outputMode: ServiceOutputMode;
   signal: AbortSignal;
   onEvent?: (event: TestWatchEvent) => void;
 };
@@ -58,22 +48,27 @@ export const testCommandHandler: ServiceCommandHandler = {
 };
 
 export function runTestOnce(workspace: WorkspaceRuntime): Promise<ServiceRunResult[]> {
-  return runServiceLikeTest(workspace, {
-    watch: false,
-    outputMode: "inherit",
+  return runService(workspace, "test", {
+    args: { watch: false },
+    execution: "parallel",
+    onEvent: writeServiceEventToConsole,
   });
 }
 
 export async function runTestWatch(workspace: WorkspaceRuntime): Promise<ServiceRunResult[]> {
-  const runnableGroups = await findTestRunnableGroups(workspace);
-  console.log(`watching tests for ${runnableGroups.map((group) => group.envName).join(", ")}`);
-  console.log("press q to quit");
   const controller = new AbortController();
+  const envNames = workspace.groups.map((group) => group.envName).sort();
+  console.log(`watching tests for ${envNames.join(", ")}`);
+  console.log("press q to quit");
   const cleanupControls = installWatchControls(controller);
   try {
-    return await startTestWatchersForGroups(workspace, runnableGroups, {
-      outputMode: "inherit",
+    return await startTestWatchers(workspace, {
       signal: controller.signal,
+      onEvent: (event) => {
+        if (event.type === "output") {
+          writeOutputPayload(event.stream, event.chunk);
+        }
+      },
     });
   } finally {
     cleanupControls();
@@ -84,94 +79,28 @@ export async function startTestWatchers(
   workspace: WorkspaceRuntime,
   options: TestWatchOptions
 ): Promise<ServiceRunResult[]> {
-  const runnableGroups = await findTestRunnableGroups(workspace);
-  return startTestWatchersForGroups(workspace, runnableGroups, options);
-}
-
-function startTestWatchersForGroups(
-  workspace: WorkspaceRuntime,
-  runnableGroups: TestRunnableGroup[],
-  options: TestWatchOptions
-): Promise<ServiceRunResult[]> {
-  return Promise.all(runnableGroups.map((group) => runTestService(workspace, group, { ...options, watch: true })));
-}
-
-async function runServiceLikeTest(
-  workspace: WorkspaceRuntime,
-  options: {
-    watch: boolean;
-    outputMode: ServiceOutputMode;
-    signal?: AbortSignal;
-    onEvent?: (event: TestWatchEvent) => void;
-  }
-): Promise<ServiceRunResult[]> {
-  const runnableGroups = await findTestRunnableGroups(workspace);
-  return Promise.all(runnableGroups.map((group) => runTestService(workspace, group, options)));
-}
-
-async function findTestRunnableGroups(workspace: WorkspaceRuntime): Promise<TestRunnableGroup[]> {
-  const runnableGroups: TestRunnableGroup[] = [];
-  for (const group of workspace.groups) {
-    const services = await loadServicesForEnv(workspace.workspaceRoot, group.env.services);
-    const runnable = services.find(({ serviceRef, service }) => serviceRef === "test" || service.name === "test");
-    if (!runnable) continue;
-    runnableGroups.push({
-      envName: group.envName,
-      components: group.components,
-      runnable,
-    });
-  }
-  if (runnableGroups.length === 0) {
-    throw new BitLiteError('service "test" is not configured for any discovered env');
-  }
-  return runnableGroups;
-}
-
-async function runTestService(
-  workspace: WorkspaceRuntime,
-  group: TestRunnableGroup,
-  options: {
-    watch: boolean;
-    outputMode: ServiceOutputMode;
-    signal?: AbortSignal;
-    onEvent?: (event: TestWatchEvent) => void;
-  }
-): Promise<ServiceRunResult> {
-  options.onEvent?.({ type: "start", envName: group.envName });
+  workspace.groups.forEach((group) => options.onEvent?.({ type: "start", envName: group.envName }));
   try {
-    const result = await group.runnable.service.run({
-      workspaceRoot: workspace.workspaceRoot,
-      envName: group.envName,
-      components: group.components,
-      serviceConfig: {
-        ...readObjectConfig(group.runnable.config),
-        ...(options.watch ? { watch: true } : {}),
+    const results = await runService(workspace, "test", {
+      args: { watch: true },
+      execution: "parallel",
+      signal: options.signal,
+      onEvent: (type, payload, context) => {
+        options.onEvent?.({ type: "service-event", envName: context.envName, eventType: type, payload });
+        if (type === "output" && isOutputPayload(payload)) {
+          options.onEvent?.({
+            type: "output",
+            envName: context.envName,
+            stream: payload.stream,
+            chunk: payload.chunk,
+          });
+        }
       },
-      host: createServiceHost({
-        ...(options.signal ? { signal: options.signal } : {}),
-        outputMode: options.outputMode,
-        onEvent: (event) => {
-          options.onEvent?.({ type: "service-event", envName: group.envName, event });
-          if (event.type === "output") {
-            options.onEvent?.({
-              type: "output",
-              envName: group.envName,
-              stream: event.stream,
-              chunk: event.chunk,
-            });
-          }
-        },
-      }),
     });
-    const runResult = {
-      envName: group.envName,
-      serviceName: group.runnable.service.name,
-      result,
-    };
-    options.onEvent?.({ type: "exit", envName: group.envName, result: runResult });
-    return runResult;
+    results.forEach((result) => options.onEvent?.({ type: "exit", envName: result.envName, result }));
+    return results;
   } catch (error) {
-    options.onEvent?.({ type: "error", envName: group.envName, error });
+    workspace.groups.forEach((group) => options.onEvent?.({ type: "error", envName: group.envName, error }));
     throw error;
   }
 }
@@ -216,7 +145,19 @@ function parseTestCommandArgs(args: string[]) {
   return { watch };
 }
 
-function readObjectConfig(config: unknown): Record<string, unknown> {
-  if (typeof config === "object" && config !== null && !Array.isArray(config)) return config as Record<string, unknown>;
-  return {};
+function writeServiceEventToConsole(type: string, payload: unknown) {
+  if (type === "output" && isOutputPayload(payload)) {
+    writeOutputPayload(payload.stream, payload.chunk);
+  }
+}
+
+function writeOutputPayload(stream: "stdout" | "stderr", chunk: string) {
+  const target = stream === "stderr" ? process.stderr : process.stdout;
+  target.write(chunk);
+}
+
+function isOutputPayload(value: unknown): value is { stream: "stdout" | "stderr"; chunk: string } {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as { stream?: unknown; chunk?: unknown };
+  return (candidate.stream === "stdout" || candidate.stream === "stderr") && typeof candidate.chunk === "string";
 }

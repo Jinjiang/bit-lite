@@ -5,28 +5,28 @@ import { BitLiteError } from "./errors.js";
 import { isLocalModuleRef } from "./path-utils.js";
 import type { BitLiteService, ServiceFactory } from "./types.js";
 
-export async function loadService(workspaceRoot: string, serviceRef: string, config: unknown): Promise<BitLiteService> {
+export async function loadService(workspaceRoot: string, serviceRef: string): Promise<BitLiteService> {
   const builtin = builtinServiceDefinitions[serviceRef];
-  if (builtin) return builtin.factory(config);
+  if (builtin) return builtin.factory();
 
   const mod = await importServiceModule(workspaceRoot, serviceRef);
   const createService = mod.createService;
   if (typeof createService === "function") {
-    return validateService(createService(config), serviceRef);
+    return validateService(createService(), serviceRef);
   }
   if (typeof mod.default === "function") {
-    return validateService((mod.default as ServiceFactory)(config), serviceRef);
+    return validateService((mod.default as ServiceFactory)(), serviceRef);
   }
   if (isBitLiteService(mod.default)) {
     return mod.default;
   }
-  throw new BitLiteError(`service "${serviceRef}" must export createService(config) or a default BitLiteService`);
+  throw new BitLiteError(`service "${serviceRef}" must export createService() or a default BitLiteService`);
 }
 
 export async function loadServicesForEnv(workspaceRoot: string, services: Record<string, unknown>) {
   const entries = await Promise.all(
     Object.entries(services).map(async ([serviceRef, config]) => {
-      const service = await loadService(workspaceRoot, serviceRef, config);
+      const service = await loadService(workspaceRoot, serviceRef);
       return {
         serviceRef,
         config,

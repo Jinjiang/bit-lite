@@ -4,6 +4,7 @@ import { findFilesByKind } from "./file-matcher.js";
 import type { BitLiteService, ServiceDefinition, ServiceFactory } from "./types.js";
 import { runNodeScript } from "./process.js";
 import { createPreviewService } from "./preview.js";
+import { createServiceTask } from "./runtime.js";
 import { testCommandHandler } from "./test-command.js";
 
 const require = createRequire(import.meta.url);
@@ -13,95 +14,88 @@ export const builtinServiceDefinitions: Record<string, ServiceDefinition> = {
     factory: createPreviewService,
   },
   inspect: {
-    factory: (config) => ({
+    factory: () => ({
       name: "inspect",
-      async run(context) {
-        return {
+      run(input, context) {
+        return createServiceTask(async () => ({
           ok: true,
           message: JSON.stringify(
             {
-              workspaceRoot: context.workspaceRoot,
-              envName: context.envName,
-              serviceConfig: config,
-              components: context.components,
+              workspaceRoot: context?.workspaceRoot,
+              envName: context?.envName,
+              serviceConfig: input.config,
+              components: input.components,
             },
             null,
             2
           ),
-        };
+        }));
       },
     }),
   },
   typescript: {
-    factory: (config) => ({
+    factory: () => ({
       name: "typescript",
-      async run(context) {
-        const serviceConfig = readObjectConfig(config);
-        const tsconfig = typeof serviceConfig.tsconfig === "string" ? serviceConfig.tsconfig : "tsconfig.json";
-        const tscPath = require.resolve("typescript/bin/tsc");
-        const exitCode = await runNodeScript(tscPath, {
-          cwd: context.workspaceRoot,
-          args: ["-p", path.resolve(context.workspaceRoot, tsconfig)],
-          ...(context.host.outputMode === "capture"
-            ? {
-                onOutput: (stream: "stdout" | "stderr", chunk: string) =>
-                  context.host.emit({ type: "output", stream, chunk }),
-              }
-            : {}),
-          signal: context.host.signal,
+      run(input, context) {
+        return createServiceTask(async ({ signal, emit }) => {
+          const workspaceRoot = requireWorkspaceRoot(context);
+          const serviceConfig = readObjectConfig(input.config);
+          const tsconfig = typeof serviceConfig.tsconfig === "string" ? serviceConfig.tsconfig : "tsconfig.json";
+          const tscPath = require.resolve("typescript/bin/tsc");
+          const exitCode = await runNodeScript(tscPath, {
+            cwd: workspaceRoot,
+            args: ["-p", path.resolve(workspaceRoot, tsconfig)],
+            onOutput: (stream, chunk) => emit("output", { stream, chunk }),
+            signal,
+          });
+          return {
+            ok: exitCode === 0,
+            message: exitCode === 0 ? `typescript passed for ${context?.envName}` : `typescript failed for ${context?.envName}`,
+          };
         });
-        return {
-          ok: exitCode === 0,
-          message: exitCode === 0 ? `typescript passed for ${context.envName}` : `typescript failed for ${context.envName}`,
-        };
       },
     }),
   },
   test: {
-    factory: (config) => ({
+    factory: () => ({
       name: "test",
-      async run(context) {
-        const serviceConfig = {
-          ...readObjectConfig(config),
-          ...readObjectConfig(context.serviceConfig),
-        };
-        const testFiles = await findTestFiles(context.components);
-        if (testFiles.length === 0) {
-          const message = `no test files found for ${context.envName}`;
-          context.host.emit({ type: "output", stream: "stdout", chunk: `${message}\n` });
-          return { ok: true, message };
-        }
-        const watch = serviceConfig.watch === true;
-        const args = readTestArgs(serviceConfig, watch, testFiles);
-        const vitestPath = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
-        const runOptions = {
-          cwd: context.workspaceRoot,
-          args,
-          ...(typeof serviceConfig.outputPrefix === "string" ? { outputPrefix: serviceConfig.outputPrefix } : {}),
-          ...(watch && context.host.outputMode === "inherit" ? { preserveOutputTty: true } : {}),
-          ...(context.host.outputMode === "capture"
-            ? {
-                onOutput: (stream: "stdout" | "stderr", chunk: string) =>
-                  context.host.emit({ type: "output", stream, chunk }),
-              }
-            : {}),
-          signal: context.host.signal,
-        };
-        context.host.emit({
-          type: "status",
-          status: "running",
-          message: watch ? `watching tests for ${context.envName}` : `running tests for ${context.envName}`,
+      run(input, context) {
+        return createServiceTask(async ({ signal, emit }) => {
+          const workspaceRoot = requireWorkspaceRoot(context);
+          const serviceConfig = readObjectConfig(input.config);
+          const serviceArgs = readObjectConfig(input.args);
+          const testFiles = await findTestFiles(input.components);
+          if (testFiles.length === 0) {
+            const message = `no test files found for ${context?.envName}`;
+            emit("output", { stream: "stdout", chunk: `${message}\n` });
+            emit("result", { ok: true, message });
+            return { ok: true, message };
+          }
+          const watch = serviceArgs.watch === true;
+          const args = readTestArgs(serviceConfig, watch, testFiles);
+          const vitestPath = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
+          emit("status", {
+            status: "running",
+            message: watch ? `watching tests for ${context?.envName}` : `running tests for ${context?.envName}`,
+          });
+          const exitCode = await runNodeScript(vitestPath, {
+            cwd: workspaceRoot,
+            args,
+            ...(typeof serviceConfig.outputPrefix === "string" ? { outputPrefix: serviceConfig.outputPrefix } : {}),
+            onOutput: (stream, chunk) => emit("output", { stream, chunk }),
+            signal,
+          });
+          const result = {
+            ok: exitCode === 0,
+            message: exitCode === 0 ? `tests passed for ${context?.envName}` : `tests failed for ${context?.envName}`,
+          };
+          emit("status", {
+            status: result.ok ? "passed" : "failed",
+            message: result.message,
+          });
+          emit("result", result);
+          return result;
         });
-        const exitCode = await runNodeScript(vitestPath, runOptions);
-        context.host.emit({
-          type: "status",
-          status: exitCode === 0 ? "passed" : "failed",
-          message: exitCode === 0 ? `tests passed for ${context.envName}` : `tests failed for ${context.envName}`,
-        });
-        return {
-          ok: exitCode === 0,
-          message: exitCode === 0 ? `tests passed for ${context.envName}` : `tests failed for ${context.envName}`,
-        };
       },
     }),
     command: testCommandHandler,
@@ -117,6 +111,11 @@ export function isBitLiteService(value: unknown): value is BitLiteService {
 function readObjectConfig(config: unknown): Record<string, unknown> {
   if (typeof config === "object" && config !== null && !Array.isArray(config)) return config as Record<string, unknown>;
   return {};
+}
+
+function requireWorkspaceRoot(context: { workspaceRoot?: string } | undefined) {
+  if (!context?.workspaceRoot) throw new Error("service requires workspaceRoot in context");
+  return context.workspaceRoot;
 }
 
 function isString(value: unknown): value is string {

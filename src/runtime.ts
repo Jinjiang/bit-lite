@@ -1,6 +1,6 @@
 import { BitLiteError } from "./errors.js";
 import { loadServicesForEnv } from "./services.js";
-import type { ServiceEvent, ServiceHost, ServiceOutputMode, ServiceRunResult, WorkspaceRuntime } from "./types.js";
+import type { ServiceEventListener, ServiceResult, ServiceRunResult, ServiceTask, WorkspaceRuntime } from "./types.js";
 
 export type ServiceRunEventContext = {
   envName: string;
@@ -9,9 +9,10 @@ export type ServiceRunEventContext = {
 };
 
 export type RunServiceOptions = {
+  args?: unknown | ((context: ServiceRunEventContext) => unknown);
   signal?: AbortSignal;
-  outputMode?: ServiceOutputMode;
-  onEvent?: (event: ServiceEvent, context: ServiceRunEventContext) => void;
+  execution?: "sequential" | "parallel";
+  onEvent?: (type: string, payload: unknown, context: ServiceRunEventContext) => void;
 };
 
 type RunnableGroup = {
@@ -19,19 +20,32 @@ type RunnableGroup = {
   runnable: Awaited<ReturnType<typeof loadServicesForEnv>>[number];
 };
 
-export function createServiceHost(
-  options: {
-    signal?: AbortSignal;
-    outputMode?: ServiceOutputMode;
-    onEvent?: (event: ServiceEvent) => void;
-  } = {}
-): ServiceHost {
-  const controller = options.signal ? undefined : new AbortController();
+export function createServiceTask<Result extends ServiceResult>(
+  run: (host: {
+    signal: AbortSignal;
+    emit(type: string, payload: unknown): void;
+  }) => Promise<Result>,
+  onCall?: (type: string, payload?: unknown) => void
+): ServiceTask<Result> {
+  const controller = new AbortController();
+  const listeners = new Set<ServiceEventListener>();
+  const emit = (type: string, payload: unknown) => {
+    for (const listener of listeners) {
+      listener(type, payload);
+    }
+  };
+  const result = Promise.resolve().then(() => run({ signal: controller.signal, emit }));
   return {
-    signal: options.signal ?? controller!.signal,
-    outputMode: options.outputMode ?? "inherit",
-    emit(event) {
-      options.onEvent?.(event);
+    result,
+    listen(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    abort() {
+      controller.abort();
+    },
+    call(type, payload) {
+      onCall?.(type, payload);
     },
   };
 }
@@ -54,29 +68,49 @@ export async function runService(
     throw new BitLiteError(`service "${serviceName}" is not configured for any discovered env`);
   }
 
-  const results: ServiceRunResult[] = [];
-  for (const { group, runnable } of runnableGroups) {
+  const runGroup = async ({ group, runnable }: RunnableGroup): Promise<ServiceRunResult> => {
     const eventContext = {
       envName: group.envName,
       serviceName: runnable.service.name,
       serviceRef: runnable.serviceRef,
     };
-    const result = await runnable.service.run({
-      workspaceRoot: workspace.workspaceRoot,
-      envName: group.envName,
-      components: group.components,
-      serviceConfig: runnable.config,
-      host: createServiceHost({
-        ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.outputMode ? { outputMode: options.outputMode } : {}),
-        onEvent: (event) => options.onEvent?.(event, eventContext),
-      }),
-    });
-    results.push({
-      envName: group.envName,
-      serviceName: runnable.service.name,
-      result,
-    });
+    const args = typeof options.args === "function" ? options.args(eventContext) : options.args;
+    const task = runnable.service.run(
+      {
+        components: group.components,
+        config: runnable.config,
+        args,
+      },
+      {
+        workspaceRoot: workspace.workspaceRoot,
+        envName: group.envName,
+        cwd: workspace.workspaceRoot,
+      }
+    );
+    const unsubscribe = task.listen((type, payload) => options.onEvent?.(type, payload, eventContext));
+    const abort = () => task.abort();
+    if (options.signal?.aborted) abort();
+    options.signal?.addEventListener("abort", abort, { once: true });
+    try {
+      const result = await task.result;
+      return {
+        envName: group.envName,
+        serviceName: runnable.service.name,
+        result,
+      };
+    } finally {
+      options.signal?.removeEventListener("abort", abort);
+      unsubscribe();
+    }
+  };
+
+  if (options.execution === "parallel") {
+    return Promise.all(runnableGroups.map(runGroup));
+  }
+
+  const results: ServiceRunResult[] = [];
+  for (const runnableGroup of runnableGroups) {
+    results.push(await runGroup(runnableGroup));
   }
   return results;
 }

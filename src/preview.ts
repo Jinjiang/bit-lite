@@ -10,7 +10,8 @@ import type { PluginOption, ViteDevServer } from "vite";
 import { fileHasKind, findFirstFileByKind } from "./file-matcher.js";
 import { toPosixPath } from "./path-utils.js";
 import { startTestWatchers } from "./test-command.js";
-import type { ComponentRef, ServiceFactory, ServiceResult, WorkspaceRuntime } from "./types.js";
+import { createServiceTask } from "./runtime.js";
+import type { ComponentRef, ServiceFactory, WorkspaceRuntime } from "./types.js";
 
 const require = createRequire(import.meta.url);
 
@@ -68,67 +69,67 @@ type TestWatcherState = {
 };
 const testWatchers = new Map<string, TestWatcherState>();
 
-export const createPreviewService: ServiceFactory = (config) => ({
+export const createPreviewService: ServiceFactory = () => ({
   name: "preview",
-  async run(context) {
-    const serviceConfig = {
-      ...readPreviewConfig(config),
-      ...readPreviewConfig(context.serviceConfig),
-    };
-    const framework = serviceConfig.framework ?? "html";
-    const entries = await discoverPreviewEntries(context.components, context.envName, framework, serviceConfig);
-    if (entries.length === 0) {
-      return {
-        ok: true,
-        message: `preview found no preview files for ${context.envName}`,
-      };
-    }
+  run(input, context) {
+    return createServiceTask(async ({ emit }) => {
+      const workspaceRoot = requireWorkspaceRoot(context);
+      const envName = context?.envName ?? "unknown";
+      const serviceConfig = readPreviewConfig(input.config);
+      const framework = serviceConfig.framework ?? "html";
+      const entries = await discoverPreviewEntries(input.components, envName, framework, serviceConfig);
+      if (entries.length === 0) {
+        return {
+          ok: true,
+          message: `preview found no preview files for ${envName}`,
+        };
+      }
 
-    const central = await ensureCoordinator(serviceConfig);
-    const port = nextPreviewPort();
-    const host = serviceConfig.host ?? DEFAULT_HOST;
-    const base = `/env/${encodeURIComponent(context.envName)}/`;
-    const appRoot = await generatePreviewApp(entries, base);
-    const plugins = await loadFrameworkPlugins(framework);
-    const server = await createViteServer({
-      root: appRoot,
-      base,
-      configFile: false,
-      clearScreen: false,
-      plugins,
-      server: {
+      const central = await ensureCoordinator(serviceConfig);
+      const port = nextPreviewPort();
+      const host = serviceConfig.host ?? DEFAULT_HOST;
+      const base = `/env/${encodeURIComponent(envName)}/`;
+      const appRoot = await generatePreviewApp(entries, base);
+      const plugins = await loadFrameworkPlugins(framework);
+      const server = await createViteServer({
+        root: appRoot,
+        base,
+        configFile: false,
+        clearScreen: false,
+        plugins,
+        server: {
+          host,
+          port,
+          strictPort: serviceConfig.strictPort ?? true,
+          fs: {
+            allow: [workspaceRoot, appRoot],
+          },
+        },
+      });
+
+      await server.listen();
+      viteServers.add(server);
+      const url = firstUrl(server) ?? `http://${host}:${port}${base}`;
+      central.envs.set(envName, {
+        envName,
+        framework,
         host,
         port,
-        strictPort: serviceConfig.strictPort ?? true,
-        fs: {
-          allow: [context.workspaceRoot, appRoot],
-        },
-      },
-    });
+        base,
+        url,
+        components: entries,
+      });
+      installSignalHandlers();
+      emit("status", {
+        status: "running",
+        message: `preview ${envName} running at ${url}`,
+      });
 
-    await server.listen();
-    viteServers.add(server);
-    const url = firstUrl(server) ?? `http://${host}:${port}${base}`;
-    central.envs.set(context.envName, {
-      envName: context.envName,
-      framework,
-      host,
-      port,
-      base,
-      url,
-      components: entries,
+      return {
+        ok: true,
+        message: `preview ${envName} running at ${url}; central preview at ${central.url}`,
+      };
     });
-    installSignalHandlers();
-    context.host.emit({
-      type: "status",
-      status: "running",
-      message: `preview ${context.envName} running at ${url}`,
-    });
-
-    return {
-      ok: true,
-      message: `preview ${context.envName} running at ${url}; central preview at ${central.url}`,
-    };
   },
 });
 
@@ -354,6 +355,11 @@ function readPreviewConfig(value: unknown): PreviewServiceConfig {
   return config;
 }
 
+function requireWorkspaceRoot(context: { workspaceRoot?: string } | undefined) {
+  if (!context?.workspaceRoot) throw new Error("preview requires workspaceRoot in context");
+  return context.workspaceRoot;
+}
+
 function firstUrl(server: ViteDevServer) {
   return server.resolvedUrls?.local[0] ?? server.resolvedUrls?.network[0];
 }
@@ -381,7 +387,6 @@ export async function startTestWatchersForWorkspace(workspace: WorkspaceRuntime)
   if (testWatchController) return;
   testWatchController = new AbortController();
   void startTestWatchers(workspace, {
-    outputMode: "capture",
     signal: testWatchController.signal,
     onEvent: (event) => {
       if (event.type === "start") {
@@ -392,10 +397,10 @@ export async function startTestWatchersForWorkspace(workspace: WorkspaceRuntime)
         });
       } else if (event.type === "output") {
         appendTestOutput(ensureTestWatcherState(event.envName), event.chunk);
-      } else if (event.type === "service-event" && event.event.type === "status") {
+      } else if (event.type === "service-event" && event.eventType === "status" && isStatusPayload(event.payload)) {
         const state = ensureTestWatcherState(event.envName);
-        if (event.event.status === "running") state.status = "running";
-        if (event.event.status === "passed" || event.event.status === "failed" || event.event.status === "stopped") {
+        if (event.payload.status === "running") state.status = "running";
+        if (event.payload.status === "passed" || event.payload.status === "failed" || event.payload.status === "stopped") {
           state.status = "exited";
         }
       } else if (event.type === "exit") {
@@ -419,6 +424,10 @@ export async function startTestWatchersForWorkspace(workspace: WorkspaceRuntime)
       appendTestOutput(state, `\nTest watchers failed: ${message}\n`);
     }
   });
+}
+
+function isStatusPayload(value: unknown): value is { status: string } {
+  return typeof value === "object" && value !== null && typeof (value as { status?: unknown }).status === "string";
 }
 
 function ensureTestWatcherState(envName: string) {

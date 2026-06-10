@@ -3,64 +3,42 @@ export type ServiceResult = {
   message?: string;
 };
 
-export type ServiceOutputMode = "inherit" | "capture";
-
-export type ServiceEvent =
-  | {
-      type: "output";
-      stream: "stdout" | "stderr";
-      chunk: string;
-    }
-  | {
-      type: "status";
-      status: "starting" | "running" | "passed" | "failed" | "stopped";
-      message?: string;
-    }
-  | {
-      type: "progress";
-      message?: string;
-      current?: number;
-      total?: number;
-    }
-  | {
-      type: "diagnostic";
-      severity: "info" | "warning" | "error";
-      message: string;
-      file?: string;
-      line?: number;
-      column?: number;
-    }
-  | {
-      type: "custom";
-      name: string;
-      data?: unknown;
-    };
-
-export type ServiceHost = {
-  signal: AbortSignal;
-  outputMode: ServiceOutputMode;
-  emit(event: ServiceEvent): void;
-};
-
 export type ComponentRef = {
   id: string;
   rootDir: string;
 };
 
-export type ServiceContext = {
-  workspaceRoot: string;
-  envName: string;
+export type ServiceInput<Config = unknown, Args = unknown> = {
   components: ComponentRef[];
-  serviceConfig: unknown;
-  host: ServiceHost;
+  config: Config;
+  args: Args;
 };
 
-export type BitLiteService = {
+export type ServiceContext = {
+  workspaceRoot?: string;
+  envName?: string;
+  cwd?: string;
+};
+
+export type ServiceEventListener = (type: string, payload: unknown) => void;
+
+export type ServiceTask<Result = ServiceResult> = {
+  result: Promise<Result>;
+  listen(listener: ServiceEventListener): () => void;
+  abort(): void;
+  call(type: string, payload?: unknown): void;
+};
+
+export type BitLiteService<
+  Config = unknown,
+  Args = unknown,
+  Result extends ServiceResult = ServiceResult,
+> = {
   name: string;
-  run(context: ServiceContext): Promise<ServiceResult>;
+  run(input: ServiceInput<Config, Args>, context?: ServiceContext): ServiceTask<Result>;
 };
 
-export type ServiceFactory = (config: unknown) => BitLiteService;
+export type ServiceFactory = () => BitLiteService;
 
 export type EnvConfig = {
   extends?: string;
