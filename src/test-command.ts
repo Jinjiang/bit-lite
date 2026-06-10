@@ -1,7 +1,5 @@
-import { BitLiteError } from "./errors.js";
 import { runService } from "./runtime.js";
 import type {
-  ServiceCommandHandler,
   ServiceRunResult,
   WorkspaceRuntime,
 } from "./types.js";
@@ -39,42 +37,6 @@ export type TestWatchOptions = {
   onEvent?: (event: TestWatchEvent) => void;
 };
 
-export const testCommandHandler: ServiceCommandHandler = {
-  async run({ workspace, args }) {
-    const options = parseTestCommandArgs(args);
-    if (options.watch) return runTestWatch(workspace);
-    return runTestOnce(workspace);
-  },
-};
-
-export function runTestOnce(workspace: WorkspaceRuntime): Promise<ServiceRunResult[]> {
-  return runService(workspace, "test", {
-    args: { watch: false },
-    execution: "parallel",
-    onEvent: writeServiceEventToConsole,
-  });
-}
-
-export async function runTestWatch(workspace: WorkspaceRuntime): Promise<ServiceRunResult[]> {
-  const controller = new AbortController();
-  const envNames = workspace.groups.map((group) => group.envName).sort();
-  console.log(`watching tests for ${envNames.join(", ")}`);
-  console.log("press q to quit");
-  const cleanupControls = installWatchControls(controller);
-  try {
-    return await startTestWatchers(workspace, {
-      signal: controller.signal,
-      onEvent: (event) => {
-        if (event.type === "output") {
-          writeOutputPayload(event.stream, event.chunk);
-        }
-      },
-    });
-  } finally {
-    cleanupControls();
-  }
-}
-
 export async function startTestWatchers(
   workspace: WorkspaceRuntime,
   options: TestWatchOptions
@@ -103,57 +65,6 @@ export async function startTestWatchers(
     workspace.groups.forEach((group) => options.onEvent?.({ type: "error", envName: group.envName, error }));
     throw error;
   }
-}
-
-function installWatchControls(controller: AbortController) {
-  let stopped = false;
-  const stop = () => {
-    if (stopped) return;
-    stopped = true;
-    console.log("\nstopping test watchers");
-    controller.abort();
-  };
-  const onData = (chunk: Buffer) => {
-    const value = chunk.toString("utf8");
-    if (value.includes("q") || value.includes("\u0003")) stop();
-  };
-  const onSigint = () => stop();
-
-  process.on("SIGINT", onSigint);
-  process.stdin.on("data", onData);
-  process.stdin.resume();
-  const wasRaw = process.stdin.isTTY ? process.stdin.isRaw : false;
-  if (process.stdin.isTTY) process.stdin.setRawMode(true);
-
-  return () => {
-    process.off("SIGINT", onSigint);
-    process.stdin.off("data", onData);
-    if (process.stdin.isTTY) process.stdin.setRawMode(wasRaw);
-    process.stdin.pause();
-  };
-}
-
-function parseTestCommandArgs(args: string[]) {
-  let watch = false;
-  for (const arg of args) {
-    if (arg === "--watch") {
-      watch = true;
-      continue;
-    }
-    throw new BitLiteError(`unknown test argument "${arg}"`);
-  }
-  return { watch };
-}
-
-function writeServiceEventToConsole(type: string, payload: unknown) {
-  if (type === "output" && isOutputPayload(payload)) {
-    writeOutputPayload(payload.stream, payload.chunk);
-  }
-}
-
-function writeOutputPayload(stream: "stdout" | "stderr", chunk: string) {
-  const target = stream === "stderr" ? process.stderr : process.stdout;
-  target.write(chunk);
 }
 
 function isOutputPayload(value: unknown): value is { stream: "stdout" | "stderr"; chunk: string } {

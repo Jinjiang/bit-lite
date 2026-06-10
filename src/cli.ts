@@ -1,7 +1,7 @@
 import path from "node:path";
 import { BitLiteError } from "./errors.js";
 import { matchPattern } from "./patterns.js";
-import { runServiceCommand } from "./service-command.js";
+import { runService } from "./runtime.js";
 import { runStart } from "./start.js";
 import { loadWorkspace } from "./workspace.js";
 import type { ServiceResult, WorkspaceRuntime } from "./types.js";
@@ -30,13 +30,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
       }
       case "run": {
         if (!parsed.serviceName) throw new BitLiteError("run requires a service name");
-        const results = await runServiceCommand({
-          workspace,
-          serviceName: parsed.serviceName,
-          args: parsed.serviceArgs,
-        });
-        printServiceResults(parsed.serviceName, results);
-        return results.every(({ result }) => result.ok) ? 0 : 1;
+        return await runServiceCli(workspace, parsed.serviceName, parsed.serviceArgs);
       }
       default:
         throw new BitLiteError(`unknown command "${parsed.command}"`);
@@ -126,6 +120,23 @@ type PrintableServiceResult = {
   result: ServiceResult;
 };
 
+async function runServiceCli(workspace: WorkspaceRuntime, serviceName: string, args: string[]) {
+  const controller = new AbortController();
+  const cleanupControls = args.length > 0 ? installRunControls(controller) : () => {};
+  try {
+    const results = await runService(workspace, serviceName, {
+      args,
+      execution: "parallel",
+      signal: controller.signal,
+      onEvent: writeServiceEventToConsole,
+    });
+    printServiceResults(serviceName, results);
+    return results.every(({ result }) => result.ok) ? 0 : 1;
+  } finally {
+    cleanupControls();
+  }
+}
+
 function printServiceResults(serviceName: string, results: PrintableServiceResult[]) {
   results.forEach(({ envName, result }) => {
     if (result.message) console.log(result.message);
@@ -150,4 +161,43 @@ function printEnvs(envs: Record<string, { services: Record<string, unknown> }>) 
       const services = Object.keys(env.services);
       console.log(`${name}  ${services.length ? services.join(", ") : "(no services)"}`);
     });
+}
+
+function writeServiceEventToConsole(type: string, payload: unknown) {
+  if (type !== "output" || !isOutputPayload(payload)) return;
+  const target = payload.stream === "stderr" ? process.stderr : process.stdout;
+  target.write(payload.chunk);
+}
+
+function isOutputPayload(value: unknown): value is { stream: "stdout" | "stderr"; chunk: string } {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as { stream?: unknown; chunk?: unknown };
+  return (candidate.stream === "stdout" || candidate.stream === "stderr") && typeof candidate.chunk === "string";
+}
+
+function installRunControls(controller: AbortController) {
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    controller.abort();
+  };
+  const onData = (chunk: Buffer) => {
+    const value = chunk.toString("utf8");
+    if (value.includes("q") || value.includes("\u0003")) stop();
+  };
+  const onSigint = () => stop();
+
+  process.on("SIGINT", onSigint);
+  process.stdin.on("data", onData);
+  process.stdin.resume();
+  const wasRaw = process.stdin.isTTY ? process.stdin.isRaw : false;
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
+
+  return () => {
+    process.off("SIGINT", onSigint);
+    process.stdin.off("data", onData);
+    if (process.stdin.isTTY) process.stdin.setRawMode(wasRaw);
+    process.stdin.pause();
+  };
 }

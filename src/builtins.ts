@@ -5,7 +5,6 @@ import type { BitLiteService, ServiceDefinition, ServiceFactory } from "./types.
 import { runNodeScript } from "./process.js";
 import { createPreviewService } from "./preview.js";
 import { createServiceTask } from "./runtime.js";
-import { testCommandHandler } from "./test-command.js";
 
 const require = createRequire(import.meta.url);
 
@@ -39,6 +38,7 @@ export const builtinServiceDefinitions: Record<string, ServiceDefinition> = {
       run(input, context) {
         return createServiceTask(async ({ signal, emit }) => {
           const workspaceRoot = requireWorkspaceRoot(context);
+          rejectCliArgs(input.args, "typescript");
           const serviceConfig = readObjectConfig(input.config);
           const tsconfig = typeof serviceConfig.tsconfig === "string" ? serviceConfig.tsconfig : "tsconfig.json";
           const tscPath = require.resolve("typescript/bin/tsc");
@@ -63,7 +63,7 @@ export const builtinServiceDefinitions: Record<string, ServiceDefinition> = {
         return createServiceTask(async ({ signal, emit }) => {
           const workspaceRoot = requireWorkspaceRoot(context);
           const serviceConfig = readObjectConfig(input.config);
-          const serviceArgs = readObjectConfig(input.args);
+          const serviceArgs = readTestServiceArgs(input.args);
           const testFiles = await findTestFiles(input.components);
           if (testFiles.length === 0) {
             const message = `no test files found for ${context?.envName}`;
@@ -98,7 +98,6 @@ export const builtinServiceDefinitions: Record<string, ServiceDefinition> = {
         });
       },
     }),
-    command: testCommandHandler,
   },
 };
 
@@ -111,6 +110,30 @@ export function isBitLiteService(value: unknown): value is BitLiteService {
 function readObjectConfig(config: unknown): Record<string, unknown> {
   if (typeof config === "object" && config !== null && !Array.isArray(config)) return config as Record<string, unknown>;
   return {};
+}
+
+function readTestServiceArgs(args: unknown) {
+  if (Array.isArray(args)) {
+    return parseTestCliArgs(args);
+  }
+  return readObjectConfig(args);
+}
+
+function rejectCliArgs(args: unknown, serviceName: string) {
+  if (!Array.isArray(args) || args.length === 0) return;
+  throw new Error(`service "${serviceName}" does not accept arguments: ${args.map(String).join(" ")}`);
+}
+
+function parseTestCliArgs(args: unknown[]) {
+  const parsed: { watch?: boolean } = {};
+  for (const arg of args) {
+    if (arg === "--watch") {
+      parsed.watch = true;
+      continue;
+    }
+    throw new Error(`unknown test argument "${String(arg)}"`);
+  }
+  return parsed;
 }
 
 function requireWorkspaceRoot(context: { workspaceRoot?: string } | undefined) {

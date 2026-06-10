@@ -75,6 +75,7 @@ export const createPreviewService: ServiceFactory = () => ({
     return createServiceTask(async ({ emit }) => {
       const workspaceRoot = requireWorkspaceRoot(context);
       const envName = context?.envName ?? "unknown";
+      rejectCliArgs(input.args, "preview");
       const serviceConfig = readPreviewConfig(input.config);
       const framework = serviceConfig.framework ?? "html";
       const entries = await discoverPreviewEntries(input.components, envName, framework, serviceConfig);
@@ -358,6 +359,11 @@ function readPreviewConfig(value: unknown): PreviewServiceConfig {
 function requireWorkspaceRoot(context: { workspaceRoot?: string } | undefined) {
   if (!context?.workspaceRoot) throw new Error("preview requires workspaceRoot in context");
   return context.workspaceRoot;
+}
+
+function rejectCliArgs(args: unknown, serviceName: string) {
+  if (!Array.isArray(args) || args.length === 0) return;
+  throw new Error(`service "${serviceName}" does not accept arguments: ${args.map(String).join(" ")}`);
 }
 
 function firstUrl(server: ViteDevServer) {

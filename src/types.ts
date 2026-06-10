@@ -80,17 +80,6 @@ export type ServiceRunResult = {
   result: ServiceResult;
 };
 
-export type ServiceCommandContext = {
-  workspace: WorkspaceRuntime;
-  serviceName: string;
-  args: string[];
-};
-
-export type ServiceCommandHandler = {
-  run(context: ServiceCommandContext): Promise<ServiceRunResult[]>;
-};
-
 export type ServiceDefinition = {
   factory: ServiceFactory;
-  command?: ServiceCommandHandler;
 };
