@@ -119,6 +119,11 @@ export const createPreviewService: ServiceFactory = (config) => ({
       components: entries,
     });
     installSignalHandlers();
+    context.host.emit({
+      type: "status",
+      status: "running",
+      message: `preview ${context.envName} running at ${url}`,
+    });
 
     return {
       ok: true,
@@ -376,7 +381,7 @@ export async function startTestWatchersForWorkspace(workspace: WorkspaceRuntime)
   if (testWatchController) return;
   testWatchController = new AbortController();
   void startTestWatchers(workspace, {
-    output: "capture",
+    outputMode: "capture",
     signal: testWatchController.signal,
     onEvent: (event) => {
       if (event.type === "start") {
@@ -387,6 +392,12 @@ export async function startTestWatchersForWorkspace(workspace: WorkspaceRuntime)
         });
       } else if (event.type === "output") {
         appendTestOutput(ensureTestWatcherState(event.envName), event.chunk);
+      } else if (event.type === "service-event" && event.event.type === "status") {
+        const state = ensureTestWatcherState(event.envName);
+        if (event.event.status === "running") state.status = "running";
+        if (event.event.status === "passed" || event.event.status === "failed" || event.event.status === "stopped") {
+          state.status = "exited";
+        }
       } else if (event.type === "exit") {
         const state = ensureTestWatcherState(event.envName);
         state.status = "exited";

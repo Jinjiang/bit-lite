@@ -3,6 +3,45 @@ export type ServiceResult = {
   message?: string;
 };
 
+export type ServiceOutputMode = "inherit" | "capture";
+
+export type ServiceEvent =
+  | {
+      type: "output";
+      stream: "stdout" | "stderr";
+      chunk: string;
+    }
+  | {
+      type: "status";
+      status: "starting" | "running" | "passed" | "failed" | "stopped";
+      message?: string;
+    }
+  | {
+      type: "progress";
+      message?: string;
+      current?: number;
+      total?: number;
+    }
+  | {
+      type: "diagnostic";
+      severity: "info" | "warning" | "error";
+      message: string;
+      file?: string;
+      line?: number;
+      column?: number;
+    }
+  | {
+      type: "custom";
+      name: string;
+      data?: unknown;
+    };
+
+export type ServiceHost = {
+  signal: AbortSignal;
+  outputMode: ServiceOutputMode;
+  emit(event: ServiceEvent): void;
+};
+
 export type ComponentRef = {
   id: string;
   rootDir: string;
@@ -13,6 +52,7 @@ export type ServiceContext = {
   envName: string;
   components: ComponentRef[];
   serviceConfig: unknown;
+  host: ServiceHost;
 };
 
 export type BitLiteService = {

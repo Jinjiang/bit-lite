@@ -1,9 +1,8 @@
 import path from "node:path";
 import { BitLiteError } from "./errors.js";
 import { matchPattern } from "./patterns.js";
-import { runService } from "./runtime.js";
+import { runServiceCommand } from "./service-command.js";
 import { runStart } from "./start.js";
-import { runTestWatch } from "./test-command.js";
 import { loadWorkspace } from "./workspace.js";
 import type { ServiceResult, WorkspaceRuntime } from "./types.js";
 
@@ -31,12 +30,13 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
       }
       case "run": {
         if (!parsed.serviceName) throw new BitLiteError("run requires a service name");
-        if (parsed.serviceName === "test" && parsed.watch) {
-          const results = await runTestWatch(workspace);
-          printServiceResults("test", results);
-          return results.every(({ result }) => result.ok) ? 0 : 1;
-        }
-        return await runServiceCommand(workspace, parsed.serviceName, parsed.watch);
+        const results = await runServiceCommand({
+          workspace,
+          serviceName: parsed.serviceName,
+          args: parsed.serviceArgs,
+        });
+        printServiceResults(parsed.serviceName, results);
+        return results.every(({ result }) => result.ok) ? 0 : 1;
       }
       default:
         throw new BitLiteError(`unknown command "${parsed.command}"`);
@@ -51,9 +51,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
 type ParsedArgs = {
   command: string | undefined;
   serviceName: string | undefined;
+  serviceArgs: string[];
   workspaceRoot: string;
   filterPattern: string | undefined;
-  watch: boolean;
   help: boolean;
 };
 
@@ -61,7 +61,6 @@ function parseArgs(argv: string[]): ParsedArgs {
   const remaining: string[] = [];
   let workspaceRoot = process.cwd();
   let filterPattern: string | undefined;
-  let watch = false;
   let help = false;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -79,8 +78,6 @@ function parseArgs(argv: string[]): ParsedArgs {
       if (!value) throw new BitLiteError("--filter requires a pattern");
       filterPattern = value;
       index += 1;
-    } else if (arg === "--watch") {
-      watch = true;
     } else if (arg) {
       remaining.push(arg);
     }
@@ -89,9 +86,9 @@ function parseArgs(argv: string[]): ParsedArgs {
   return {
     command: remaining[0],
     serviceName: remaining[1],
+    serviceArgs: remaining.slice(2),
     workspaceRoot,
     filterPattern,
-    watch,
     help,
   };
 }
@@ -103,7 +100,7 @@ Usage:
   bit-lite components [--workspace <dir>] [--filter <pattern>]
   bit-lite envs [--workspace <dir>]
   bit-lite start [--workspace <dir>] [--filter <pattern>]
-  bit-lite run <service> [--workspace <dir>] [--filter <pattern>] [--watch]
+  bit-lite run <service> [--workspace <dir>] [--filter <pattern>] [...service args]
 `);
 }
 
@@ -128,13 +125,6 @@ type PrintableServiceResult = {
   envName: string;
   result: ServiceResult;
 };
-
-async function runServiceCommand(workspace: WorkspaceRuntime, serviceName: string, watch: boolean) {
-  if (watch) throw new BitLiteError(`--watch is not supported by ${serviceName}`);
-  const results = await runService(workspace, serviceName);
-  printServiceResults(serviceName, results);
-  return results.every(({ result }) => result.ok) ? 0 : 1;
-}
 
 function printServiceResults(serviceName: string, results: PrintableServiceResult[]) {
   results.forEach(({ envName, result }) => {

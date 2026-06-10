@@ -36,6 +36,10 @@ export const builtinServices: Record<string, ServiceFactory> = {
       const exitCode = await runNodeScript(tscPath, {
         cwd: context.workspaceRoot,
         args: ["-p", path.resolve(context.workspaceRoot, tsconfig)],
+        ...(context.host.outputMode === "capture"
+          ? { onOutput: (stream: "stdout" | "stderr", chunk: string) => context.host.emit({ type: "output", stream, chunk }) }
+          : {}),
+        signal: context.host.signal,
       });
       return {
         ok: exitCode === 0,
@@ -53,24 +57,33 @@ export const builtinServices: Record<string, ServiceFactory> = {
       const testFiles = await findTestFiles(context.components);
       if (testFiles.length === 0) {
         const message = `no test files found for ${context.envName}`;
-        const onOutput = typeof serviceConfig.onOutput === "function" ? serviceConfig.onOutput : undefined;
-        onOutput?.(`${message}\n`);
+        context.host.emit({ type: "output", stream: "stdout", chunk: `${message}\n` });
         return { ok: true, message };
       }
       const watch = serviceConfig.watch === true;
-      const output = serviceConfig.output === "capture" ? "capture" : "inherit";
-      const onOutput = isOutputCallback(serviceConfig.onOutput) ? serviceConfig.onOutput : undefined;
       const args = readTestArgs(serviceConfig, watch, testFiles);
       const vitestPath = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
       const runOptions = {
         cwd: context.workspaceRoot,
         args,
         ...(typeof serviceConfig.outputPrefix === "string" ? { outputPrefix: serviceConfig.outputPrefix } : {}),
-        ...(watch && output === "inherit" ? { preserveOutputTty: true } : {}),
-        ...(output === "capture" && onOutput ? { onOutput } : {}),
-        ...(serviceConfig.signal instanceof AbortSignal ? { signal: serviceConfig.signal } : {}),
+        ...(watch && context.host.outputMode === "inherit" ? { preserveOutputTty: true } : {}),
+        ...(context.host.outputMode === "capture"
+          ? { onOutput: (stream: "stdout" | "stderr", chunk: string) => context.host.emit({ type: "output", stream, chunk }) }
+          : {}),
+        signal: context.host.signal,
       };
+      context.host.emit({
+        type: "status",
+        status: "running",
+        message: watch ? `watching tests for ${context.envName}` : `running tests for ${context.envName}`,
+      });
       const exitCode = await runNodeScript(vitestPath, runOptions);
+      context.host.emit({
+        type: "status",
+        status: exitCode === 0 ? "passed" : "failed",
+        message: exitCode === 0 ? `tests passed for ${context.envName}` : `tests failed for ${context.envName}`,
+      });
       return {
         ok: exitCode === 0,
         message: exitCode === 0 ? `tests passed for ${context.envName}` : `tests failed for ${context.envName}`,
@@ -92,10 +105,6 @@ function readObjectConfig(config: unknown): Record<string, unknown> {
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
-}
-
-function isOutputCallback(value: unknown): value is (chunk: string) => void {
-  return typeof value === "function";
 }
 
 function readTestArgs(config: Record<string, unknown>, watch: boolean, testFiles: string[]) {

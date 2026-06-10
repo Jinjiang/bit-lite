@@ -6,7 +6,7 @@ export type RunCommandOptions = {
   args: string[];
   outputPrefix?: string;
   preserveOutputTty?: boolean;
-  onOutput?: (chunk: string) => void;
+  onOutput?: (stream: "stdout" | "stderr", chunk: string) => void;
   signal?: AbortSignal;
 };
 
@@ -22,8 +22,8 @@ export async function runNodeScript(scriptPath: string, options: RunCommandOptio
       stdio,
     });
     if (!options.preserveOutputTty) {
-      child.stdout?.on("data", (chunk) => writeOutput(process.stdout, options, String(chunk)));
-      child.stderr?.on("data", (chunk) => writeOutput(process.stderr, options, String(chunk)));
+      child.stdout?.on("data", (chunk) => writeOutput("stdout", process.stdout, options, String(chunk)));
+      child.stderr?.on("data", (chunk) => writeOutput("stderr", process.stderr, options, String(chunk)));
     }
     const abort = () => child.kill();
     if (options.signal?.aborted) abort();
@@ -35,9 +35,9 @@ export async function runNodeScript(scriptPath: string, options: RunCommandOptio
   });
 }
 
-function writeOutput(stream: NodeJS.WriteStream, options: RunCommandOptions, chunk: string) {
+function writeOutput(streamName: "stdout" | "stderr", stream: NodeJS.WriteStream, options: RunCommandOptions, chunk: string) {
   if (options.onOutput) {
-    options.onOutput(chunk);
+    options.onOutput(streamName, chunk);
   } else if (options.outputPrefix) {
     writePrefixed(stream, options.outputPrefix, chunk);
   }
