@@ -9,8 +9,8 @@ import { createServer as createViteServer } from "vite";
 import type { PluginOption, ViteDevServer } from "vite";
 import { fileHasKind, findFirstFileByKind } from "./file-matcher.js";
 import { toPosixPath } from "./path-utils.js";
-import { loadServicesForEnv } from "./services.js";
-import type { ComponentRef, ServiceFactory, ServiceResult } from "./types.js";
+import { startTestWatchers } from "./test-command.js";
+import type { ComponentRef, ServiceFactory, ServiceResult, WorkspaceRuntime } from "./types.js";
 
 const require = createRequire(import.meta.url);
 
@@ -21,7 +21,6 @@ type PreviewServiceConfig = {
   host?: string;
   centralHost?: string;
   strictPort?: boolean;
-  start?: boolean;
 };
 
 type PreviewEntry = {
@@ -60,9 +59,9 @@ const viteServers = new Set<ViteDevServer>();
 let coordinator: PreviewCoordinator | undefined;
 let nextEnvPort = DEFAULT_ENV_PORT;
 let signalHandlersInstalled = false;
+let testWatchController: AbortController | undefined;
 type TestWatcherState = {
   envName: string;
-  controller?: AbortController;
   output: string;
   status: "idle" | "running" | "exited";
   exitCode?: number;
@@ -85,13 +84,7 @@ export const createPreviewService: ServiceFactory = (config) => ({
       };
     }
 
-    const central = await ensureCoordinator(
-      serviceConfig,
-      context.workspaceRoot,
-      context.envName,
-      context.components,
-      context.envServices
-    );
+    const central = await ensureCoordinator(serviceConfig);
     const port = nextPreviewPort();
     const host = serviceConfig.host ?? DEFAULT_HOST;
     const base = `/env/${encodeURIComponent(context.envName)}/`;
@@ -174,15 +167,8 @@ async function findSourceFile(componentRoot: string) {
   return fileName ? path.join(componentRoot, fileName) : undefined;
 }
 
-async function ensureCoordinator(
-  config: PreviewServiceConfig,
-  workspaceRoot: string,
-  envName: string,
-  components: ComponentRef[],
-  envServices: Record<string, unknown>
-): Promise<PreviewCoordinator> {
+async function ensureCoordinator(config: PreviewServiceConfig): Promise<PreviewCoordinator> {
   if (coordinator) {
-    if (config.start) await startTestWatcher(workspaceRoot, envName, components, envServices);
     return coordinator;
   }
   const host = config.centralHost ?? config.host ?? DEFAULT_HOST;
@@ -202,7 +188,6 @@ async function ensureCoordinator(
     url: `http://${host}:${port}/`,
     envs: new Map(),
   };
-  if (config.start) await startTestWatcher(workspaceRoot, envName, components, envServices);
   return coordinator;
 }
 
@@ -361,7 +346,6 @@ function readPreviewConfig(value: unknown): PreviewServiceConfig {
   if (typeof input.host === "string") config.host = input.host;
   if (typeof input.centralHost === "string") config.centralHost = input.centralHost;
   if (typeof input.strictPort === "boolean") config.strictPort = input.strictPort;
-  if (typeof input.start === "boolean") config.start = input.start;
   return config;
 }
 
@@ -379,7 +363,7 @@ function installSignalHandlers() {
       await server.close();
     }
     for (const watcher of testWatchers.values()) {
-      watcher.controller?.abort();
+      testWatchController?.abort();
     }
     await new Promise<void>((resolve) => coordinator?.server.close(() => resolve()) ?? resolve());
     console.log("start stopped");
@@ -388,48 +372,55 @@ function installSignalHandlers() {
   process.on("SIGTERM", close);
 }
 
-async function startTestWatcher(
-  workspaceRoot: string,
-  envName: string,
-  components: ComponentRef[],
-  envServices: Record<string, unknown>
-) {
-  if (testWatchers.get(envName)?.status === "running") return;
-  const services = await loadServicesForEnv(workspaceRoot, envServices);
-  const runnable = services.find(({ serviceRef, service }) => serviceRef === "test" || service.name === "test");
-  const state: TestWatcherState = {
-    envName,
-    status: runnable ? "running" : "idle",
-    output: runnable ? `Starting tests for ${envName}...` : `No test service configured for ${envName}.`,
-  };
-  testWatchers.set(envName, state);
-  if (!runnable) return;
-  const controller = new AbortController();
-  state.controller = controller;
-  void runnable.service
-    .run({
-      workspaceRoot,
-      envName,
-      components,
-      serviceConfig: runnable.config,
-      envServices,
-      mode: "watch",
-      output: "capture",
-      signal: controller.signal,
-      reporter: {
-        output: (chunk) => appendTestOutput(state, chunk),
-      },
-    })
-    .then((result) => {
-      state.status = "exited";
-      appendTestOutput(state, `\n${result.message ?? `Test watcher for ${envName} exited.`}\n`);
-    })
-    .catch((error) => {
-      const message = error instanceof Error ? error.message : String(error);
+export async function startTestWatchersForWorkspace(workspace: WorkspaceRuntime) {
+  if (testWatchController) return;
+  testWatchController = new AbortController();
+  void startTestWatchers(workspace, {
+    output: "capture",
+    signal: testWatchController.signal,
+    onEvent: (event) => {
+      if (event.type === "start") {
+        testWatchers.set(event.envName, {
+          envName: event.envName,
+          status: "running",
+          output: `Starting tests for ${event.envName}...`,
+        });
+      } else if (event.type === "output") {
+        appendTestOutput(ensureTestWatcherState(event.envName), event.chunk);
+      } else if (event.type === "exit") {
+        const state = ensureTestWatcherState(event.envName);
+        state.status = "exited";
+        appendTestOutput(state, `\n${event.result.result.message ?? `Test watcher for ${event.envName} exited.`}\n`);
+      } else if (event.type === "error") {
+        const state = ensureTestWatcherState(event.envName);
+        const message = event.error instanceof Error ? event.error.message : String(event.error);
+        state.status = "exited";
+        state.exitCode = 1;
+        appendTestOutput(state, `\nTest watcher for ${event.envName} failed: ${message}\n`);
+      }
+    },
+  }).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    for (const group of workspace.groups) {
+      const state = ensureTestWatcherState(group.envName);
       state.status = "exited";
       state.exitCode = 1;
-      appendTestOutput(state, `\nTest watcher for ${envName} failed: ${message}\n`);
-    });
+      appendTestOutput(state, `\nTest watchers failed: ${message}\n`);
+    }
+  });
+}
+
+function ensureTestWatcherState(envName: string) {
+  let state = testWatchers.get(envName);
+  if (!state) {
+    state = {
+      envName,
+      status: "idle",
+      output: "",
+    };
+    testWatchers.set(envName, state);
+  }
+  return state;
 }
 
 function appendTestOutput(state: TestWatcherState, chunk: string) {

@@ -2,6 +2,8 @@ import path from "node:path";
 import { BitLiteError } from "./errors.js";
 import { matchPattern } from "./patterns.js";
 import { runService } from "./runtime.js";
+import { runStart } from "./start.js";
+import { runTestWatch } from "./test-command.js";
 import { loadWorkspace } from "./workspace.js";
 import type { ServiceResult, WorkspaceRuntime } from "./types.js";
 
@@ -23,13 +25,18 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
         printEnvs(workspace.envs);
         return 0;
       case "start": {
-        const results = await runService(overrideServiceConfig(workspace, "preview", { start: true }), "preview");
+        const results = await runStart(workspace);
         printServiceResults("start", results);
         return results.every(({ result }) => result.ok) ? 0 : 1;
       }
       case "run": {
         if (!parsed.serviceName) throw new BitLiteError("run requires a service name");
-        return runServiceCommand(workspace, parsed.serviceName, parsed.watch);
+        if (parsed.serviceName === "test" && parsed.watch) {
+          const results = await runTestWatch(workspace);
+          printServiceResults("test", results);
+          return results.every(({ result }) => result.ok) ? 0 : 1;
+        }
+        return await runServiceCommand(workspace, parsed.serviceName, parsed.watch);
       }
       default:
         throw new BitLiteError(`unknown command "${parsed.command}"`);
@@ -117,79 +124,16 @@ function filterWorkspace(workspace: WorkspaceRuntime, pattern: string): Workspac
   };
 }
 
-function overrideServiceConfig(workspace: WorkspaceRuntime, serviceName: string, override: Record<string, unknown>): WorkspaceRuntime {
-  return {
-    ...workspace,
-    groups: workspace.groups.map((group) => ({
-      ...group,
-      env: {
-        ...group.env,
-        services: {
-          ...group.env.services,
-          [serviceName]: {
-            ...readObjectConfig(group.env.services[serviceName]),
-            ...override,
-          },
-        },
-      },
-    })),
-  };
-}
-
 type PrintableServiceResult = {
   envName: string;
   result: ServiceResult;
 };
 
 async function runServiceCommand(workspace: WorkspaceRuntime, serviceName: string, watch: boolean) {
-  if (!watch) {
-    const results = await runService(workspace, serviceName);
-    printServiceResults(serviceName, results);
-    return results.every(({ result }) => result.ok) ? 0 : 1;
-  }
-  console.log(`watching ${serviceName}`);
-  console.log("press q to quit");
-  const controller = new AbortController();
-  const cleanupControls = installWatchControls(controller, serviceName);
-  try {
-    const results = await runService(workspace, serviceName, {
-      mode: "watch",
-      output: "inherit",
-      signal: controller.signal,
-    });
-    printServiceResults(serviceName, results);
-    return results.every(({ result }) => result.ok) ? 0 : 1;
-  } finally {
-    cleanupControls();
-  }
-}
-
-function installWatchControls(controller: AbortController, serviceName: string) {
-  let stopped = false;
-  const stop = () => {
-    if (stopped) return;
-    stopped = true;
-    console.log(`\nstopping ${serviceName} watchers`);
-    controller.abort();
-  };
-  const onData = (chunk: Buffer) => {
-    const value = chunk.toString("utf8");
-    if (value.includes("q") || value.includes("\u0003")) stop();
-  };
-  const onSigint = () => stop();
-
-  process.on("SIGINT", onSigint);
-  process.stdin.on("data", onData);
-  process.stdin.resume();
-  const wasRaw = process.stdin.isTTY ? process.stdin.isRaw : false;
-  if (process.stdin.isTTY) process.stdin.setRawMode(true);
-
-  return () => {
-    process.off("SIGINT", onSigint);
-    process.stdin.off("data", onData);
-    if (process.stdin.isTTY) process.stdin.setRawMode(wasRaw);
-    process.stdin.pause();
-  };
+  if (watch) throw new BitLiteError(`--watch is not supported by ${serviceName}`);
+  const results = await runService(workspace, serviceName);
+  printServiceResults(serviceName, results);
+  return results.every(({ result }) => result.ok) ? 0 : 1;
 }
 
 function printServiceResults(serviceName: string, results: PrintableServiceResult[]) {
@@ -197,11 +141,6 @@ function printServiceResults(serviceName: string, results: PrintableServiceResul
     if (result.message) console.log(result.message);
     console.log(`${result.ok ? "ok" : "failed"} ${serviceName} (${envName})`);
   });
-}
-
-function readObjectConfig(config: unknown): Record<string, unknown> {
-  if (typeof config === "object" && config !== null && !Array.isArray(config)) return config as Record<string, unknown>;
-  return {};
 }
 
 function printComponents(components: Array<{ id: string; rootDir: string; envName: string }>) {

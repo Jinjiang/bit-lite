@@ -1,13 +1,12 @@
 import { spawn } from "node:child_process";
 import type { StdioOptions } from "node:child_process";
-import type { ServiceReporter } from "./types.js";
 
 export type RunCommandOptions = {
   cwd: string;
   args: string[];
   outputPrefix?: string;
   preserveOutputTty?: boolean;
-  reporter?: ServiceReporter;
+  onOutput?: (chunk: string) => void;
   signal?: AbortSignal;
 };
 
@@ -15,7 +14,7 @@ export async function runNodeScript(scriptPath: string, options: RunCommandOptio
   return new Promise<number>((resolve) => {
     const stdio: StdioOptions = options.preserveOutputTty
       ? ["ignore", "inherit", "inherit"]
-      : options.reporter || options.outputPrefix
+      : options.onOutput || options.outputPrefix
         ? ["ignore", "pipe", "pipe"]
         : "inherit";
     const child = spawn(process.execPath, [scriptPath, ...options.args], {
@@ -37,8 +36,8 @@ export async function runNodeScript(scriptPath: string, options: RunCommandOptio
 }
 
 function writeOutput(stream: NodeJS.WriteStream, options: RunCommandOptions, chunk: string) {
-  if (options.reporter) {
-    options.reporter.output(chunk);
+  if (options.onOutput) {
+    options.onOutput(chunk);
   } else if (options.outputPrefix) {
     writePrefixed(stream, options.outputPrefix, chunk);
   }

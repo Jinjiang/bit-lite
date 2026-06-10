@@ -3,14 +3,6 @@ export type ServiceResult = {
   message?: string;
 };
 
-export type ServiceRunMode = "run" | "watch";
-
-export type ServiceOutputMode = "inherit" | "capture";
-
-export type ServiceReporter = {
-  output(chunk: string): void;
-};
-
 export type ComponentRef = {
   id: string;
   rootDir: string;
@@ -21,11 +13,6 @@ export type ServiceContext = {
   envName: string;
   components: ComponentRef[];
   serviceConfig: unknown;
-  envServices: Record<string, unknown>;
-  mode: ServiceRunMode;
-  output: ServiceOutputMode;
-  signal: AbortSignal;
-  reporter: ServiceReporter;
 };
 
 export type BitLiteService = {
