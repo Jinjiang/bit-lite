@@ -1,9 +1,14 @@
 import { BitLiteError } from "./errors.js";
 import { createServiceHost } from "./runtime.js";
 import { loadServicesForEnv } from "./services.js";
-import type { ServiceCommandHandler } from "./service-command.js";
-import type { ServiceRunResult } from "./runtime.js";
-import type { ComponentRef, ServiceEvent, ServiceOutputMode, WorkspaceRuntime } from "./types.js";
+import type {
+  ComponentRef,
+  ServiceCommandHandler,
+  ServiceEvent,
+  ServiceOutputMode,
+  ServiceRunResult,
+  WorkspaceRuntime,
+} from "./types.js";
 
 type TestRunnableGroup = {
   envName: string;

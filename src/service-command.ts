@@ -1,22 +1,7 @@
+import { builtinServiceDefinitions } from "./builtins.js";
 import { BitLiteError } from "./errors.js";
 import { runService } from "./runtime.js";
-import { testCommandHandler } from "./test-command.js";
-import type { ServiceRunResult } from "./runtime.js";
-import type { WorkspaceRuntime } from "./types.js";
-
-export type ServiceCommandContext = {
-  workspace: WorkspaceRuntime;
-  serviceName: string;
-  args: string[];
-};
-
-export type ServiceCommandHandler = {
-  run(context: ServiceCommandContext): Promise<ServiceRunResult[]>;
-};
-
-const serviceCommandHandlers: Record<string, ServiceCommandHandler> = {
-  test: testCommandHandler,
-};
+import type { ServiceCommandContext, ServiceCommandHandler, ServiceRunResult } from "./types.js";
 
 const defaultServiceCommandHandler: ServiceCommandHandler = {
   async run({ workspace, serviceName, args }) {
@@ -28,6 +13,6 @@ const defaultServiceCommandHandler: ServiceCommandHandler = {
 };
 
 export function runServiceCommand(context: ServiceCommandContext): Promise<ServiceRunResult[]> {
-  const handler = serviceCommandHandlers[context.serviceName] ?? defaultServiceCommandHandler;
+  const handler = builtinServiceDefinitions[context.serviceName]?.command ?? defaultServiceCommandHandler;
   return handler.run(context);
 }
