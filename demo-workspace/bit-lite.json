@@ -4,16 +4,28 @@
     "node": {
       "services": {
         "inspect": {
-          "label": "node components"
+          "vendor": "default",
+          "config": {
+            "label": "node components"
+          }
         },
         "typescript": {
-          "tsconfig": "tsconfig.json"
+          "vendor": "tsc",
+          "config": {
+            "tsconfig": "tsconfig.json"
+          }
         },
         "test": {
-          "args": ["run"]
+          "vendor": "vitest",
+          "config": {
+            "args": ["run"]
+          }
         },
         "preview": {
-          "framework": "html"
+          "vendor": "vite",
+          "config": {
+            "framework": "html"
+          }
         }
       }
     },
@@ -21,10 +33,16 @@
       "extends": "node",
       "services": {
         "inspect": {
-          "label": "react components"
+          "vendor": "default",
+          "config": {
+            "label": "react components"
+          }
         },
         "preview": {
-          "framework": "react"
+          "vendor": "vite",
+          "config": {
+            "framework": "react"
+          }
         }
       }
     }
