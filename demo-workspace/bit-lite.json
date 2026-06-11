@@ -33,7 +33,7 @@
       "extends": "node",
       "services": {
         "inspect": {
-          "vendor": "default",
+          "vendor": "summary",
           "config": {
             "label": "react components"
           }
@@ -45,10 +45,38 @@
           }
         }
       }
+    },
+    "vue": {
+      "extends": "node",
+      "services": {
+        "inspect": {
+          "vendor": "summary",
+          "config": {
+            "label": "vue components"
+          }
+        },
+        "typescript": {
+          "vendor": "oxc",
+          "config": {
+            "strict": true
+          }
+        },
+        "test": {
+          "vendor": "filelist",
+          "config": {}
+        },
+        "preview": {
+          "vendor": "static",
+          "config": {
+            "framework": "vue"
+          }
+        }
+      }
     }
   },
   "components": {
     "components/lib/**": "node",
-    "components/ui/**": "react"
+    "components/ui/**": "react",
+    "components/vue/**": "vue"
   }
 }
