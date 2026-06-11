@@ -8,3 +8,5 @@ export const jestTestVendor: TestVendor = {
     return createServiceTask(async () => unsupportedVendorResult("test", "jest"));
   },
 };
+
+export default jestTestVendor;

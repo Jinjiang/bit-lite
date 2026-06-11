@@ -3,13 +3,12 @@ import { createServer as createHttpServer, request as httpRequest } from "node:h
 import type { IncomingMessage, Server as HttpServer, ServerResponse } from "node:http";
 import path from "node:path";
 import { fileHasKind, findFirstFileByKind } from "./file-matcher.js";
-import { readVendorServiceConfig, unsupportedVendorResult } from "./service-config.js";
+import { loadServiceVendor, pipeVendorTask, readVendorServiceConfig } from "./service-config.js";
 import { startTestWatchers } from "./test-command.js";
 import { createServiceTask } from "./runtime.js";
-import type { ComponentRef, ServiceFactory, WorkspaceRuntime } from "./types.js";
-import type { PreviewFramework, PreviewVendorConfig } from "./services/preview/types.js";
-import { vitePreviewVendor, viteServers } from "./services/preview/vendors/vite.js";
-import { webpackPreviewVendor } from "./services/preview/vendors/webpack.js";
+import type { BitLiteService, ComponentRef, WorkspaceRuntime } from "./types.js";
+import type { PreviewFramework, PreviewVendor, PreviewVendorConfig } from "./services/preview/types.js";
+import { closePreviewVendorServers } from "./services/preview/runtime.js";
 
 type PreviewServiceConfig = {
   vendor?: string;
@@ -51,11 +50,6 @@ const DEFAULT_ENV_PORT = 3301;
 const DEFAULT_CENTRAL_PORT = 3000;
 const DEFAULT_HOST = "127.0.0.1";
 
-const previewVendors = {
-  vite: vitePreviewVendor,
-  webpack: webpackPreviewVendor,
-};
-
 let coordinator: PreviewCoordinator | undefined;
 let nextEnvPort = DEFAULT_ENV_PORT;
 let signalHandlersInstalled = false;
@@ -68,20 +62,19 @@ type TestWatcherState = {
 };
 const testWatchers = new Map<string, TestWatcherState>();
 
-export const createPreviewService: ServiceFactory = () => ({
+export const previewService: BitLiteService = {
   name: "preview",
   run(input, context) {
-    return createServiceTask(async ({ emit }) => {
+    return createServiceTask(async ({ signal, emit }) => {
       const workspaceRoot = requireWorkspaceRoot(context);
       const envName = context?.envName ?? "unknown";
       rejectCliArgs(input.args, "preview");
-      const serviceDefinition = readVendorServiceConfig(input.config, "vite");
+      const serviceDefinition = readVendorServiceConfig(input.config);
       const serviceConfig = {
         ...readPreviewConfig(serviceDefinition.config),
         vendor: serviceDefinition.vendor,
       };
-      const vendor = previewVendors[serviceConfig.vendor as keyof typeof previewVendors];
-      if (!vendor) return unsupportedVendorResult("preview", serviceConfig.vendor);
+      const vendor = await loadServiceVendor<PreviewVendor>("preview", serviceConfig.vendor, context);
       const framework = serviceConfig.framework ?? "html";
       const entries = await discoverPreviewEntries(input.components, envName, framework, serviceConfig);
       if (entries.length === 0) {
@@ -110,8 +103,10 @@ export const createPreviewService: ServiceFactory = () => ({
         },
         context
       );
-      const unsubscribe = task.listen((type, payload) => emit(type, payload));
-      const result = await task.result.finally(unsubscribe);
+      const result = await pipeVendorTask(task, {
+        signal,
+        emit,
+      });
       if (!result.ok) return result;
       const url = result.url ?? `http://${host}:${port}${base}`;
       central.envs.set(envName, {
@@ -135,7 +130,7 @@ export const createPreviewService: ServiceFactory = () => ({
       };
     });
   },
-});
+};
 
 async function discoverPreviewEntries(
   components: ComponentRef[],
@@ -326,9 +321,7 @@ function installSignalHandlers() {
   const close = async () => {
     process.off("SIGINT", close);
     process.off("SIGTERM", close);
-    for (const server of viteServers) {
-      await server.close();
-    }
+    await closePreviewVendorServers();
     for (const watcher of testWatchers.values()) {
       testWatchController?.abort();
     }
@@ -650,4 +643,3 @@ const TESTS_HTML = `<!doctype html>
   </body>
 </html>
 `;
-

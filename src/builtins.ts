@@ -1,25 +1,15 @@
-import { createInspectService } from "./services/inspect/service.js";
-import { createPreviewService } from "./preview.js";
-import { createTestService } from "./services/test/service.js";
-import { createTypecheckService } from "./services/typecheck/service.js";
-import type { BitLiteService, ServiceDefinition } from "./types.js";
+import { inspectService } from "./services/inspect/service.js";
+import { previewService } from "./preview.js";
+import { testService } from "./services/test/service.js";
+import { typecheckService } from "./services/typecheck/service.js";
+import type { BitLiteService } from "./types.js";
 
-export const builtinServiceDefinitions: Record<string, ServiceDefinition> = {
-  preview: {
-    factory: createPreviewService,
-  },
-  inspect: {
-    factory: createInspectService,
-  },
-  typecheck: {
-    factory: createTypecheckService,
-  },
-  typescript: {
-    factory: createTypecheckService,
-  },
-  test: {
-    factory: createTestService,
-  },
+export const builtinServices: Record<string, BitLiteService> = {
+  preview: previewService,
+  inspect: inspectService,
+  typecheck: typecheckService,
+  typescript: typecheckService,
+  test: testService,
 };
 
 export function isBitLiteService(value: unknown): value is BitLiteService {

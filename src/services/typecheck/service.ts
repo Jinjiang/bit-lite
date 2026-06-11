@@ -1,33 +1,28 @@
 import { createServiceTask } from "../../runtime.js";
-import { readObjectConfig, readVendorServiceConfig, unsupportedVendorResult } from "../../service-config.js";
-import type { ServiceFactory } from "../../types.js";
-import type { TypecheckArgs } from "./types.js";
-import { oxcTypecheckVendor } from "./vendors/oxc.js";
-import { tscTypecheckVendor } from "./vendors/tsc.js";
+import { loadServiceVendor, pipeVendorTask, readObjectConfig, readVendorServiceConfig } from "../../service-config.js";
+import type { BitLiteService } from "../../types.js";
+import type { TypecheckArgs, TypecheckVendor } from "./types.js";
 
-const vendors = {
-  tsc: tscTypecheckVendor,
-  oxc: oxcTypecheckVendor,
-};
-
-export const createTypecheckService: ServiceFactory = () => ({
+export const typecheckService: BitLiteService = {
   name: "typecheck",
   run(input, context) {
-    const serviceConfig = readVendorServiceConfig(input.config, "tsc");
-    const vendor = vendors[serviceConfig.vendor as keyof typeof vendors];
-    if (!vendor) {
-      return createServiceTask(async () => unsupportedVendorResult("typecheck", serviceConfig.vendor));
-    }
-    return vendor.run(
-      {
-        ...input,
-        config: serviceConfig.config,
-        args: readTypecheckArgs(input.args),
-      },
-      context
-    );
+    return createServiceTask(async (host) => {
+      const serviceConfig = readVendorServiceConfig(input.config);
+      const vendor = await loadServiceVendor<TypecheckVendor>("typecheck", serviceConfig.vendor, context);
+      return pipeVendorTask(
+        vendor.run(
+          {
+            ...input,
+            config: serviceConfig.config,
+            args: readTypecheckArgs(input.args),
+          },
+          context
+        ),
+        host
+      );
+    });
   },
-});
+};
 
 function readTypecheckArgs(args: unknown): TypecheckArgs | string[] | undefined {
   if (Array.isArray(args)) return args.filter((arg): arg is string => typeof arg === "string");

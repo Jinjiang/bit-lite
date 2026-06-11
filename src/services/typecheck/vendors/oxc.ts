@@ -8,3 +8,5 @@ export const oxcTypecheckVendor: TypecheckVendor = {
     return createServiceTask(async () => unsupportedVendorResult("typecheck", "oxc"));
   },
 };
+
+export default oxcTypecheckVendor;

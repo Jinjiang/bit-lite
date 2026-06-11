@@ -8,3 +8,5 @@ export const webpackPreviewVendor: PreviewVendor = {
     return createServiceTask(async () => unsupportedVendorResult("preview", "webpack"));
   },
 };
+
+export default webpackPreviewVendor;

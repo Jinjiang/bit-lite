@@ -8,3 +8,5 @@ export const mochaTestVendor: TestVendor = {
     return createServiceTask(async () => unsupportedVendorResult("test", "mocha"));
   },
 };
+
+export default mochaTestVendor;

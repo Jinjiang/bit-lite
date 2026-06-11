@@ -16,13 +16,19 @@ describe("workspace runtime", () => {
           envs: {
             node: {
               services: {
-                inspect: { source: "node" },
+                inspect: {
+                  vendor: "default",
+                  config: { source: "node" },
+                },
               },
             },
             react: {
               extends: "node",
               services: {
-                inspect: { source: "react" },
+                inspect: {
+                  vendor: "default",
+                  config: { source: "react" },
+                },
               },
             },
           },

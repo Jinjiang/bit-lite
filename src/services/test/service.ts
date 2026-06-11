@@ -1,35 +1,28 @@
 import { createServiceTask } from "../../runtime.js";
-import { readObjectConfig, readVendorServiceConfig, unsupportedVendorResult } from "../../service-config.js";
-import type { ServiceFactory } from "../../types.js";
-import type { TestArgs } from "./types.js";
-import { jestTestVendor } from "./vendors/jest.js";
-import { mochaTestVendor } from "./vendors/mocha.js";
-import { vitestTestVendor } from "./vendors/vitest.js";
+import { loadServiceVendor, pipeVendorTask, readObjectConfig, readVendorServiceConfig } from "../../service-config.js";
+import type { BitLiteService } from "../../types.js";
+import type { TestArgs, TestVendor } from "./types.js";
 
-const vendors = {
-  vitest: vitestTestVendor,
-  jest: jestTestVendor,
-  mocha: mochaTestVendor,
-};
-
-export const createTestService: ServiceFactory = () => ({
+export const testService: BitLiteService = {
   name: "test",
   run(input, context) {
-    const serviceConfig = readVendorServiceConfig(input.config, "vitest");
-    const vendor = vendors[serviceConfig.vendor as keyof typeof vendors];
-    if (!vendor) {
-      return createServiceTask(async () => unsupportedVendorResult("test", serviceConfig.vendor));
-    }
-    return vendor.run(
-      {
-        ...input,
-        config: serviceConfig.config,
-        args: readTestArgs(input.args),
-      },
-      context
-    );
+    return createServiceTask(async (host) => {
+      const serviceConfig = readVendorServiceConfig(input.config);
+      const vendor = await loadServiceVendor<TestVendor>("test", serviceConfig.vendor, context);
+      return pipeVendorTask(
+        vendor.run(
+          {
+            ...input,
+            config: serviceConfig.config,
+            args: readTestArgs(input.args),
+          },
+          context
+        ),
+        host
+      );
+    });
   },
-});
+};
 
 function readTestArgs(args: unknown): TestArgs {
   if (Array.isArray(args)) return parseTestCliArgs(args);

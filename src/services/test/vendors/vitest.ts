@@ -50,6 +50,8 @@ export const vitestTestVendor: TestVendor = {
   },
 };
 
+export default vitestTestVendor;
+
 function requireWorkspaceRoot(context: { workspaceRoot?: string } | undefined) {
   if (!context?.workspaceRoot) throw new Error("test requires workspaceRoot in context");
   return context.workspaceRoot;

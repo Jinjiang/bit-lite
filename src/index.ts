@@ -8,8 +8,9 @@ export type {
   ComponentRef,
   EnvConfig,
   ServiceContext,
-  ServiceFactory,
+  ServiceInput,
   ServiceResult,
+  ServiceTask,
 } from "./types.js";
 export { loadConfig, resolveEnvs, validateConfig } from "./config.js";
 export { fileHasKind, findFilesByKind, findFirstFileByKind } from "./file-matcher.js";

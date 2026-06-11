@@ -7,10 +7,10 @@ import { createServer as createViteServer } from "vite";
 import type { PluginOption, ViteDevServer } from "vite";
 import { toPosixPath } from "../../../path-utils.js";
 import { createServiceTask } from "../../../runtime.js";
+import { registerPreviewVendorCloser } from "../runtime.js";
 import type { PreviewEntry, PreviewVendor } from "../types.js";
 
 const require = createRequire(import.meta.url);
-export const viteServers = new Set<ViteDevServer>();
 
 export const vitePreviewVendor: PreviewVendor = {
   name: "vite",
@@ -36,7 +36,7 @@ export const vitePreviewVendor: PreviewVendor = {
       });
 
       await server.listen();
-      viteServers.add(server);
+      registerPreviewVendorCloser(() => server.close());
       const url = firstUrl(server) ?? `http://${input.host}:${input.port}${input.base}`;
       emit("ready", { url, port: input.port, base: input.base });
       return {
@@ -49,6 +49,8 @@ export const vitePreviewVendor: PreviewVendor = {
     });
   },
 };
+
+export default vitePreviewVendor;
 
 async function loadFrameworkPlugins(framework: "html" | "react" | "vue"): Promise<PluginOption[]> {
   const plugins: PluginOption[] = [];

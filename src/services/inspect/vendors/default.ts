@@ -19,3 +19,5 @@ export const defaultInspectVendor: InspectVendor = {
     }));
   },
 };
+
+export default defaultInspectVendor;

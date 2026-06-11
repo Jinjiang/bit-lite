@@ -38,8 +38,6 @@ export type BitLiteService<
   run(input: ServiceInput<Config, Args>, context?: ServiceContext): ServiceTask<Result>;
 };
 
-export type ServiceFactory = () => BitLiteService;
-
 export type EnvConfig = {
   extends?: string;
   services?: Record<string, unknown>;
@@ -78,8 +76,4 @@ export type ServiceRunResult = {
   envName: string;
   serviceName: string;
   result: ServiceResult;
-};
-
-export type ServiceDefinition = {
-  factory: ServiceFactory;
 };

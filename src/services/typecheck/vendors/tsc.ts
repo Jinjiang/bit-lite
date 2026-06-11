@@ -30,6 +30,8 @@ export const tscTypecheckVendor: TypecheckVendor = {
   },
 };
 
+export default tscTypecheckVendor;
+
 function requireWorkspaceRoot(context: { workspaceRoot?: string } | undefined) {
   if (!context?.workspaceRoot) throw new Error("typecheck requires workspaceRoot in context");
   return context.workspaceRoot;
