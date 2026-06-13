@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import assert from "node:assert/strict";
 import { add } from "./index.js";
 
 describe("add", () => {
   it("adds two numbers", () => {
-    expect(add(2, 3)).toBe(5);
+    assert.equal(add(2, 3), 5);
   });
 });

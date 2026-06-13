@@ -16,13 +16,11 @@
           }
         },
         "test": {
-          "vendor": "vitest",
-          "config": {
-            "args": ["run"]
-          }
+          "vendor": "jest",
+          "config": {}
         },
         "preview": {
-          "vendor": "vite",
+          "vendor": "webpack",
           "config": {
             "framework": "html"
           }
@@ -43,6 +41,10 @@
           "config": {
             "framework": "react"
           }
+        },
+        "test": {
+          "vendor": "mocha",
+          "config": {}
         }
       }
     },
@@ -62,11 +64,13 @@
           }
         },
         "test": {
-          "vendor": "filelist",
-          "config": {}
+          "vendor": "vitest",
+          "config": {
+            "args": ["run"]
+          }
         },
         "preview": {
-          "vendor": "static",
+          "vendor": "webpack",
           "config": {
             "framework": "vue"
           }
