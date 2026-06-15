@@ -19,7 +19,7 @@ type OutputState = {
 export type TestRunReporter = {
   onTask?(task: ServiceTask, context: ServiceRunEventContext): void;
   onEvent(type: string, payload: unknown, context: ServiceRunEventContext): void;
-  onInput?(chunk: Buffer): void;
+  onInput?(chunk: Buffer): boolean;
   flush(): void;
   close?(): void;
 };
@@ -48,6 +48,14 @@ function createWatchTuiReporter(vendors: Map<string, string | undefined>): TestR
   let focused = false;
 
   const render = () => {
+    if (focused) {
+      renderFocused();
+      return;
+    }
+    renderDashboard();
+  };
+
+  const renderDashboard = () => {
     rendered = true;
     const states = sortedStates(outputs);
     const selected = states[selectedIndex] ?? states[0];
@@ -56,23 +64,25 @@ function createWatchTuiReporter(vendors: Map<string, string | undefined>): TestR
     states.forEach((state, index) => {
       const marker = state === selected ? ">" : " ";
       process.stdout.write(
-        `${marker} ${index + 1}. ${formatLabel(state.context, state.vendor)}  ${state.status}  ${formatTime(state.updatedAt)}\n`
+        `${marker} ${index + 1}. ${formatLabel(state.context, state.vendor)}  ${formatWatchStatus(state.status)}  ${formatTime(
+          state.updatedAt
+        )}\n`
       );
     });
     process.stdout.write("\n");
-    if (focused && selected) {
-      process.stdout.write(`mode: focused ${formatLabel(selected.context, selected.vendor)}\n`);
-      process.stdout.write("keys: esc dashboard, ctrl+c quit all, input passes to watcher\n");
-    } else {
-      process.stdout.write("mode: dashboard\n");
-      process.stdout.write("keys: 1-9 switch, tab next, enter focus, q quit\n");
-    }
-    process.stdout.write("────────────────────────────────────────\n");
+    process.stdout.write("mode: dashboard\n");
+    process.stdout.write("keys: 1-9 switch, tab next, enter focus, q quit\n");
+  };
+
+  const renderFocused = () => {
+    rendered = true;
+    const states = sortedStates(outputs);
+    const selected = states[selectedIndex] ?? states[0];
+    process.stdout.write("\x1b[2J\x1b[H");
     if (!selected) {
-      process.stdout.write("waiting for test output...\n");
       return;
     }
-    process.stdout.write(tail(`${selected.stdout}${selected.stderr}`, process.stdout.rows ? process.stdout.rows - 9 : 30));
+    process.stdout.write(`${selected.stdout}${selected.stderr}`);
   };
 
   return {
@@ -101,9 +111,11 @@ function createWatchTuiReporter(vendors: Map<string, string | undefined>): TestR
     },
     onInput(chunk) {
       const value = chunk.toString("utf8");
+      let quit = false;
       for (const key of parseKeys(value)) {
-        handleKey(key);
+        if (handleKey(key)) quit = true;
       }
+      return quit;
     },
     flush() {
       if (rendered) process.stdout.write("\n");
@@ -120,32 +132,35 @@ function createWatchTuiReporter(vendors: Map<string, string | undefined>): TestR
         if (value === "\u001b") {
           focused = false;
           render();
-          return;
+          return false;
         }
-        if (value.includes("\u0003")) return;
+        if (value.includes("\u0003")) return true;
         if (selected) tasks.get(contextKey(selected.context))?.call("stdin", value);
-        return;
+        return false;
       }
+      if (value.includes("\u0003")) return true;
+      if (value === "q") return true;
       if (value === "\r" || value === "\n") {
         focused = true;
         render();
-        return;
+        return false;
       }
       if (value === "\t" || value === "\u001b[C" || value === "\u001b[B") {
         selectedIndex = states.length === 0 ? 0 : (selectedIndex + 1) % states.length;
         render();
-        return;
+        return false;
       }
       if (value === "\u001b[D" || value === "\u001b[A") {
         selectedIndex = states.length === 0 ? 0 : (selectedIndex - 1 + states.length) % states.length;
         render();
-        return;
+        return false;
       }
       const numeric = Number(value);
       if (Number.isInteger(numeric) && numeric >= 1 && numeric <= states.length) {
         selectedIndex = numeric - 1;
         render();
       }
+      return false;
   }
 }
 
@@ -213,10 +228,9 @@ function formatTime(value: number) {
   return new Date(value).toISOString().slice(11, 19);
 }
 
-function tail(value: string, maxLines: number) {
-  const lines = value.split(/\r?\n/);
-  const selected = maxLines > 0 ? lines.slice(-maxLines) : lines;
-  return selected.join("\n");
+function formatWatchStatus(status: string) {
+  if (status === "passed") return "ended";
+  return status;
 }
 
 function trimState(state: OutputState) {

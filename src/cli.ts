@@ -189,8 +189,8 @@ function installRunControls(controller: AbortController, onInput?: (chunk: Buffe
   };
   const onData = (chunk: Buffer) => {
     const value = chunk.toString("utf8");
-    onInput?.(chunk);
-    if (value.includes("q") || value.includes("\u0003")) stop();
+    const shouldStop = onInput?.(chunk) ?? false;
+    if (shouldStop || (!onInput && value.includes("q")) || value.includes("\u0003")) stop();
   };
   const onSigint = () => stop();
 
