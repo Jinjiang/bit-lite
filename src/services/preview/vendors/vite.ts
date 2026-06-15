@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { createServer as createViteServer } from "vite";
-import type { ViteDevServer } from "vite";
+import { createLogger, createServer as createViteServer } from "vite";
+import type { Logger, ViteDevServer } from "vite";
 import { toPosixPath } from "../../../path-utils.js";
 import { createServiceTask } from "../../../runtime.js";
 import { readObjectConfig } from "../../../service-config.js";
@@ -20,11 +20,13 @@ export const vitePreviewVendor: PreviewVendor = {
       const config = readObjectConfig(input.config);
       const configFile = readConfigFile(config, workspaceRoot);
       const appRoot = await generatePreviewApp(input.entries, input.base);
+      emit("output", { stream: "stdout", chunk: `starting vite preview on port ${input.port}\n` });
       const server = await createViteServer({
         root: appRoot,
         base: input.base,
         configFile: configFile ?? false,
         clearScreen: false,
+        customLogger: createServiceLogger((stream, chunk) => emit("output", { stream, chunk })),
         server: {
           port: input.port,
           fs: {
@@ -38,6 +40,7 @@ export const vitePreviewVendor: PreviewVendor = {
       const port = serverPort(server) ?? input.port;
       const host = serverHost(server);
       const url = firstUrl(server) ?? `http://${host}:${port}${input.base}`;
+      emit("output", { stream: "stdout", chunk: `vite preview ready at ${url}\n` });
       emit("ready", { url, host, port, base: input.base });
       return {
         ok: true,
@@ -98,6 +101,26 @@ function serverPort(server: ViteDevServer) {
 function requireWorkspaceRoot(context: { workspaceRoot?: string } | undefined) {
   if (!context?.workspaceRoot) throw new Error("preview requires workspaceRoot in context");
   return context.workspaceRoot;
+}
+
+function createServiceLogger(emitOutput: (stream: "stdout" | "stderr", chunk: string) => void): Logger {
+  const logger = createLogger("info", { allowClearScreen: false });
+  return {
+    ...logger,
+    info(message) {
+      emitOutput("stdout", `${message}\n`);
+    },
+    warn(message) {
+      emitOutput("stderr", `${message}\n`);
+    },
+    warnOnce(message) {
+      emitOutput("stderr", `${message}\n`);
+    },
+    error(message) {
+      emitOutput("stderr", `${message}\n`);
+    },
+    clearScreen() {},
+  };
 }
 
 const INDEX_HTML = `<!doctype html>

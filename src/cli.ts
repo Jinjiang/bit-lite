@@ -1,6 +1,8 @@
 import path from "node:path";
 import { BitLiteError } from "./errors.js";
+import { isOutputPayload, type ServiceRunReporter } from "./output-reporter.js";
 import { matchPattern } from "./patterns.js";
+import { createPreviewRunReporter } from "./preview-reporter.js";
 import { runService } from "./runtime.js";
 import { runStart } from "./start.js";
 import { createTestRunReporter } from "./test-reporter.js";
@@ -123,8 +125,8 @@ type PrintableServiceResult = {
 
 async function runServiceCli(workspace: WorkspaceRuntime, serviceName: string, args: string[]) {
   const controller = new AbortController();
-  const reporter = serviceName === "test" ? createTestRunReporter(workspace, args.includes("--watch")) : undefined;
-  const cleanupControls = args.length > 0 ? installRunControls(controller, (chunk) => reporter?.onInput?.(chunk)) : () => {};
+  const reporter = createRunReporter(workspace, serviceName, args);
+  const cleanupControls = reporter?.onInput ? installRunControls(controller, (chunk) => reporter.onInput?.(chunk)) : () => {};
   try {
     const results = await runService(workspace, serviceName, {
       args,
@@ -135,11 +137,27 @@ async function runServiceCli(workspace: WorkspaceRuntime, serviceName: string, a
     });
     reporter?.flush();
     printServiceResults(serviceName, results);
+    if (serviceName === "preview" && results.every(({ result }) => result.ok)) {
+      await waitForAbort(controller.signal);
+      const { stopPreviewRuntime } = await import("./preview.js");
+      await stopPreviewRuntime();
+    }
     return results.every(({ result }) => result.ok) ? 0 : 1;
   } finally {
     cleanupControls();
     reporter?.close?.();
   }
+}
+
+function waitForAbort(signal: AbortSignal) {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+}
+
+function createRunReporter(workspace: WorkspaceRuntime, serviceName: string, args: string[]): ServiceRunReporter | undefined {
+  if (serviceName === "test") return createTestRunReporter(workspace, args.includes("--watch"));
+  if (serviceName === "preview") return createPreviewRunReporter(workspace);
+  return undefined;
 }
 
 function printServiceResults(serviceName: string, results: PrintableServiceResult[]) {
@@ -174,13 +192,7 @@ function writeServiceEventToConsole(type: string, payload: unknown) {
   target.write(payload.chunk);
 }
 
-function isOutputPayload(value: unknown): value is { stream: "stdout" | "stderr"; chunk: string } {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as { stream?: unknown; chunk?: unknown };
-  return (candidate.stream === "stdout" || candidate.stream === "stderr") && typeof candidate.chunk === "string";
-}
-
-function installRunControls(controller: AbortController, onInput?: (chunk: Buffer) => void) {
+function installRunControls(controller: AbortController, onInput?: (chunk: Buffer) => boolean | undefined) {
   let stopped = false;
   const stop = () => {
     if (stopped) return;

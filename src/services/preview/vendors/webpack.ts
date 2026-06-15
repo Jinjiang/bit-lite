@@ -26,6 +26,7 @@ export const webpackPreviewVendor: PreviewVendor = {
       const webpack = webpackModule.default;
       const WebpackDevServer = devServerModule.default;
       const host = readHost(userConfig.devServer?.host);
+      emit("output", { stream: "stdout", chunk: `starting webpack preview on port ${input.port}\n` });
       const compiler = webpack({
         ...userConfig,
         mode: "development",
@@ -76,7 +77,28 @@ export const webpackPreviewVendor: PreviewVendor = {
             },
           ],
         },
+        infrastructureLogging: {
+          ...readObjectConfig(userConfig.infrastructureLogging),
+          level: "none",
+        },
+        stats: userConfig.stats ?? "none",
       } as Configuration);
+      compiler.hooks.compile.tap("bit-lite-preview", () => {
+        emit("output", { stream: "stdout", chunk: "webpack compiling preview...\n" });
+      });
+      compiler.hooks.done.tap("bit-lite-preview", (stats) => {
+        if (stats.hasErrors()) {
+          emit("output", { stream: "stderr", chunk: `${stats.toString({ colors: false, errors: true, warnings: false })}\n` });
+          return;
+        }
+        if (stats.hasWarnings()) {
+          emit("output", { stream: "stderr", chunk: `${stats.toString({ colors: false, errors: false, warnings: true })}\n` });
+        }
+        emit("output", { stream: "stdout", chunk: "webpack preview compiled\n" });
+      });
+      compiler.hooks.failed.tap("bit-lite-preview", (error) => {
+        emit("output", { stream: "stderr", chunk: `${error.message}\n` });
+      });
       const server = new WebpackDevServer(
         {
           ...userConfig.devServer,
@@ -88,7 +110,11 @@ export const webpackPreviewVendor: PreviewVendor = {
             publicPath: input.base,
           },
           devMiddleware: {
+            stats: false,
             publicPath: input.base,
+          },
+          client: {
+            logging: "none",
           },
           historyApiFallback: {
             index: `${input.base}index.html`,
@@ -100,6 +126,7 @@ export const webpackPreviewVendor: PreviewVendor = {
       await server.start();
       registerPreviewVendorCloser(() => server.stop());
       const url = `http://${host}:${input.port}${input.base}`;
+      emit("output", { stream: "stdout", chunk: `webpack preview ready at ${url}\n` });
       emit("ready", { url, host, port: input.port, base: input.base });
       return {
         ok: true,

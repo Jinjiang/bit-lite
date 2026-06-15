@@ -44,6 +44,8 @@ const DEFAULT_HOST = "127.0.0.1";
 let coordinator: PreviewCoordinator | undefined;
 let nextEnvPort = DEFAULT_ENV_PORT;
 let signalHandlersInstalled = false;
+let stopping: Promise<void> | undefined;
+let signalCloseHandler: (() => void) | undefined;
 let testWatchController: AbortController | undefined;
 type TestWatcherState = {
   envName: string;
@@ -289,18 +291,34 @@ function rejectCliArgs(args: unknown, serviceName: string) {
 function installSignalHandlers() {
   if (signalHandlersInstalled) return;
   signalHandlersInstalled = true;
-  const close = async () => {
-    process.off("SIGINT", close);
-    process.off("SIGTERM", close);
-    await closePreviewVendorServers();
-    for (const watcher of testWatchers.values()) {
-      testWatchController?.abort();
-    }
-    await new Promise<void>((resolve) => coordinator?.server.close(() => resolve()) ?? resolve());
-    console.log("start stopped");
+  signalCloseHandler = () => {
+    void stopPreviewRuntime();
   };
-  process.on("SIGINT", close);
-  process.on("SIGTERM", close);
+  process.on("SIGINT", signalCloseHandler);
+  process.on("SIGTERM", signalCloseHandler);
+}
+
+export async function stopPreviewRuntime() {
+  stopping ??= stopPreviewRuntimeOnce();
+  await stopping;
+}
+
+async function stopPreviewRuntimeOnce() {
+  if (signalCloseHandler) {
+    process.off("SIGINT", signalCloseHandler);
+    process.off("SIGTERM", signalCloseHandler);
+    signalCloseHandler = undefined;
+  }
+  await closePreviewVendorServers();
+  testWatchController?.abort();
+  await new Promise<void>((resolve) => coordinator?.server.close(() => resolve()) ?? resolve());
+  coordinator = undefined;
+  signalHandlersInstalled = false;
+  testWatchController = undefined;
+  testWatchers.clear();
+  nextEnvPort = DEFAULT_ENV_PORT;
+  stopping = undefined;
+  console.log("preview stopped");
 }
 
 export async function startTestWatchersForWorkspace(workspace: WorkspaceRuntime) {
