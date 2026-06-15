@@ -22,7 +22,7 @@
         "preview": {
           "vendor": "webpack",
           "config": {
-            "framework": "html"
+            "configFile": "preview/webpack.node.config.mjs"
           }
         }
       }
@@ -39,7 +39,7 @@
         "preview": {
           "vendor": "vite",
           "config": {
-            "framework": "react"
+            "configFile": "preview/vite.react.config.mjs"
           }
         },
         "test": {
@@ -58,9 +58,9 @@
           }
         },
         "typescript": {
-          "vendor": "oxc",
+          "vendor": "tsgo",
           "config": {
-            "strict": true
+            "tsconfig": "tsconfig.json"
           }
         },
         "test": {
@@ -72,7 +72,7 @@
         "preview": {
           "vendor": "webpack",
           "config": {
-            "framework": "vue"
+            "configFile": "preview/webpack.vue.config.mjs"
           }
         }
       }

@@ -7,21 +7,12 @@ import { loadServiceVendor, pipeVendorTask, readVendorServiceConfig } from "./se
 import { startTestWatchers } from "./test-command.js";
 import { createServiceTask } from "./runtime.js";
 import type { BitLiteService, ComponentRef, WorkspaceRuntime } from "./types.js";
-import type { PreviewFramework, PreviewVendor, PreviewVendorConfig } from "./services/preview/types.js";
+import type { PreviewVendor, PreviewVendorConfig } from "./services/preview/types.js";
 import { closePreviewVendorServers } from "./services/preview/runtime.js";
-
-type PreviewServiceConfig = {
-  vendor?: string;
-  framework?: PreviewFramework;
-  host?: string;
-  centralHost?: string;
-  strictPort?: boolean;
-};
 
 type PreviewEntry = {
   id: string;
   envName: string;
-  framework: PreviewFramework;
   rootDir: string;
   previewFile: string;
   docsFile?: string;
@@ -30,7 +21,7 @@ type PreviewEntry = {
 
 type RunningEnvPreview = {
   envName: string;
-  framework: PreviewFramework;
+  vendor: string;
   host: string;
   port: number;
   base: string;
@@ -70,13 +61,8 @@ export const previewService: BitLiteService = {
       const envName = context?.envName ?? "unknown";
       rejectCliArgs(input.args, "preview");
       const serviceDefinition = readVendorServiceConfig(input.config);
-      const serviceConfig = {
-        ...readPreviewConfig(serviceDefinition.config),
-        vendor: serviceDefinition.vendor,
-      };
-      const vendor = await loadServiceVendor<PreviewVendor>("preview", serviceConfig.vendor, context);
-      const framework = serviceConfig.framework ?? "html";
-      const entries = await discoverPreviewEntries(input.components, envName, framework, serviceConfig);
+      const vendor = await loadServiceVendor<PreviewVendor>("preview", serviceDefinition.vendor, context);
+      const entries = await discoverPreviewEntries(input.components, envName);
       if (entries.length === 0) {
         return {
           ok: true,
@@ -84,22 +70,16 @@ export const previewService: BitLiteService = {
         };
       }
 
-      const central = await ensureCoordinator(serviceConfig);
+      const central = await ensureCoordinator();
       const port = nextPreviewPort();
-      const host = serviceConfig.host ?? DEFAULT_HOST;
       const base = `/env/${encodeURIComponent(envName)}/`;
       const task = vendor.run(
         {
           ...input,
-          config: {
-            ...(serviceConfig as PreviewVendorConfig),
-            framework,
-            host,
-          },
+          config: readPreviewVendorConfig(serviceDefinition.config),
           entries,
           base,
           port,
-          host,
         },
         context
       );
@@ -108,12 +88,14 @@ export const previewService: BitLiteService = {
         emit,
       });
       if (!result.ok) return result;
-      const url = result.url ?? `http://${host}:${port}${base}`;
+      const host = result.host ?? DEFAULT_HOST;
+      const envPort = result.port ?? port;
+      const url = result.url ?? `http://${host}:${envPort}${base}`;
       central.envs.set(envName, {
         envName,
-        framework,
+        vendor: serviceDefinition.vendor,
         host,
-        port,
+        port: envPort,
         base,
         url,
         components: entries,
@@ -132,12 +114,7 @@ export const previewService: BitLiteService = {
   },
 };
 
-async function discoverPreviewEntries(
-  components: ComponentRef[],
-  envName: string,
-  framework: PreviewFramework,
-  config: PreviewServiceConfig
-) {
+async function discoverPreviewEntries(components: ComponentRef[], envName: string) {
   const entries: PreviewEntry[] = [];
   for (const component of components) {
     const previewFile = await findFirstFileByKind(component.rootDir, "preview");
@@ -147,7 +124,6 @@ async function discoverPreviewEntries(
     entries.push({
       id: component.id,
       envName,
-      framework,
       rootDir: component.rootDir,
       previewFile,
       ...(docsFile ? { docsFile } : {}),
@@ -172,11 +148,11 @@ async function findSourceFile(componentRoot: string) {
   return fileName ? path.join(componentRoot, fileName) : undefined;
 }
 
-async function ensureCoordinator(config: PreviewServiceConfig): Promise<PreviewCoordinator> {
+async function ensureCoordinator(): Promise<PreviewCoordinator> {
   if (coordinator) {
     return coordinator;
   }
-  const host = config.centralHost ?? config.host ?? DEFAULT_HOST;
+  const host = DEFAULT_HOST;
   const port = DEFAULT_CENTRAL_PORT;
   const server = createHttpServer(handleCentralRequest);
   await new Promise<void>((resolve, reject) => {
@@ -258,7 +234,7 @@ function getPreviewRegistry() {
   return {
     envs: envs.map((env) => ({
       envName: env.envName,
-      framework: env.framework,
+      vendor: env.vendor,
       url: env.url,
       proxyBase: env.base,
       components: env.components.map((component) => ({
@@ -292,17 +268,12 @@ function nextPreviewPort() {
   return port;
 }
 
-function readPreviewConfig(value: unknown): PreviewServiceConfig {
+function readPreviewVendorConfig(value: unknown): PreviewVendorConfig {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
   const input = value as Record<string, unknown>;
-  const config: PreviewServiceConfig = {};
-  if (input.framework === "html" || input.framework === "react" || input.framework === "vue") {
-    config.framework = input.framework;
-  }
-  if (typeof input.host === "string") config.host = input.host;
-  if (typeof input.centralHost === "string") config.centralHost = input.centralHost;
-  if (typeof input.strictPort === "boolean") config.strictPort = input.strictPort;
-  return config;
+  return {
+    ...(typeof input.configFile === "string" ? { configFile: input.configFile } : {}),
+  };
 }
 
 function requireWorkspaceRoot(context: { workspaceRoot?: string } | undefined) {
@@ -521,7 +492,7 @@ const CENTRAL_INDEX_HTML = `<!doctype html>
       for (const env of registry.envs) {
         const group = document.createElement("section");
         group.className = "group";
-        group.innerHTML = '<div class="group-title">' + env.envName + ' / ' + env.framework + '</div>';
+        group.innerHTML = '<div class="group-title">' + env.envName + ' / ' + env.vendor + '</div>';
         for (const component of env.components) {
           const row = document.createElement("div");
           row.className = "component-row";

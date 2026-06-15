@@ -1,34 +1,32 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
+import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { createServer as createViteServer } from "vite";
-import type { PluginOption, ViteDevServer } from "vite";
+import type { ViteDevServer } from "vite";
 import { toPosixPath } from "../../../path-utils.js";
 import { createServiceTask } from "../../../runtime.js";
+import { readObjectConfig } from "../../../service-config.js";
 import { registerPreviewVendorCloser } from "../runtime.js";
 import type { PreviewEntry, PreviewVendor } from "../types.js";
 
-const require = createRequire(import.meta.url);
+const DEFAULT_HOST = "127.0.0.1";
 
 export const vitePreviewVendor: PreviewVendor = {
   name: "vite",
   run(input, context) {
     return createServiceTask(async ({ emit }) => {
       const workspaceRoot = requireWorkspaceRoot(context);
+      const config = readObjectConfig(input.config);
+      const configFile = readConfigFile(config, workspaceRoot);
       const appRoot = await generatePreviewApp(input.entries, input.base);
-      const plugins = await loadFrameworkPlugins(input.config.framework ?? "html");
       const server = await createViteServer({
         root: appRoot,
         base: input.base,
-        configFile: false,
+        configFile: configFile ?? false,
         clearScreen: false,
-        plugins,
         server: {
-          host: input.host,
           port: input.port,
-          strictPort: input.config.strictPort ?? true,
           fs: {
             allow: [workspaceRoot, appRoot],
           },
@@ -37,13 +35,16 @@ export const vitePreviewVendor: PreviewVendor = {
 
       await server.listen();
       registerPreviewVendorCloser(() => server.close());
-      const url = firstUrl(server) ?? `http://${input.host}:${input.port}${input.base}`;
-      emit("ready", { url, port: input.port, base: input.base });
+      const port = serverPort(server) ?? input.port;
+      const host = serverHost(server);
+      const url = firstUrl(server) ?? `http://${host}:${port}${input.base}`;
+      emit("ready", { url, host, port, base: input.base });
       return {
         ok: true,
         message: `preview ${context?.envName} running at ${url}`,
         url,
-        port: input.port,
+        host,
+        port,
         base: input.base,
       };
     });
@@ -51,31 +52,6 @@ export const vitePreviewVendor: PreviewVendor = {
 };
 
 export default vitePreviewVendor;
-
-async function loadFrameworkPlugins(framework: "html" | "react" | "vue"): Promise<PluginOption[]> {
-  const plugins: PluginOption[] = [];
-  if (framework === "react") {
-    const plugin = await loadOptionalVitePlugin("@vitejs/plugin-react");
-    if (plugin) plugins.push(plugin());
-  }
-  if (framework === "vue") {
-    const plugin = await loadOptionalVitePlugin("@vitejs/plugin-vue");
-    if (plugin) plugins.push(plugin());
-  }
-  return plugins;
-}
-
-async function loadOptionalVitePlugin(packageName: string): Promise<undefined | (() => PluginOption)> {
-  let packagePath: string;
-  try {
-    packagePath = require.resolve(packageName);
-  } catch {
-    console.warn(`preview: ${packageName} is not installed; continuing without it`);
-    return undefined;
-  }
-  const mod = (await import(pathToFileURL(packagePath).href)) as { default?: unknown };
-  return typeof mod.default === "function" ? (mod.default as () => PluginOption) : undefined;
-}
 
 async function generatePreviewApp(entries: PreviewEntry[], base: string) {
   const appRoot = await mkdtemp(path.join(os.tmpdir(), "bit-lite-preview-"));
@@ -92,7 +68,6 @@ function renderRegistry(entries: PreviewEntry[], base: string) {
   const serialized = entries.map((entry) => ({
     id: entry.id,
     envName: entry.envName,
-    framework: entry.framework,
     rootDir: entry.rootDir,
     modulePath: `${base}@fs${toPosixPath(entry.previewFile)}`,
     docsModulePath: entry.docsFile ? `${base}@fs${toPosixPath(entry.docsFile)}?raw` : undefined,
@@ -103,6 +78,21 @@ function renderRegistry(entries: PreviewEntry[], base: string) {
 
 function firstUrl(server: ViteDevServer) {
   return server.resolvedUrls?.local[0] ?? server.resolvedUrls?.network[0];
+}
+
+function readConfigFile(config: Record<string, unknown>, workspaceRoot: string) {
+  return typeof config.configFile === "string" ? path.resolve(workspaceRoot, config.configFile) : undefined;
+}
+
+function serverHost(server: ViteDevServer) {
+  const host = server.config.server.host;
+  return typeof host === "string" && host !== "0.0.0.0" ? host : DEFAULT_HOST;
+}
+
+function serverPort(server: ViteDevServer) {
+  const address = server.httpServer?.address();
+  if (typeof address === "object" && address !== null) return (address as AddressInfo).port;
+  return undefined;
 }
 
 function requireWorkspaceRoot(context: { workspaceRoot?: string } | undefined) {
@@ -130,7 +120,6 @@ import { previews } from "./registry";
 type PreviewMeta = {
   id: string;
   envName: string;
-  framework: "html" | "react" | "vue";
   rootDir: string;
   modulePath: string;
   docsModulePath?: string;

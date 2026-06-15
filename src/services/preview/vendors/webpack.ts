@@ -2,41 +2,54 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import type { Configuration } from "webpack";
 import { createServiceTask } from "../../../runtime.js";
+import { readObjectConfig } from "../../../service-config.js";
 import { registerPreviewVendorCloser } from "../runtime.js";
 import type { PreviewEntry, PreviewVendor } from "../types.js";
 
 const require = createRequire(import.meta.url);
+const DEFAULT_HOST = "127.0.0.1";
 
 export const webpackPreviewVendor: PreviewVendor = {
   name: "webpack",
   run(input, context) {
     return createServiceTask(async ({ emit }) => {
       const workspaceRoot = requireWorkspaceRoot(context);
+      const config = readObjectConfig(input.config);
+      const userConfig = await loadWebpackConfig(config, workspaceRoot);
       const appRoot = await generatePreviewApp(input.entries, input.base, workspaceRoot);
       const tsconfigPath = path.join(appRoot, "tsconfig.json");
       const webpackModule = await import("webpack");
       const devServerModule = await import("webpack-dev-server");
       const webpack = webpackModule.default;
       const WebpackDevServer = devServerModule.default;
+      const host = readHost(userConfig.devServer?.host);
       const compiler = webpack({
+        ...userConfig,
         mode: "development",
         context: appRoot,
         entry: path.join(appRoot, "src/main.ts"),
         output: {
+          ...readObjectConfig(userConfig.output),
           path: path.join(appRoot, "dist"),
           filename: "main.js",
           publicPath: input.base,
         },
-        devtool: false,
+        devtool: userConfig.devtool ?? false,
         resolve: {
+          ...readObjectConfig(userConfig.resolve),
           extensions: [".ts", ".tsx", ".js", ".jsx"],
           extensionAlias: {
+            ...readObjectConfig(readObjectConfig(userConfig.resolve).extensionAlias),
             ".js": [".ts", ".tsx", ".js"],
           },
         },
         module: {
+          ...readObjectConfig(userConfig.module),
           rules: [
+            ...readRules(userConfig.module?.rules),
             {
               resourceQuery: /raw/,
               type: "asset/source",
@@ -63,13 +76,12 @@ export const webpackPreviewVendor: PreviewVendor = {
             },
           ],
         },
-      });
+      } as Configuration);
       const server = new WebpackDevServer(
         {
-          host: input.host,
+          ...userConfig.devServer,
+          host,
           port: input.port,
-          hot: false,
-          client: false,
           allowedHosts: "all",
           static: {
             directory: appRoot,
@@ -87,12 +99,13 @@ export const webpackPreviewVendor: PreviewVendor = {
 
       await server.start();
       registerPreviewVendorCloser(() => server.stop());
-      const url = `http://${input.host}:${input.port}${input.base}`;
-      emit("ready", { url, port: input.port, base: input.base });
+      const url = `http://${host}:${input.port}${input.base}`;
+      emit("ready", { url, host, port: input.port, base: input.base });
       return {
         ok: true,
         message: `webpack preview ${context?.envName} running at ${url}`,
         url,
+        host,
         port: input.port,
         base: input.base,
       };
@@ -101,6 +114,27 @@ export const webpackPreviewVendor: PreviewVendor = {
 };
 
 export default webpackPreviewVendor;
+
+type WebpackUserConfig = Configuration & {
+  devServer?: Record<string, unknown>;
+  module?: Record<string, unknown> & { rules?: unknown };
+};
+
+async function loadWebpackConfig(config: Record<string, unknown>, workspaceRoot: string): Promise<WebpackUserConfig> {
+  if (typeof config.configFile !== "string") return {};
+  const configPath = path.resolve(workspaceRoot, config.configFile);
+  const mod = (await import(pathToFileURL(configPath).href)) as { default?: unknown };
+  const loaded = typeof mod.default === "function" ? await mod.default() : mod.default;
+  return readObjectConfig(loaded) as WebpackUserConfig;
+}
+
+function readRules(value: unknown) {
+  return Array.isArray(value) ? value : [];
+}
+
+function readHost(value: unknown) {
+  return typeof value === "string" && value !== "0.0.0.0" ? value : DEFAULT_HOST;
+}
 
 async function generatePreviewApp(entries: PreviewEntry[], base: string, workspaceRoot: string) {
   const appRoot = await mkdtemp(path.join(os.tmpdir(), "bit-lite-webpack-preview-"));
@@ -156,7 +190,6 @@ function renderRegistry(entries: PreviewEntry[]) {
     return `{
       id: ${JSON.stringify(entry.id)},
       envName: ${JSON.stringify(entry.envName)},
-      framework: ${JSON.stringify(entry.framework)},
       rootDir: ${JSON.stringify(entry.rootDir)},
       preview: () => import(${JSON.stringify(entry.previewFile)}),
       docs: ${docsImport},
@@ -176,7 +209,6 @@ const MAIN_TS = `import { previews } from "./registry";
 type PreviewMeta = {
   id: string;
   envName: string;
-  framework: "html" | "react" | "vue";
   rootDir: string;
   preview: () => Promise<PreviewModule>;
   docs?: () => Promise<RawModule>;
