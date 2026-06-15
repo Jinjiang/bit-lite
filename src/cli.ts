@@ -3,6 +3,7 @@ import { BitLiteError } from "./errors.js";
 import { matchPattern } from "./patterns.js";
 import { runService } from "./runtime.js";
 import { runStart } from "./start.js";
+import { createTestRunReporter } from "./test-reporter.js";
 import { loadWorkspace } from "./workspace.js";
 import type { ServiceResult, WorkspaceRuntime } from "./types.js";
 
@@ -122,18 +123,22 @@ type PrintableServiceResult = {
 
 async function runServiceCli(workspace: WorkspaceRuntime, serviceName: string, args: string[]) {
   const controller = new AbortController();
-  const cleanupControls = args.length > 0 ? installRunControls(controller) : () => {};
+  const reporter = serviceName === "test" ? createTestRunReporter(workspace, args.includes("--watch")) : undefined;
+  const cleanupControls = args.length > 0 ? installRunControls(controller, (chunk) => reporter?.onInput?.(chunk)) : () => {};
   try {
     const results = await runService(workspace, serviceName, {
       args,
       execution: "parallel",
       signal: controller.signal,
-      onEvent: writeServiceEventToConsole,
+      onEvent: reporter?.onEvent ?? writeServiceEventToConsole,
+      ...(reporter?.onTask ? { onTask: reporter.onTask } : {}),
     });
+    reporter?.flush();
     printServiceResults(serviceName, results);
     return results.every(({ result }) => result.ok) ? 0 : 1;
   } finally {
     cleanupControls();
+    reporter?.close?.();
   }
 }
 
@@ -175,7 +180,7 @@ function isOutputPayload(value: unknown): value is { stream: "stdout" | "stderr"
   return (candidate.stream === "stdout" || candidate.stream === "stderr") && typeof candidate.chunk === "string";
 }
 
-function installRunControls(controller: AbortController) {
+function installRunControls(controller: AbortController, onInput?: (chunk: Buffer) => void) {
   let stopped = false;
   const stop = () => {
     if (stopped) return;
@@ -184,6 +189,7 @@ function installRunControls(controller: AbortController) {
   };
   const onData = (chunk: Buffer) => {
     const value = chunk.toString("utf8");
+    onInput?.(chunk);
     if (value.includes("q") || value.includes("\u0003")) stop();
   };
   const onSigint = () => stop();

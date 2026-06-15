@@ -13,6 +13,7 @@ const require = createRequire(import.meta.url);
 export const jestTestVendor: TestVendor = {
   name: "jest",
   run(input, context) {
+    let writeStdin: ((chunk: Buffer | string) => void) | undefined;
     return createServiceTask(async ({ signal, emit }) => {
       const workspaceRoot = requireWorkspaceRoot(context);
       const testFiles = await findTestFiles(input.components);
@@ -41,6 +42,11 @@ export const jestTestVendor: TestVendor = {
       const exitCode = await runNodeScript(jestPath, {
         cwd: workspaceRoot,
         args,
+        tty: watch,
+        stdin: watch ? "pipe" : "ignore",
+        onProcess: (process) => {
+          writeStdin = process.writeStdin;
+        },
         onOutput: (stream, chunk) => emit("output", { stream, chunk }),
         signal,
       });
@@ -51,6 +57,8 @@ export const jestTestVendor: TestVendor = {
       emit("status", { status: result.ok ? "passed" : "failed", message: result.message });
       emit("result", result);
       return result;
+    }, (type, payload) => {
+      if (type === "stdin") writeStdin?.(readStdinPayload(payload));
     });
   },
 };
@@ -120,4 +128,9 @@ module.exports = {
   }
 };
 `;
+}
+
+function readStdinPayload(payload: unknown) {
+  if (Buffer.isBuffer(payload)) return payload;
+  return typeof payload === "string" ? payload : "";
 }

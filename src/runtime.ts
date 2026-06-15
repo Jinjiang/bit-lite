@@ -13,6 +13,7 @@ export type RunServiceOptions = {
   signal?: AbortSignal;
   execution?: "sequential" | "parallel";
   onEvent?: (type: string, payload: unknown, context: ServiceRunEventContext) => void;
+  onTask?: (task: ServiceTask, context: ServiceRunEventContext) => void;
 };
 
 type RunnableGroup = {
@@ -87,6 +88,7 @@ export async function runService(
         cwd: workspace.workspaceRoot,
       }
     );
+    options.onTask?.(task, eventContext);
     const unsubscribe = task.listen((type, payload) => options.onEvent?.(type, payload, eventContext));
     const abort = () => task.abort();
     if (options.signal?.aborted) abort();

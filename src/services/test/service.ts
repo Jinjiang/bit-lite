@@ -1,25 +1,26 @@
 import { createServiceTask } from "../../runtime.js";
 import { loadServiceVendor, pipeVendorTask, readObjectConfig, readVendorServiceConfig } from "../../service-config.js";
-import type { BitLiteService } from "../../types.js";
+import type { BitLiteService, ServiceTask } from "../../types.js";
 import type { TestArgs, TestVendor } from "./types.js";
 
 export const testService: BitLiteService = {
   name: "test",
   run(input, context) {
+    let vendorTask: ServiceTask | undefined;
     return createServiceTask(async (host) => {
       const serviceConfig = readVendorServiceConfig(input.config);
       const vendor = await loadServiceVendor<TestVendor>("test", serviceConfig.vendor, context);
-      return pipeVendorTask(
-        vendor.run(
-          {
-            ...input,
-            config: serviceConfig.config,
-            args: readTestArgs(input.args),
-          },
-          context
-        ),
-        host
+      vendorTask = vendor.run(
+        {
+          ...input,
+          config: serviceConfig.config,
+          args: readTestArgs(input.args),
+        },
+        context
       );
+      return pipeVendorTask(vendorTask, host);
+    }, (type, payload) => {
+      vendorTask?.call(type, payload);
     });
   },
 };

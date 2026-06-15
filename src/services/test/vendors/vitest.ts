@@ -11,6 +11,7 @@ const require = createRequire(import.meta.url);
 export const vitestTestVendor: TestVendor = {
   name: "vitest",
   run(input, context) {
+    let writeStdin: ((chunk: Buffer | string) => void) | undefined;
     return createServiceTask(async ({ signal, emit }) => {
       const workspaceRoot = requireWorkspaceRoot(context);
       const config = readObjectConfig(input.config);
@@ -32,6 +33,11 @@ export const vitestTestVendor: TestVendor = {
       const exitCode = await runNodeScript(vitestPath, {
         cwd: workspaceRoot,
         args,
+        tty: watch,
+        stdin: watch ? "pipe" : "ignore",
+        onProcess: (process) => {
+          writeStdin = process.writeStdin;
+        },
         ...(typeof config.outputPrefix === "string" ? { outputPrefix: config.outputPrefix } : {}),
         onOutput: (stream, chunk) => emit("output", { stream, chunk }),
         signal,
@@ -46,6 +52,8 @@ export const vitestTestVendor: TestVendor = {
       });
       emit("result", result);
       return result;
+    }, (type, payload) => {
+      if (type === "stdin") writeStdin?.(readStdinPayload(payload));
     });
   },
 };
@@ -76,4 +84,9 @@ async function findTestFiles(components: Array<{ rootDir: string }>) {
     })
   );
   return files.flat().sort();
+}
+
+function readStdinPayload(payload: unknown) {
+  if (Buffer.isBuffer(payload)) return payload;
+  return typeof payload === "string" ? payload : "";
 }
