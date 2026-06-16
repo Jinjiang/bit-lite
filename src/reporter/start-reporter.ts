@@ -3,8 +3,8 @@ import {
   getServiceVendorLabels,
   type ServiceRunReporter,
 } from "./output-reporter.js";
-import type { ServiceRunEventContext } from "./runtime.js";
-import type { WorkspaceRuntime } from "./types.js";
+import type { ServiceRunEventContext } from "../runtime.js";
+import type { WorkspaceRuntime } from "../types/index.js";
 
 export type StartRunReporter = ServiceRunReporter;
 

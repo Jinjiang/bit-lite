@@ -2,11 +2,11 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { findFilesByKind } from "../../../file-matcher.js";
-import { runNodeScript } from "../../../process.js";
+import { findFilesByKind } from "../../../utils/file-matcher.js";
+import { runNodeScript } from "../../../utils/process.js";
 import { createServiceTask } from "../../../runtime.js";
 import { readObjectConfig } from "../../../service-config.js";
-import type { TestVendor } from "../types.js";
+import type { TestVendor } from "../../../types/services/test.js";
 
 const require = createRequire(import.meta.url);
 

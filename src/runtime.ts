@@ -1,6 +1,6 @@
-import { BitLiteError } from "./errors.js";
+import { BitLiteError } from "./utils/errors.js";
 import { loadServicesForEnv } from "./services.js";
-import type { ServiceEventListener, ServiceResult, ServiceRunResult, ServiceTask, WorkspaceRuntime } from "./types.js";
+import type { ServiceEventListener, ServiceResult, ServiceRunResult, ServiceTask, WorkspaceRuntime } from "./types/index.js";
 
 export type ServiceRunEventContext = {
   envName: string;

@@ -1,14 +1,14 @@
 import path from "node:path";
-import { BitLiteError } from "./errors.js";
-import { isOutputPayload, type ServiceRunReporter } from "./output-reporter.js";
-import { matchPattern } from "./patterns.js";
-import { createPreviewRunReporter } from "./preview-reporter.js";
+import { BitLiteError } from "./utils/errors.js";
+import { isOutputPayload, type ServiceRunReporter } from "./reporter/output-reporter.js";
+import { matchPattern } from "./utils/patterns.js";
+import { createPreviewRunReporter } from "./reporter/preview-reporter.js";
 import { runService } from "./runtime.js";
 import { runStart } from "./start.js";
-import { createStartRunReporter } from "./start-reporter.js";
-import { createTestRunReporter } from "./test-reporter.js";
-import { loadWorkspace } from "./workspace.js";
-import type { ServiceResult, WorkspaceRuntime } from "./types.js";
+import { createStartRunReporter } from "./reporter/start-reporter.js";
+import { createTestRunReporter } from "./reporter/test-reporter.js";
+import { loadWorkspace } from "./context/workspace.js";
+import type { ServiceResult, WorkspaceRuntime } from "./types/index.js";
 
 export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   const parsed = parseArgs(argv);

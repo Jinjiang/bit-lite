@@ -1,9 +1,9 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { builtinServices, isBitLiteService } from "./builtins.js";
-import { BitLiteError } from "./errors.js";
-import { isLocalModuleRef } from "./path-utils.js";
-import type { BitLiteService } from "./types.js";
+import { BitLiteError } from "./utils/errors.js";
+import { isLocalModuleRef } from "./utils/path-utils.js";
+import type { BitLiteService } from "./types/index.js";
 
 export async function loadService(workspaceRoot: string, serviceRef: string): Promise<BitLiteService> {
   const builtin = builtinServices[serviceRef];

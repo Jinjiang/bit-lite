@@ -4,11 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { createLogger, createServer as createViteServer } from "vite";
 import type { Logger, ViteDevServer } from "vite";
-import { toPosixPath } from "../../../path-utils.js";
+import { toPosixPath } from "../../../utils/path-utils.js";
 import { createServiceTask } from "../../../runtime.js";
 import { readObjectConfig } from "../../../service-config.js";
 import { registerPreviewVendorCloser } from "../runtime.js";
-import type { PreviewEntry, PreviewVendor } from "../types.js";
+import type { PreviewEntry, PreviewVendor } from "../../../types/services/preview.js";
 
 const DEFAULT_HOST = "127.0.0.1";
 

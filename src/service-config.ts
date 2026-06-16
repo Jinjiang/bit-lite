@@ -1,7 +1,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { isLocalModuleRef } from "./path-utils.js";
-import type { ServiceContext, ServiceTask } from "./types.js";
+import { isLocalModuleRef } from "./utils/path-utils.js";
+import type { ServiceContext, ServiceTask } from "./types/index.js";
 
 export type VendorServiceConfig<VendorConfig = unknown> = {
   vendor: string;

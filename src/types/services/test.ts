@@ -1,4 +1,4 @@
-import type { BitLiteService, ServiceContext, ServiceInput, ServiceResult, ServiceTask } from "../../types.js";
+import type { BitLiteService, ServiceContext, ServiceInput, ServiceResult, ServiceTask } from "../index.js";
 
 export type TestArgs = {
   watch?: boolean;

@@ -1,4 +1,4 @@
-import type { ComponentRef, ServiceContext, ServiceInput, ServiceResult, ServiceTask } from "../../types.js";
+import type { ComponentRef, ServiceContext, ServiceInput, ServiceResult, ServiceTask } from "../index.js";
 
 export type PreviewVendorConfig = {
   configFile?: string;

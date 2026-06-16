@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { BitLiteError } from "./errors.js";
-import type { BitLiteConfig, EnvConfig, ResolvedEnvConfig } from "./types.js";
+import { BitLiteError } from "../utils/errors.js";
+import type { BitLiteConfig, EnvConfig, ResolvedEnvConfig } from "../types/index.js";
 
 const CONFIG_FILE = "bit-lite.json";
 

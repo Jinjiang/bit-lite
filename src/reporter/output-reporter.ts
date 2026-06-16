@@ -1,5 +1,5 @@
-import type { ServiceRunEventContext } from "./runtime.js";
-import type { ServiceTask, WorkspaceRuntime } from "./types.js";
+import type { ServiceRunEventContext } from "../runtime.js";
+import type { ServiceTask, WorkspaceRuntime } from "../types/index.js";
 
 export type OutputPayload = {
   stream: "stdout" | "stderr";

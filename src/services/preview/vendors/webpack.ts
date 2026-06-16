@@ -7,7 +7,7 @@ import type { Configuration } from "webpack";
 import { createServiceTask } from "../../../runtime.js";
 import { readObjectConfig } from "../../../service-config.js";
 import { registerPreviewVendorCloser } from "../runtime.js";
-import type { PreviewEntry, PreviewVendor } from "../types.js";
+import type { PreviewEntry, PreviewVendor } from "../../../types/services/preview.js";
 
 const require = createRequire(import.meta.url);
 const DEFAULT_HOST = "127.0.0.1";

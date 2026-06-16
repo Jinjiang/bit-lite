@@ -1,7 +1,7 @@
 import { createServiceTask } from "../../runtime.js";
 import { loadServiceVendor, pipeVendorTask, readObjectConfig, readVendorServiceConfig } from "../../service-config.js";
-import type { BitLiteService, ServiceTask } from "../../types.js";
-import type { TestArgs, TestVendor } from "./types.js";
+import type { BitLiteService, ServiceTask } from "../../types/index.js";
+import type { TestArgs, TestVendor } from "../../types/services/test.js";
 
 export const testService: BitLiteService = {
   name: "test",

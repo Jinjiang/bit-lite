@@ -1,7 +1,7 @@
 import { runService } from "./runtime.js";
 import { setPreviewRuntimeMode, startTestWatchersForWorkspace } from "./preview.js";
-import type { ServiceRunReporter } from "./output-reporter.js";
-import type { ServiceRunResult, WorkspaceRuntime } from "./types.js";
+import type { ServiceRunReporter } from "./reporter/output-reporter.js";
+import type { ServiceRunResult, WorkspaceRuntime } from "./types/index.js";
 
 export type StartOptions = {
   signal?: AbortSignal;

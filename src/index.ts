@@ -11,11 +11,11 @@ export type {
   ServiceInput,
   ServiceResult,
   ServiceTask,
-} from "./types.js";
-export { loadConfig, resolveEnvs, validateConfig } from "./config.js";
-export { fileHasKind, findFilesByKind, findFirstFileByKind } from "./file-matcher.js";
+} from "./types/index.js";
+export { loadConfig, resolveEnvs, validateConfig } from "./context/config.js";
+export { fileHasKind, findFilesByKind, findFirstFileByKind } from "./utils/file-matcher.js";
 export { runService } from "./runtime.js";
-export { loadWorkspace } from "./workspace.js";
+export { loadWorkspace } from "./context/workspace.js";
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exitCode = await runCli();

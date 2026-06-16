@@ -2,7 +2,7 @@ import { inspectService } from "./services/inspect/service.js";
 import { previewService } from "./preview.js";
 import { testService } from "./services/test/service.js";
 import { typecheckService } from "./services/typecheck/service.js";
-import type { BitLiteService } from "./types.js";
+import type { BitLiteService } from "./types/index.js";
 
 export const builtinServices: Record<string, BitLiteService> = {
   preview: previewService,

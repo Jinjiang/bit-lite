@@ -1,9 +1,9 @@
 import { createRequire } from "node:module";
 import path from "node:path";
-import { runNodeScript } from "../../../process.js";
+import { runNodeScript } from "../../../utils/process.js";
 import { readObjectConfig, rejectCliArgs } from "../../../service-config.js";
 import { createServiceTask } from "../../../runtime.js";
-import type { TypecheckVendor } from "../types.js";
+import type { TypecheckVendor } from "../../../types/services/typecheck.js";
 
 const require = createRequire(import.meta.url);
 

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { runService } from "./runtime.js";
+import { runService } from "../runtime.js";
 import { loadWorkspace } from "./workspace.js";
 
 describe("workspace runtime", () => {

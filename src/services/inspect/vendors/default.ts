@@ -1,5 +1,5 @@
 import { createServiceTask } from "../../../runtime.js";
-import type { InspectVendor } from "../types.js";
+import type { InspectVendor } from "../../../types/services/inspect.js";
 
 export const defaultInspectVendor: InspectVendor = {
   name: "default",

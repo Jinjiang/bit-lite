@@ -2,13 +2,13 @@ import { readdir } from "node:fs/promises";
 import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import type { IncomingMessage, Server as HttpServer, ServerResponse } from "node:http";
 import path from "node:path";
-import { fileHasKind, findFirstFileByKind } from "./file-matcher.js";
-import type { ServiceRunReporter } from "./output-reporter.js";
+import { fileHasKind, findFirstFileByKind } from "./utils/file-matcher.js";
+import type { ServiceRunReporter } from "./reporter/output-reporter.js";
 import { loadServiceVendor, pipeVendorTask, readVendorServiceConfig } from "./service-config.js";
 import { startTestWatchers } from "./test-command.js";
 import { createServiceTask } from "./runtime.js";
-import type { BitLiteService, ComponentRef, WorkspaceRuntime } from "./types.js";
-import type { PreviewVendor, PreviewVendorConfig } from "./services/preview/types.js";
+import type { BitLiteService, ComponentRef, WorkspaceRuntime } from "./types/index.js";
+import type { PreviewVendor, PreviewVendorConfig } from "./types/services/preview.js";
 import { closePreviewVendorServers } from "./services/preview/runtime.js";
 
 type PreviewEntry = {

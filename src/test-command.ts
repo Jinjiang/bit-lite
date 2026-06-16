@@ -4,7 +4,7 @@ import type {
   ServiceRunResult,
   ServiceTask,
   WorkspaceRuntime,
-} from "./types.js";
+} from "./types/index.js";
 
 export type TestWatchEvent =
   | {
