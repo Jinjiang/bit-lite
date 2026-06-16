@@ -5,6 +5,7 @@ import { matchPattern } from "./patterns.js";
 import { createPreviewRunReporter } from "./preview-reporter.js";
 import { runService } from "./runtime.js";
 import { runStart } from "./start.js";
+import { createStartRunReporter } from "./start-reporter.js";
 import { createTestRunReporter } from "./test-reporter.js";
 import { loadWorkspace } from "./workspace.js";
 import type { ServiceResult, WorkspaceRuntime } from "./types.js";
@@ -27,9 +28,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
         printEnvs(workspace.envs);
         return 0;
       case "start": {
-        const results = await runStart(workspace);
-        printServiceResults("start", results);
-        return results.every(({ result }) => result.ok) ? 0 : 1;
+        return await runStartCli(workspace);
       }
       case "run": {
         if (!parsed.serviceName) throw new BitLiteError("run requires a service name");
@@ -42,6 +41,30 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
     const message = error instanceof Error ? error.message : String(error);
     console.error(message);
     return 1;
+  }
+}
+
+async function runStartCli(workspace: WorkspaceRuntime) {
+  const controller = new AbortController();
+  const reporter = createStartRunReporter(workspace);
+  const cleanupControls = installRunControls(controller, (chunk) => reporter.onInput?.(chunk));
+  try {
+    const results = await runStart(workspace, {
+      signal: controller.signal,
+      reporter,
+    });
+    if (results.every(({ result }) => result.ok)) {
+      await waitForAbort(controller.signal);
+      const { stopPreviewRuntime } = await import("./preview.js");
+      await stopPreviewRuntime();
+    }
+    reporter.flush();
+    reporter.close?.();
+    printServiceResults("start", results);
+    return results.every(({ result }) => result.ok) ? 0 : 1;
+  } finally {
+    cleanupControls();
+    reporter.close?.();
   }
 }
 

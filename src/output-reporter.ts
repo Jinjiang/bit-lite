@@ -28,6 +28,7 @@ export type OutputReporterLabels = Map<string, string | undefined>;
 export type DashboardOutputReporterOptions = {
   title: string;
   labels: OutputReporterLabels;
+  formatLabel?: (context: ServiceRunEventContext, vendor: string | undefined) => string;
   formatStatus?: (status: string) => string;
 };
 
@@ -48,8 +49,10 @@ export function createDashboardOutputReporter(options: DashboardOutputReporterOp
   let selectedIndex = 0;
   let rendered = false;
   let focused = false;
+  let closed = false;
 
   const render = () => {
+    if (closed) return;
     if (focused) {
       renderFocused();
       return;
@@ -84,10 +87,17 @@ export function createDashboardOutputReporter(options: DashboardOutputReporterOp
 
   return {
     onTask(task, context) {
+      if (closed) return;
       tasks.set(contextKey(context), task);
     },
     onEvent(type, payload, context) {
-      const state = getOutputState(outputs, context, options.labels.get(context.envName));
+      if (closed) return;
+      const state = getOutputState(
+        outputs,
+        context,
+        options.labels.get(contextKey(context)) ?? options.labels.get(context.envName),
+        options.formatLabel
+      );
       if (type === "status" && isStatusPayload(payload)) {
         state.status = payload.status;
         state.updatedAt = Date.now();
@@ -113,6 +123,7 @@ export function createDashboardOutputReporter(options: DashboardOutputReporterOp
       render();
     },
     onInput(chunk) {
+      if (closed) return false;
       const value = chunk.toString("utf8");
       let quit = false;
       for (const key of parseKeys(value)) {
@@ -124,6 +135,8 @@ export function createDashboardOutputReporter(options: DashboardOutputReporterOp
       if (rendered) process.stdout.write("\n");
     },
     close() {
+      if (closed) return;
+      closed = true;
       if (rendered) process.stdout.write("\x1b[?25h");
     },
   };
@@ -178,14 +191,15 @@ export function getServiceVendorLabels(workspace: WorkspaceRuntime, serviceName:
 function getOutputState(
   outputs: Map<string, OutputState>,
   context: ServiceRunEventContext,
-  vendor: string | undefined
+  vendor: string | undefined,
+  customFormatLabel?: (context: ServiceRunEventContext, vendor: string | undefined) => string
 ) {
   const key = contextKey(context);
   let state = outputs.get(key);
   if (!state) {
     state = {
       context,
-      label: formatLabel(context, vendor),
+      label: customFormatLabel?.(context, vendor) ?? formatLabel(context, vendor),
       stdout: "",
       stderr: "",
       status: "starting",
@@ -214,7 +228,10 @@ function parseKeys(value: string) {
 }
 
 function compareStates(left: OutputState, right: OutputState) {
-  return left.context.envName.localeCompare(right.context.envName);
+  return (
+    left.context.serviceRef.localeCompare(right.context.serviceRef) ||
+    left.context.envName.localeCompare(right.context.envName)
+  );
 }
 
 function sortedStates(outputs: Map<string, OutputState>) {

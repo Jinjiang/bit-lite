@@ -1,23 +1,9 @@
-import { renderCard } from "./index.js";
+import { createApp } from "vue";
+import Card from "./index.vue";
 
 export default function mount(root: HTMLElement) {
-  let count = 0;
-
-  const render = () => {
-    root.innerHTML = `
-      <div style="display: grid; gap: 12px; max-width: 420px;">
-        ${renderCard({
-          title: "Vue card preview",
-          body: `Rendered ${count + 1} time${count === 0 ? "" : "s"}.`,
-        })}
-        <button type="button">Render again</button>
-      </div>
-    `;
-    root.querySelector("button")?.addEventListener("click", () => {
-      count += 1;
-      render();
-    });
-  };
-
-  render();
+  createApp(Card, {
+    title: "Vue card preview",
+    body: "This card is mounted from the real Vue single-file component.",
+  }).mount(root);
 }

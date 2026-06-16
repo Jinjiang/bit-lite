@@ -1,20 +1,28 @@
-import { renderButton } from "./index.js";
+import { createElement, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { Button } from "./index.js";
 
 export default function mount(root: HTMLElement) {
-  let count = 0;
+  const app = createRoot(root);
+  app.render(createElement(ButtonDemo));
+}
 
-  const render = () => {
-    root.innerHTML = `
-      <div style="display: grid; gap: 14px; max-width: 360px;">
-        <h2 style="margin: 0; font-size: 18px;">Button preview</h2>
-        <div data-slot>${renderButton({ label: `Clicked ${count} times` })}</div>
-      </div>
-    `;
-    root.querySelector("button")?.addEventListener("click", () => {
-      count += 1;
-      render();
-    });
-  };
-
-  render();
+function ButtonDemo() {
+  const [count, setCount] = useState(0);
+  return createElement(
+    "section",
+    {
+      style: {
+        display: "grid",
+        gap: "14px",
+        maxWidth: "360px",
+      },
+    },
+    createElement("h2", { style: { margin: 0, fontSize: "18px" } }, "React button preview"),
+    createElement(Button, {
+      label: "Clicked",
+      count,
+      onClick: () => setCount((value) => value + 1),
+    })
+  );
 }

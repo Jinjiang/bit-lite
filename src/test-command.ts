@@ -1,6 +1,8 @@
 import { runService } from "./runtime.js";
+import type { ServiceRunEventContext } from "./runtime.js";
 import type {
   ServiceRunResult,
+  ServiceTask,
   WorkspaceRuntime,
 } from "./types.js";
 
@@ -35,6 +37,7 @@ export type TestWatchEvent =
 export type TestWatchOptions = {
   signal: AbortSignal;
   onEvent?: (event: TestWatchEvent) => void;
+  onTask?: (task: ServiceTask, context: ServiceRunEventContext) => void;
 };
 
 export async function startTestWatchers(
@@ -58,6 +61,7 @@ export async function startTestWatchers(
           });
         }
       },
+      ...(options.onTask ? { onTask: options.onTask } : {}),
     });
     results.forEach((result) => options.onEvent?.({ type: "exit", envName: result.envName, result }));
     return results;

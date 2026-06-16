@@ -3,6 +3,7 @@ import { createServer as createHttpServer, request as httpRequest } from "node:h
 import type { IncomingMessage, Server as HttpServer, ServerResponse } from "node:http";
 import path from "node:path";
 import { fileHasKind, findFirstFileByKind } from "./file-matcher.js";
+import type { ServiceRunReporter } from "./output-reporter.js";
 import { loadServiceVendor, pipeVendorTask, readVendorServiceConfig } from "./service-config.js";
 import { startTestWatchers } from "./test-command.js";
 import { createServiceTask } from "./runtime.js";
@@ -34,14 +35,18 @@ type PreviewCoordinator = {
   host: string;
   port: number;
   url: string;
+  mode: PreviewRuntimeMode;
   envs: Map<string, RunningEnvPreview>;
 };
+
+type PreviewRuntimeMode = "preview" | "start";
 
 const DEFAULT_ENV_PORT = 3301;
 const DEFAULT_CENTRAL_PORT = 3000;
 const DEFAULT_HOST = "127.0.0.1";
 
 let coordinator: PreviewCoordinator | undefined;
+let runtimeMode: PreviewRuntimeMode = "preview";
 let nextEnvPort = DEFAULT_ENV_PORT;
 let signalHandlersInstalled = false;
 let stopping: Promise<void> | undefined;
@@ -169,6 +174,7 @@ async function ensureCoordinator(): Promise<PreviewCoordinator> {
     host,
     port,
     url: `http://${host}:${port}/`,
+    mode: runtimeMode,
     envs: new Map(),
   };
   return coordinator;
@@ -190,10 +196,18 @@ function handleCentralRequest(req: IncomingMessage, res: ServerResponse) {
     return;
   }
   if (url.pathname === "/api/tests") {
+    if (runtimeMode !== "start") {
+      sendText(res, 404, "tests are available in start mode only");
+      return;
+    }
     sendJson(res, getTestWatcherState(url.searchParams.get("env") ?? undefined));
     return;
   }
   if (url.pathname === "/tests") {
+    if (runtimeMode !== "start") {
+      sendText(res, 404, "tests are available in start mode only");
+      return;
+    }
     sendHtml(res, TESTS_HTML);
     return;
   }
@@ -234,6 +248,7 @@ function proxyEnvRequest(req: IncomingMessage, res: ServerResponse, envName: str
 function getPreviewRegistry() {
   const envs = Array.from(coordinator?.envs.values() ?? []).sort((left, right) => left.envName.localeCompare(right.envName));
   return {
+    mode: coordinator?.mode ?? runtimeMode,
     envs: envs.map((env) => ({
       envName: env.envName,
       vendor: env.vendor,
@@ -303,6 +318,11 @@ export async function stopPreviewRuntime() {
   await stopping;
 }
 
+export function setPreviewRuntimeMode(mode: PreviewRuntimeMode) {
+  runtimeMode = mode;
+  if (coordinator) coordinator.mode = mode;
+}
+
 async function stopPreviewRuntimeOnce() {
   if (signalCloseHandler) {
     process.off("SIGINT", signalCloseHandler);
@@ -317,15 +337,17 @@ async function stopPreviewRuntimeOnce() {
   testWatchController = undefined;
   testWatchers.clear();
   nextEnvPort = DEFAULT_ENV_PORT;
+  runtimeMode = "preview";
   stopping = undefined;
   console.log("preview stopped");
 }
 
-export async function startTestWatchersForWorkspace(workspace: WorkspaceRuntime) {
+export async function startTestWatchersForWorkspace(workspace: WorkspaceRuntime, reporter?: ServiceRunReporter) {
   if (testWatchController) return;
   testWatchController = new AbortController();
   void startTestWatchers(workspace, {
     signal: testWatchController.signal,
+    ...(reporter?.onTask ? { onTask: reporter.onTask } : {}),
     onEvent: (event) => {
       if (event.type === "start") {
         testWatchers.set(event.envName, {
@@ -336,11 +358,14 @@ export async function startTestWatchersForWorkspace(workspace: WorkspaceRuntime)
       } else if (event.type === "output") {
         appendTestOutput(ensureTestWatcherState(event.envName), event.chunk);
       } else if (event.type === "service-event" && event.eventType === "status" && isStatusPayload(event.payload)) {
+        reporter?.onEvent(event.eventType, event.payload, createTestEventContext(event.envName));
         const state = ensureTestWatcherState(event.envName);
         if (event.payload.status === "running") state.status = "running";
         if (event.payload.status === "passed" || event.payload.status === "failed" || event.payload.status === "stopped") {
           state.status = "exited";
         }
+      } else if (event.type === "service-event") {
+        reporter?.onEvent(event.eventType, event.payload, createTestEventContext(event.envName));
       } else if (event.type === "exit") {
         const state = ensureTestWatcherState(event.envName);
         state.status = "exited";
@@ -362,6 +387,14 @@ export async function startTestWatchersForWorkspace(workspace: WorkspaceRuntime)
       appendTestOutput(state, `\nTest watchers failed: ${message}\n`);
     }
   });
+}
+
+function createTestEventContext(envName: string) {
+  return {
+    envName,
+    serviceName: "test",
+    serviceRef: "test",
+  };
 }
 
 function isStatusPayload(value: unknown): value is { status: string } {
@@ -494,7 +527,7 @@ const CENTRAL_INDEX_HTML = `<!doctype html>
   <body>
     <div id="app">
       <aside>
-        <h1>bit-lite previews</h1>
+        <h1 id="title">bit-lite preview</h1>
         <nav id="nav"></nav>
       </aside>
       <iframe id="frame" title="preview"></iframe>
@@ -502,10 +535,13 @@ const CENTRAL_INDEX_HTML = `<!doctype html>
     <script type="module">
       const nav = document.querySelector("#nav");
       const frame = document.querySelector("#frame");
+      const title = document.querySelector("#title");
       const params = new URLSearchParams(location.search);
       const selected = params.get("component");
       const selectedView = params.get("view") ?? "preview";
       const registry = await fetch("/api/previews").then((res) => res.json());
+      const startMode = registry.mode === "start";
+      title.textContent = startMode ? "bit-lite start" : "bit-lite preview";
       let firstHref;
       for (const env of registry.envs) {
         const group = document.createElement("section");
@@ -519,9 +555,9 @@ const CENTRAL_INDEX_HTML = `<!doctype html>
           actions.className = "actions";
           row.appendChild(actions);
           actions.appendChild(createAction(env, component, "preview", "Demo"));
-          if (component.hasDocs) actions.appendChild(createAction(env, component, "docs", "Docs"));
-          if (component.hasSource) actions.appendChild(createAction(env, component, "source", "Source"));
-          actions.appendChild(createAction(env, component, "tests", "Tests"));
+          if (startMode && component.hasDocs) actions.appendChild(createAction(env, component, "docs", "Docs"));
+          if (startMode && component.hasSource) actions.appendChild(createAction(env, component, "source", "Source"));
+          if (startMode) actions.appendChild(createAction(env, component, "tests", "Tests"));
           group.appendChild(row);
         }
         nav.appendChild(group);
