@@ -3,7 +3,15 @@ import path from "node:path";
 import { normalizeRelativePath, toPosixPath } from "./path-utils.js";
 
 const IGNORED_DIRS = new Set([".git", "dist", "node_modules"]);
-const COMPONENT_MARKERS = new Set(["component.json", "index.js", "index.jsx", "index.ts", "index.tsx", "package.json"]);
+const COMPONENT_MARKERS = new Set([
+  "component.json",
+  "index.js",
+  "index.jsx",
+  "index.ts",
+  "index.tsx",
+  "index.vue",
+  "package.json",
+]);
 
 export async function discoverComponentDirs(workspaceRoot: string, patterns: string[] = []) {
   const candidates = new Set<string>();

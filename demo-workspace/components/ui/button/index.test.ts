@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
-import { renderButton } from "./index.js";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Button } from "./index.js";
 
-describe("renderButton", () => {
-  it("renders a simple button string", () => {
-    assert.equal(renderButton({ label: "Save" }), '<button data-weight="2">Save</button>');
+describe("Button", () => {
+  it("renders the React button component", () => {
+    const html = renderToStaticMarkup(createElement(Button, { label: "Save", count: 2 }));
+    assert.match(html, /<button/);
+    assert.match(html, /data-weight="2"/);
+    assert.match(html, /Save: 2/);
   });
 });
