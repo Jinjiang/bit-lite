@@ -24,6 +24,13 @@ export type PreviewResult = ServiceResult & {
   port?: number;
   base?: string;
   host?: string;
+  vendor?: string;
+  entries?: PreviewEntry[];
+};
+
+export type PreviewArgs = {
+  base?: string;
+  port?: number;
 };
 
 export type PreviewVendor = {

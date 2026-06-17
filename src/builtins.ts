@@ -1,5 +1,5 @@
 import { inspectService } from "./services/inspect/service.js";
-import { previewService } from "./preview.js";
+import { previewService } from "./services/preview/service.js";
 import { testService } from "./services/test/service.js";
 import { typecheckService } from "./services/typecheck/service.js";
 import type { BitLiteService } from "./types/index.js";

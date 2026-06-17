@@ -21,6 +21,8 @@ type RunnableGroup = {
   runnable: Awaited<ReturnType<typeof loadServicesForEnv>>[number];
 };
 
+export type { RunnableGroup };
+
 export function createServiceTask<Result extends ServiceResult>(
   run: (host: {
     signal: AbortSignal;
@@ -56,6 +58,14 @@ export async function runService(
   serviceName: string,
   options: RunServiceOptions = {}
 ): Promise<ServiceRunResult[]> {
+  const runnableGroups = await resolveRunnableGroups(workspace, serviceName);
+  return runRunnableGroups(runnableGroups, {
+    ...options,
+    workspaceRoot: workspace.workspaceRoot,
+  });
+}
+
+export async function resolveRunnableGroups(workspace: WorkspaceRuntime, serviceName: string): Promise<RunnableGroup[]> {
   const runnableGroups: RunnableGroup[] = [];
 
   for (const group of workspace.groups) {
@@ -69,50 +79,64 @@ export async function runService(
     throw new BitLiteError(`service "${serviceName}" is not configured for any discovered env`);
   }
 
-  const runGroup = async ({ group, runnable }: RunnableGroup): Promise<ServiceRunResult> => {
-    const eventContext = {
+  return runnableGroups;
+}
+
+export type RunRunnableGroupOptions = RunServiceOptions & {
+  workspaceRoot: string;
+};
+
+export async function runRunnableGroup(
+  { group, runnable }: RunnableGroup,
+  options: RunRunnableGroupOptions
+): Promise<ServiceRunResult> {
+  const eventContext = {
+    envName: group.envName,
+    serviceName: runnable.service.name,
+    serviceRef: runnable.serviceRef,
+  };
+  const args = typeof options.args === "function" ? options.args(eventContext) : options.args;
+  const task = runnable.service.run(
+    {
+      components: group.components,
+      config: runnable.config,
+      args,
+    },
+    {
+      workspaceRoot: options.workspaceRoot,
+      envName: group.envName,
+      cwd: options.workspaceRoot,
+    }
+  );
+  options.onTask?.(task, eventContext);
+  const unsubscribe = task.listen((type, payload) => options.onEvent?.(type, payload, eventContext));
+  const abort = () => task.abort();
+  if (options.signal?.aborted) abort();
+  options.signal?.addEventListener("abort", abort, { once: true });
+  try {
+    const result = await task.result;
+    return {
       envName: group.envName,
       serviceName: runnable.service.name,
-      serviceRef: runnable.serviceRef,
+      result,
     };
-    const args = typeof options.args === "function" ? options.args(eventContext) : options.args;
-    const task = runnable.service.run(
-      {
-        components: group.components,
-        config: runnable.config,
-        args,
-      },
-      {
-        workspaceRoot: workspace.workspaceRoot,
-        envName: group.envName,
-        cwd: workspace.workspaceRoot,
-      }
-    );
-    options.onTask?.(task, eventContext);
-    const unsubscribe = task.listen((type, payload) => options.onEvent?.(type, payload, eventContext));
-    const abort = () => task.abort();
-    if (options.signal?.aborted) abort();
-    options.signal?.addEventListener("abort", abort, { once: true });
-    try {
-      const result = await task.result;
-      return {
-        envName: group.envName,
-        serviceName: runnable.service.name,
-        result,
-      };
-    } finally {
-      options.signal?.removeEventListener("abort", abort);
-      unsubscribe();
-    }
-  };
+  } finally {
+    options.signal?.removeEventListener("abort", abort);
+    unsubscribe();
+  }
+}
 
+export async function runRunnableGroups(
+  runnableGroups: RunnableGroup[],
+  options: RunRunnableGroupOptions
+): Promise<ServiceRunResult[]> {
   if (options.execution === "parallel") {
-    return Promise.all(runnableGroups.map(runGroup));
+    return Promise.all(runnableGroups.map((runnableGroup) => runRunnableGroup(runnableGroup, options)));
   }
 
   const results: ServiceRunResult[] = [];
   for (const runnableGroup of runnableGroups) {
-    results.push(await runGroup(runnableGroup));
+    results.push(await runRunnableGroup(runnableGroup, options));
   }
   return results;
 }
