@@ -3,6 +3,7 @@ import { findFilesByKind } from "../../../utils/file-matcher.js";
 import { runNodeScript } from "../../../utils/process.js";
 import { createServiceTask } from "../../../runtime.js";
 import { readObjectConfig } from "../../../service-config.js";
+import { serviceResult } from "../../../utils/service-result.js";
 import type { TestVendor } from "../../../types/services/test.js";
 
 const require = createRequire(import.meta.url);
@@ -17,7 +18,16 @@ export const mochaTestVendor: TestVendor = {
       if (testFiles.length === 0) {
         const message = `no test files found for ${context?.envName}`;
         emit("output", { stream: "stdout", chunk: `${message}\n` });
-        return { ok: true, message };
+        return serviceResult({
+          ok: true,
+          toJSON: () => ({
+            vendor: "mocha",
+            envName: context?.envName,
+            files: 0,
+            tests: 0,
+          }),
+          toString: () => message,
+        });
       }
 
       const config = readObjectConfig(input.config);
@@ -47,10 +57,17 @@ export const mochaTestVendor: TestVendor = {
         signal,
       });
       const result = {
-        ok: exitCode === 0,
-        message: exitCode === 0 ? `mocha tests passed for ${context?.envName}` : `mocha tests failed for ${context?.envName}`,
+        ...serviceResult({
+          ok: exitCode === 0,
+          toJSON: () => ({
+            vendor: "mocha",
+            envName: context?.envName,
+          }),
+          toString: () =>
+            exitCode === 0 ? `mocha tests passed for ${context?.envName}` : `mocha tests failed for ${context?.envName}`,
+        }),
       };
-      emit("status", { status: result.ok ? "passed" : "failed", message: result.message });
+      emit("status", { status: result.ok ? "passed" : "failed", message: result.toString() });
       emit("result", result);
       return result;
     }, (type, payload) => {

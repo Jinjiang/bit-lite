@@ -8,6 +8,7 @@ import { toPosixPath } from "../../../utils/path-utils.js";
 import { createServiceTask } from "../../../runtime.js";
 import { readObjectConfig } from "../../../service-config.js";
 import { registerPreviewVendorCloser } from "../runtime.js";
+import { serviceResult } from "../../../utils/service-result.js";
 import type { PreviewEntry, PreviewVendor } from "../../../types/services/preview.js";
 
 const DEFAULT_HOST = "127.0.0.1";
@@ -43,8 +44,20 @@ export const vitePreviewVendor: PreviewVendor = {
       emit("output", { stream: "stdout", chunk: `vite preview ready at ${url}\n` });
       emit("ready", { url, host, port, base: input.base });
       return {
+        ...serviceResult({
+          ok: true,
+          toJSON: () => ({
+            vendor: "vite",
+            envName: context?.envName,
+            url,
+            host,
+            port,
+            base: input.base,
+            entries: input.entries,
+          }),
+          toString: () => `preview ${context?.envName} running at ${url}`,
+        }),
         ok: true,
-        message: `preview ${context?.envName} running at ${url}`,
         url,
         host,
         port,

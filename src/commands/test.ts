@@ -105,7 +105,7 @@ export function createTestResultStore() {
       const state = ensureState(states, result.envName);
       state.status = "ended";
       if (!result.result.ok) state.exitCode = 1;
-      appendOutput(state, `\n${result.result.message ?? `Test watcher for ${result.envName} ended.`}\n`);
+      appendOutput(state, `\n${result.result.toTerminalString?.() ?? result.result.toString()}\n`);
     },
     error(envName: string, error: unknown) {
       const state = ensureState(states, envName);

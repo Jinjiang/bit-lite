@@ -7,6 +7,7 @@ import type { Configuration } from "webpack";
 import { createServiceTask } from "../../../runtime.js";
 import { readObjectConfig } from "../../../service-config.js";
 import { registerPreviewVendorCloser } from "../runtime.js";
+import { serviceResult } from "../../../utils/service-result.js";
 import type { PreviewEntry, PreviewVendor } from "../../../types/services/preview.js";
 
 const require = createRequire(import.meta.url);
@@ -129,8 +130,20 @@ export const webpackPreviewVendor: PreviewVendor = {
       emit("output", { stream: "stdout", chunk: `webpack preview ready at ${url}\n` });
       emit("ready", { url, host, port: input.port, base: input.base });
       return {
+        ...serviceResult({
+          ok: true,
+          toJSON: () => ({
+            vendor: "webpack",
+            envName: context?.envName,
+            url,
+            host,
+            port: input.port,
+            base: input.base,
+            entries: input.entries,
+          }),
+          toString: () => `webpack preview ${context?.envName} running at ${url}`,
+        }),
         ok: true,
-        message: `webpack preview ${context?.envName} running at ${url}`,
         url,
         host,
         port: input.port,

@@ -1,5 +1,6 @@
 import { createServiceTask } from "../../runtime.js";
 import { loadServiceVendor, pipeVendorTask, readVendorServiceConfig } from "../../service-config.js";
+import { serviceResult } from "../../utils/service-result.js";
 import type { BitLiteService } from "../../types/index.js";
 import type { PreviewArgs, PreviewResult, PreviewVendor, PreviewVendorConfig } from "../../types/services/preview.js";
 import { discoverPreviewEntries } from "./discovery.js";
@@ -17,8 +18,16 @@ export const previewService: BitLiteService<unknown, PreviewArgs, PreviewResult>
       const entries = await discoverPreviewEntries(input.components, envName);
       if (entries.length === 0) {
         return {
+          ...serviceResult({
+            ok: true,
+            toJSON: () => ({
+              vendor: serviceDefinition.vendor,
+              envName,
+              entries,
+            }),
+            toString: () => `preview found no preview files for ${envName}`,
+          }),
           ok: true,
-          message: `preview found no preview files for ${envName}`,
           vendor: serviceDefinition.vendor,
           entries,
         };
@@ -43,8 +52,20 @@ export const previewService: BitLiteService<unknown, PreviewArgs, PreviewResult>
       const url = result.url ?? `http://${hostName}:${envPort}${base}`;
       return {
         ...result,
+        ...serviceResult({
+          ok: true,
+          toJSON: () => ({
+            vendor: serviceDefinition.vendor,
+            envName,
+            url,
+            host: hostName,
+            port: envPort,
+            base,
+            entries,
+          }),
+          toString: () => `preview ${envName} running at ${url}`,
+        }),
         ok: true,
-        message: `preview ${envName} running at ${url}`,
         url,
         host: hostName,
         port: envPort,

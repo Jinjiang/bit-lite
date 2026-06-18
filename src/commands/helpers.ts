@@ -69,7 +69,8 @@ export function installRunControls(controller: AbortController, onInput?: (chunk
 
 export function printServiceResults(serviceName: string, results: PrintableServiceResult[]) {
   results.forEach(({ envName, result }) => {
-    if (result.message) console.log(result.message);
+    const text = result.toTerminalString?.() ?? result.toString();
+    if (text) console.log(text);
     console.log(`${result.ok ? "ok" : "failed"} ${serviceName} (${envName})`);
   });
 }

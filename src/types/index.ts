@@ -1,6 +1,8 @@
-export type ServiceResult = {
+export type ServiceResult<JsonValue = unknown> = {
   ok: boolean;
-  message?: string;
+  toJSON(): JsonValue;
+  toString(): string;
+  toTerminalString?(): string;
 };
 
 export type ComponentRef = {

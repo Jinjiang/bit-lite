@@ -4,15 +4,26 @@ export type TypecheckArgs = {
   watch?: boolean;
 };
 
-export type TypecheckResult = ServiceResult & {
-  diagnostics?: Array<{
-    file?: string;
-    line?: number;
-    column?: number;
-    message: string;
-    severity: "error" | "warning";
-  }>;
+export type TypecheckDiagnostic = {
+  file?: string;
+  line?: number;
+  column?: number;
+  code?: number;
+  message: string;
+  severity: "error" | "warning";
 };
+
+export type TypecheckResultJson = {
+  checker: string;
+  runner: "process" | "api";
+  envName?: string | undefined;
+  files?: number;
+  errors?: number;
+  warnings?: number;
+  diagnostics: TypecheckDiagnostic[];
+};
+
+export type TypecheckResult = ServiceResult<TypecheckResultJson>;
 
 export type TypecheckVendorInput = ServiceInput<unknown, TypecheckArgs | string[] | undefined>;
 

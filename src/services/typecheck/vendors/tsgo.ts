@@ -3,6 +3,7 @@ import path from "node:path";
 import { runNodeScript } from "../../../utils/process.js";
 import { readObjectConfig, rejectCliArgs } from "../../../service-config.js";
 import { createServiceTask } from "../../../runtime.js";
+import { serviceResult } from "../../../utils/service-result.js";
 import type { TypecheckVendor } from "../../../types/services/typecheck.js";
 
 const require = createRequire(import.meta.url);
@@ -22,9 +23,18 @@ export const tsgoTypecheckVendor: TypecheckVendor = {
         onOutput: (stream, chunk) => emit("output", { stream, chunk }),
         signal,
       });
+      const text = exitCode === 0 ? `tsgo typecheck passed for ${context?.envName}` : `tsgo typecheck failed for ${context?.envName}`;
       return {
-        ok: exitCode === 0,
-        message: exitCode === 0 ? `tsgo typecheck passed for ${context?.envName}` : `tsgo typecheck failed for ${context?.envName}`,
+        ...serviceResult({
+          ok: exitCode === 0,
+          toJSON: () => ({
+            checker: "tsgo",
+            runner: "process" as const,
+            envName: context?.envName,
+            diagnostics: [],
+          }),
+          toString: () => text,
+        }),
       };
     });
   },

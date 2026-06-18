@@ -19,7 +19,17 @@ export type PreviewVendorInput = ServiceInput<PreviewVendorConfig, unknown> & {
   port: number;
 };
 
-export type PreviewResult = ServiceResult & {
+export type PreviewResultJson = {
+  vendor: string;
+  envName?: string | undefined;
+  url?: string;
+  port?: number;
+  base?: string;
+  host?: string;
+  entries: PreviewEntry[];
+};
+
+export type PreviewResult = ServiceResult<PreviewResultJson> & {
   url?: string;
   port?: number;
   base?: string;

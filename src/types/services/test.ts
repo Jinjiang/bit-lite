@@ -4,7 +4,36 @@ export type TestArgs = {
   watch?: boolean;
 };
 
-export type TestResult = ServiceResult & {
+export type TestResultJson = {
+  vendor: string;
+  envName?: string | undefined;
+  files?: number;
+  tests?: number;
+  passed?: number;
+  failed?: number;
+  skipped?: number;
+  durationMs?: number;
+  suites?: TestSuiteResultJson[];
+  error?: string;
+};
+
+export type TestSuiteResultJson = {
+  file: string;
+  status: "passed" | "failed" | "skipped";
+  durationMs?: number;
+  tests: TestCaseResultJson[];
+  failureMessage?: string;
+};
+
+export type TestCaseResultJson = {
+  title: string;
+  fullName: string;
+  status: string;
+  durationMs?: number;
+  failureMessages?: string[];
+};
+
+export type TestResult = ServiceResult<TestResultJson> & {
   files?: number;
   tests?: number;
   passed?: number;

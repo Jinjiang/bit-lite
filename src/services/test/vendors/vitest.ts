@@ -4,6 +4,7 @@ import { findFilesByKind } from "../../../utils/file-matcher.js";
 import { runNodeScript } from "../../../utils/process.js";
 import { readObjectConfig } from "../../../service-config.js";
 import { createServiceTask } from "../../../runtime.js";
+import { serviceResult } from "../../../utils/service-result.js";
 import type { TestVendor } from "../../../types/services/test.js";
 
 const require = createRequire(import.meta.url);
@@ -19,8 +20,18 @@ export const vitestTestVendor: TestVendor = {
       if (testFiles.length === 0) {
         const message = `no test files found for ${context?.envName}`;
         emit("output", { stream: "stdout", chunk: `${message}\n` });
-        emit("result", { ok: true, message });
-        return { ok: true, message };
+        const result = serviceResult({
+          ok: true,
+          toJSON: () => ({
+            vendor: "vitest",
+            envName: context?.envName,
+            files: 0,
+            tests: 0,
+          }),
+          toString: () => message,
+        });
+        emit("result", result);
+        return result;
       }
 
       const watch = input.args.watch === true;
@@ -43,12 +54,19 @@ export const vitestTestVendor: TestVendor = {
         signal,
       });
       const result = {
-        ok: exitCode === 0,
-        message: exitCode === 0 ? `tests passed for ${context?.envName}` : `tests failed for ${context?.envName}`,
+        ...serviceResult({
+          ok: exitCode === 0,
+          toJSON: () => ({
+            vendor: "vitest",
+            envName: context?.envName,
+            files: testFiles.length,
+          }),
+          toString: () => exitCode === 0 ? `tests passed for ${context?.envName}` : `tests failed for ${context?.envName}`,
+        }),
       };
       emit("status", {
         status: result.ok ? "passed" : "failed",
-        message: result.message,
+        message: result.toString(),
       });
       emit("result", result);
       return result;

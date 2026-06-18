@@ -1,6 +1,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { isLocalModuleRef } from "./utils/path-utils.js";
+import { serviceResult } from "./utils/service-result.js";
 import type { ServiceContext, ServiceTask } from "./types/index.js";
 
 export type VendorServiceConfig<VendorConfig = unknown> = {
@@ -25,10 +26,15 @@ export function readVendorServiceConfig(config: unknown): VendorServiceConfig {
 }
 
 export function unsupportedVendorResult(serviceName: string, vendor: string) {
-  return {
+  return serviceResult({
     ok: false,
-    message: `${serviceName} vendor "${vendor}" is not available`,
-  };
+    toJSON: () => ({
+      serviceName,
+      vendor,
+      error: "unsupported-vendor",
+    }),
+    toString: () => `${serviceName} vendor "${vendor}" is not available`,
+  });
 }
 
 export function rejectCliArgs(args: unknown, serviceName: string) {

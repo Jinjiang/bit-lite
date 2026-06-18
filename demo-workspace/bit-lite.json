@@ -10,7 +10,7 @@
           }
         },
         "typescript": {
-          "vendor": "tsc",
+          "vendor": "typescript-api",
           "config": {
             "tsconfig": "../demo-config/typecheck/tsconfig.json"
           }
@@ -40,6 +40,12 @@
           "vendor": "vite",
           "config": {
             "configFile": "../demo-config/preview/vite.react.config.mjs"
+          }
+        },
+        "typescript": {
+          "vendor": "tsc",
+          "config": {
+            "tsconfig": "../demo-config/typecheck/tsconfig.json"
           }
         },
         "test": {
