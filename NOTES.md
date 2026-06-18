@@ -114,7 +114,7 @@ The loader may also accept a default `BitLiteService` export if it is easy, but 
       "services": {
         "./services/inspect.ts": {},
         "./services/typescript.ts": {
-          "tsconfig": "tsconfig.json"
+          "tsconfig": "../demo-config/typecheck/tsconfig.json"
         },
         "./services/test.ts": {}
       }

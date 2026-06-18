@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["components/**/*.ts"]
+  "include": ["../../demo-workspace/components/**/*.ts"]
 }

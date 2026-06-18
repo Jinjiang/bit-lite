@@ -24,7 +24,7 @@ export const vitestTestVendor: TestVendor = {
       }
 
       const watch = input.args.watch === true;
-      const args = readVitestArgs(config, watch, testFiles);
+      const args = readVitestArgs(config, watch, testFiles, workspaceRoot);
       const vitestPath = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
       emit("status", {
         status: "running",
@@ -69,10 +69,11 @@ function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 
-function readVitestArgs(config: Record<string, unknown>, watch: boolean, testFiles: string[]) {
+function readVitestArgs(config: Record<string, unknown>, watch: boolean, testFiles: string[], workspaceRoot: string) {
   const configuredArgs = Array.isArray(config.args) ? config.args.filter(isString) : [];
   const modeArgs = watch ? ["watch"] : configuredArgs.length ? configuredArgs : ["run"];
-  return [...modeArgs, ...testFiles];
+  const configArgs = typeof config.configFile === "string" ? ["--config", path.resolve(workspaceRoot, config.configFile)] : [];
+  return [...modeArgs, ...configArgs, ...testFiles];
 }
 
 async function findTestFiles(components: Array<{ rootDir: string }>) {

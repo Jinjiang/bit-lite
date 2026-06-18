@@ -12,7 +12,7 @@
         "typescript": {
           "vendor": "tsc",
           "config": {
-            "tsconfig": "tsconfig.json"
+            "tsconfig": "../demo-config/typecheck/tsconfig.json"
           }
         },
         "test": {
@@ -22,7 +22,7 @@
         "preview": {
           "vendor": "webpack",
           "config": {
-            "configFile": "preview/webpack.node.config.mjs"
+            "configFile": "../demo-config/preview/webpack.node.config.mjs"
           }
         }
       }
@@ -39,7 +39,7 @@
         "preview": {
           "vendor": "vite",
           "config": {
-            "configFile": "preview/vite.react.config.mjs"
+            "configFile": "../demo-config/preview/vite.react.config.mjs"
           }
         },
         "test": {
@@ -60,19 +60,20 @@
         "typescript": {
           "vendor": "tsgo",
           "config": {
-            "tsconfig": "tsconfig.json"
+            "tsconfig": "../demo-config/typecheck/tsconfig.json"
           }
         },
         "test": {
           "vendor": "vitest",
           "config": {
+            "configFile": "../demo-config/test/vitest.vue.config.ts",
             "args": ["run"]
           }
         },
         "preview": {
           "vendor": "webpack",
           "config": {
-            "configFile": "preview/webpack.vue.config.mjs"
+            "configFile": "../demo-config/preview/webpack.vue.config.mjs"
           }
         }
       }
