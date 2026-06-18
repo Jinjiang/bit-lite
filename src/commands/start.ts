@@ -1,16 +1,17 @@
-import { createPreviewHost, type HostTestState } from "../host/server.js";
-import { createStartRunReporter } from "../reporter/start-reporter.js";
-import { isOutputPayload } from "../reporter/output-reporter.js";
-import { resolveRunnableGroups, runRunnableGroup } from "../runtime.js";
+import { createCommandHost, type CommandHost } from "../host/server.js";
+import {
+  createDashboardOutputReporter,
+  getServiceVendorLabels,
+  type ServiceRunReporter,
+} from "../reporter/output-reporter.js";
+import type { ServiceRunEventContext } from "../runtime.js";
+import type { WorkspaceRuntime } from "../types/index.js";
+import type { PreviewEntry } from "../types/services/preview.js";
 import { closePreviewVendorServers } from "../services/preview/runtime.js";
-import { BitLiteError } from "../utils/errors.js";
-import type { PreviewResult } from "../types/services/preview.js";
-import type { ServiceRunEventContext, RunnableGroup } from "../runtime.js";
-import type { ServiceRunResult, WorkspaceRuntime } from "../types/index.js";
+import { createPreviewViews, runPreviewServices, type PreviewViewContext } from "./preview.js";
+import { createTestResultStore, runTestServices } from "./test.js";
 import { installRunControls, printServiceResults, waitForAbort } from "./helpers.js";
 import type { BitLiteCommand } from "./types.js";
-
-const FIRST_ENV_PORT = 3301;
 
 export const startCommand: BitLiteCommand = {
   name: "start",
@@ -22,37 +23,27 @@ export const startCommand: BitLiteCommand = {
     const controller = new AbortController();
     const reporter = createStartRunReporter(workspace);
     const cleanupControls = installRunControls(controller, (chunk) => reporter.onInput?.(chunk));
-    const host = await createPreviewHost({ title: "bit-lite start" });
+    const host = await createCommandHost({ title: "bit-lite start" });
     const tests = createTestResultStore();
-    host.setTestProvider((envName) => tests.get(envName));
+    registerTestRoutes(host, tests);
 
     try {
-      const previewGroups = await resolveRunnableGroups(workspace, "preview");
-      const testGroups = await resolveOptionalRunnableGroups(workspace, "test");
-      const testResultsPromise = runStartTestWatchers(workspace, testGroups, controller.signal, reporter, tests).catch(
-        () => []
-      );
-      const previewResults = await Promise.all(
-        previewGroups.map(async (runnableGroup, index) => {
-          const envName = runnableGroup.group.envName;
-          const result = await runRunnableGroup(runnableGroup, {
-            workspaceRoot: workspace.workspaceRoot,
-            args: {
-              port: FIRST_ENV_PORT + index,
-              base: `/env/${encodeURIComponent(envName)}/`,
-            },
-            signal: controller.signal,
-            onEvent: reporter.onEvent,
-            ...(reporter.onTask ? { onTask: reporter.onTask } : {}),
-          });
-          host.registerPreview(result.envName, result.result as PreviewResult, {
-            docs: true,
-            source: true,
-            tests: true,
-          });
-          return result;
-        })
-      );
+      const testResultsPromise = runTestServices(workspace, {
+        args: { watch: true },
+        signal: controller.signal,
+        reporter,
+        optional: true,
+        onStart: (envName) => tests.start(envName),
+        onEvent: (type, payload, context) => tests.event(type, payload, context),
+        onResult: (result) => tests.exit(result),
+        onError: (envName, error) => tests.error(envName, error),
+      }).catch(() => []);
+      const previewResults = await runPreviewServices(workspace, {
+        signal: controller.signal,
+        reporter,
+        host,
+        createViews: createStartPreviewViews,
+      });
 
       reporter.flush();
       printServiceResults("start", previewResults);
@@ -61,7 +52,7 @@ export const startCommand: BitLiteCommand = {
         await waitForAbort(controller.signal);
       }
       controller.abort();
-      await testResultsPromise.catch(() => undefined);
+      await testResultsPromise;
       return previewResults.every(({ result }) => result.ok) ? 0 : 1;
     } finally {
       controller.abort();
@@ -73,127 +64,70 @@ export const startCommand: BitLiteCommand = {
   },
 };
 
-async function resolveOptionalRunnableGroups(workspace: WorkspaceRuntime, serviceName: string) {
-  try {
-    return await resolveRunnableGroups(workspace, serviceName);
-  } catch (error) {
-    if (error instanceof BitLiteError && error.message.includes(`service "${serviceName}" is not configured`)) {
-      return [];
+function registerTestRoutes(host: CommandHost, tests: ReturnType<typeof createTestResultStore>) {
+  host.registerRoute({
+    path: "/api/tests",
+    handler({ url, sendJson }) {
+      sendJson(tests.get(url.searchParams.get("env") ?? undefined));
+    },
+  });
+  host.registerRoute({
+    path: "/tests",
+    handler({ sendAsset }) {
+      return sendAsset("tests.html");
+    },
+  });
+}
+
+function createStartPreviewViews(entry: PreviewEntry, context: PreviewViewContext) {
+  const component = encodeURIComponent(entry.id);
+  const views = createPreviewViews(entry, context);
+  if (entry.docsFile) {
+    views.push({
+      type: "docs",
+      label: "Docs",
+      url: `${context.base}?component=${component}&view=docs`,
+    });
+  }
+  if (entry.sourceFile) {
+    views.push({
+      type: "source",
+      label: "Source",
+      url: `${context.base}?component=${component}&view=source`,
+    });
+  }
+  views.push({
+    type: "tests",
+    label: "Tests",
+    url: `/tests?env=${encodeURIComponent(context.envName)}&component=${component}`,
+  });
+  return views;
+}
+
+function createStartRunReporter(workspace: WorkspaceRuntime): ServiceRunReporter {
+  return createDashboardOutputReporter({
+    title: "bit-lite start",
+    labels: getStartLabels(workspace),
+    formatLabel,
+    formatStatus,
+  });
+}
+
+function getStartLabels(workspace: WorkspaceRuntime) {
+  const labels = new Map<string, string | undefined>();
+  for (const serviceName of ["preview", "test"]) {
+    for (const [envName, vendor] of getServiceVendorLabels(workspace, serviceName)) {
+      labels.set(`${envName}\0${serviceName}`, vendor);
     }
-    throw error;
   }
+  return labels;
 }
 
-function runStartTestWatchers(
-  workspace: WorkspaceRuntime,
-  runnableGroups: RunnableGroup[],
-  signal: AbortSignal,
-  reporter: ReturnType<typeof createStartRunReporter>,
-  store: TestResultStore
-) {
-  for (const runnableGroup of runnableGroups) {
-    store.start(runnableGroup.group.envName);
-  }
-  return Promise.all(
-    runnableGroups.map(async (runnableGroup) => {
-      const envName = runnableGroup.group.envName;
-      try {
-        const result = await runRunnableGroup(runnableGroup, {
-          workspaceRoot: workspace.workspaceRoot,
-          args: { watch: true },
-          execution: "parallel",
-          signal,
-          onEvent(type, payload, context) {
-            store.event(type, payload, context);
-            reporter.onEvent(type, payload, context);
-          },
-          ...(reporter.onTask ? { onTask: reporter.onTask } : {}),
-        });
-        store.exit(envName, result);
-        return result;
-      } catch (error) {
-        store.error(envName, error);
-        throw error;
-      }
-    })
-  );
+function formatLabel(context: ServiceRunEventContext, vendor: string | undefined) {
+  return `${context.serviceRef} ${context.envName}/${vendor ?? context.serviceName}`;
 }
 
-type TestResultStore = ReturnType<typeof createTestResultStore>;
-
-function createTestResultStore() {
-  const states = new Map<string, HostTestState>();
-  return {
-    start(envName: string) {
-      states.set(envName, {
-        envName,
-        status: "running",
-        output: `Starting tests for ${envName}...`,
-      });
-    },
-    event(type: string, payload: unknown, context: ServiceRunEventContext) {
-      const state = ensureState(states, context.envName);
-      if (type === "output" && isOutputPayload(payload)) {
-        appendOutput(state, payload.chunk);
-        return;
-      }
-      if (type === "status" && isStatusPayload(payload)) {
-        state.status = payload.status === "passed" || payload.status === "failed" ? "ended" : payload.status;
-      }
-    },
-    exit(envName: string, result: ServiceRunResult) {
-      const state = ensureState(states, envName);
-      state.status = "ended";
-      if (!result.result.ok) state.exitCode = 1;
-      appendOutput(state, `\n${result.result.message ?? `Test watcher for ${envName} ended.`}\n`);
-    },
-    error(envName: string, error: unknown) {
-      const state = ensureState(states, envName);
-      state.status = "ended";
-      state.exitCode = 1;
-      const message = error instanceof Error ? error.message : String(error);
-      appendOutput(state, `\nTest watcher for ${envName} failed: ${message}\n`);
-    },
-    get(envName?: string): HostTestState {
-      if (envName) {
-        const state = states.get(envName);
-        return state ?? {
-          envName,
-          status: "idle",
-          output: `Tests have not started for ${envName}.`,
-        };
-      }
-      return {
-        envs: Array.from(states.values()).sort((left, right) => (left.envName ?? "").localeCompare(right.envName ?? "")),
-      };
-    },
-  };
-}
-
-function ensureState(states: Map<string, HostTestState>, envName: string) {
-  let state = states.get(envName);
-  if (!state) {
-    state = {
-      envName,
-      status: "idle",
-      output: "",
-    };
-    states.set(envName, state);
-  }
-  return state;
-}
-
-function appendOutput(state: HostTestState, chunk: string) {
-  state.output = `${state.output ?? ""}${stripAnsi(chunk)}`;
-  if (state.output.length > 20000) {
-    state.output = state.output.slice(state.output.length - 20000);
-  }
-}
-
-function stripAnsi(value: string) {
-  return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
-}
-
-function isStatusPayload(value: unknown): value is { status: string } {
-  return typeof value === "object" && value !== null && typeof (value as { status?: unknown }).status === "string";
+function formatStatus(status: string) {
+  if (status === "passed") return "ended";
+  return status;
 }

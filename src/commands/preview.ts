@@ -1,12 +1,33 @@
-import { createPreviewHost } from "../host/server.js";
-import { createPreviewRunReporter } from "../reporter/preview-reporter.js";
+import { createCommandHost, type CommandHost, type HostView } from "../host/server.js";
+import {
+  createDashboardOutputReporter,
+  getServiceVendorLabels,
+  type ServiceRunReporter,
+} from "../reporter/output-reporter.js";
 import { resolveRunnableGroups, runRunnableGroup } from "../runtime.js";
 import { closePreviewVendorServers } from "../services/preview/runtime.js";
-import type { PreviewResult } from "../types/services/preview.js";
+import type { WorkspaceRuntime } from "../types/index.js";
+import type { PreviewEntry, PreviewResult } from "../types/services/preview.js";
 import { installRunControls, printServiceResults, waitForAbort } from "./helpers.js";
 import type { BitLiteCommand } from "./types.js";
 
 const FIRST_ENV_PORT = 3301;
+
+export type PreviewViewContext = {
+  envName: string;
+  base: string;
+  result: PreviewResult;
+};
+
+export type PreviewViewFactory = (entry: PreviewEntry, context: PreviewViewContext) => HostView[];
+
+export type RunPreviewServicesOptions = {
+  signal?: AbortSignal;
+  reporter?: ServiceRunReporter;
+  host?: CommandHost;
+  firstPort?: number;
+  createViews?: PreviewViewFactory;
+};
 
 export const previewCommand: BitLiteCommand = {
   name: "preview",
@@ -18,26 +39,13 @@ export const previewCommand: BitLiteCommand = {
     const controller = new AbortController();
     const reporter = createPreviewRunReporter(workspace);
     const cleanupControls = installRunControls(controller, (chunk) => reporter.onInput?.(chunk));
-    const host = await createPreviewHost({ title: "bit-lite preview" });
+    const host = await createCommandHost({ title: "bit-lite preview" });
     try {
-      const runnableGroups = await resolveRunnableGroups(workspace, "preview");
-      const results = await Promise.all(
-        runnableGroups.map(async (runnableGroup, index) => {
-          const envName = runnableGroup.group.envName;
-          const result = await runRunnableGroup(runnableGroup, {
-            workspaceRoot: workspace.workspaceRoot,
-            args: {
-              port: FIRST_ENV_PORT + index,
-              base: `/env/${encodeURIComponent(envName)}/`,
-            },
-            signal: controller.signal,
-            onEvent: reporter.onEvent,
-            ...(reporter.onTask ? { onTask: reporter.onTask } : {}),
-          });
-          host.registerPreview(result.envName, result.result as PreviewResult);
-          return result;
-        })
-      );
+      const results = await runPreviewServices(workspace, {
+        signal: controller.signal,
+        reporter,
+        host,
+      });
 
       reporter.flush();
       printServiceResults("preview", results);
@@ -54,3 +62,88 @@ export const previewCommand: BitLiteCommand = {
     }
   },
 };
+
+export async function runPreviewServices(workspace: WorkspaceRuntime, options: RunPreviewServicesOptions = {}) {
+  const runnableGroups = await resolveRunnableGroups(workspace, "preview");
+  const firstPort = options.firstPort ?? FIRST_ENV_PORT;
+  return Promise.all(
+    runnableGroups.map(async (runnableGroup, index) => {
+      const envName = runnableGroup.group.envName;
+      const result = await runRunnableGroup(runnableGroup, {
+        workspaceRoot: workspace.workspaceRoot,
+        args: {
+          port: firstPort + index,
+          base: `/env/${encodeURIComponent(envName)}/`,
+        },
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.reporter?.onEvent ? { onEvent: options.reporter.onEvent } : {}),
+        ...(options.reporter?.onTask ? { onTask: options.reporter.onTask } : {}),
+      });
+      if (options.host) {
+        registerPreviewResult(
+          options.host,
+          result.envName,
+          result.result as PreviewResult,
+          options.createViews ?? createPreviewViews
+        );
+      }
+      return result;
+    })
+  );
+}
+
+export function createPreviewViews(entry: PreviewEntry, context: PreviewViewContext): HostView[] {
+  const component = encodeURIComponent(entry.id);
+  return [
+    {
+      type: "preview",
+      label: "Demo",
+      url: `${context.base}?component=${component}&view=preview`,
+    },
+  ];
+}
+
+function registerPreviewResult(
+  host: CommandHost,
+  envName: string,
+  result: PreviewResult,
+  createViews: PreviewViewFactory
+) {
+  if (!result.host || !result.port || !result.base || !result.url || !result.entries || !result.vendor) return;
+  host.registerProxy({
+    pathPrefix: result.base,
+    host: result.host,
+    port: result.port,
+  });
+  host.registerRegistrySection({
+    key: envName,
+    title: envName,
+    subtitle: result.vendor,
+    envName,
+    vendor: result.vendor,
+    url: result.url,
+    proxyBase: result.base,
+    components: result.entries.map((entry) => ({
+      id: entry.id,
+      rootDir: entry.rootDir,
+      views: createViews(entry, {
+        envName,
+        base: result.base ?? "",
+        result,
+      }),
+    })),
+  });
+}
+
+function createPreviewRunReporter(workspace: WorkspaceRuntime): ServiceRunReporter {
+  return createDashboardOutputReporter({
+    title: "bit-lite preview",
+    labels: getServiceVendorLabels(workspace, "preview"),
+    formatStatus,
+  });
+}
+
+function formatStatus(status: string) {
+  if (status === "passed") return "ended";
+  return status;
+}

@@ -3,7 +3,6 @@ import { createServer as createHttpServer, request as httpRequest } from "node:h
 import type { IncomingMessage, Server as HttpServer, ServerResponse } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { PreviewEntry, PreviewResult } from "../types/services/preview.js";
 
 export type HostView = {
   type: string;
@@ -11,43 +10,58 @@ export type HostView = {
   url: string;
 };
 
-export type HostTestState = {
-  envName?: string;
-  status?: string;
-  exitCode?: number;
-  output?: string;
-  envs?: HostTestState[];
+export type HostRegistryComponent = {
+  id: string;
+  rootDir: string;
+  views: HostView[];
 };
 
-type RegisteredPreview = {
-  envName: string;
-  vendor: string;
+export type HostRegistrySection = {
+  key: string;
+  title: string;
+  subtitle?: string;
+  url?: string;
+  components: HostRegistryComponent[];
+  [metadata: string]: unknown;
+};
+
+export type HostRouteContext = {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  sendAsset(name: string): Promise<void>;
+  sendHtml(body: string): void;
+  sendJson(body: unknown): void;
+  sendText(status: number, body: string): void;
+};
+
+export type HostRoute = {
+  method?: string;
+  path: string | RegExp;
+  handler(context: HostRouteContext): Promise<void> | void;
+};
+
+export type HostProxy = {
+  pathPrefix: string;
   host: string;
   port: number;
-  base: string;
-  url: string;
-  components: Array<PreviewEntry & { views: HostView[] }>;
 };
 
-export type PreviewHost = {
+export type CommandHost = {
   url: string;
-  registerPreview(envName: string, result: PreviewResult, options?: RegisterPreviewOptions): void;
-  setTestProvider(provider: (envName?: string) => HostTestState): void;
+  registerRegistrySection(section: HostRegistrySection): void;
+  registerRoute(route: HostRoute): void;
+  registerProxy(proxy: HostProxy): void;
   stop(): Promise<void>;
-};
-
-export type RegisterPreviewOptions = {
-  docs?: boolean;
-  source?: boolean;
-  tests?: boolean;
 };
 
 const DEFAULT_CENTRAL_PORT = 3000;
 const DEFAULT_HOST = "127.0.0.1";
 
-export async function createPreviewHost(options: { title: string }): Promise<PreviewHost> {
-  const previews = new Map<string, RegisteredPreview>();
-  let testProvider: ((envName?: string) => HostTestState) | undefined;
+export async function createCommandHost(options: { title: string }): Promise<CommandHost> {
+  const registrySections = new Map<string, HostRegistrySection>();
+  const routes: HostRoute[] = [];
+  const proxies: HostProxy[] = [];
   const host = DEFAULT_HOST;
   const port = DEFAULT_CENTRAL_PORT;
   const url = `http://${host}:${port}/`;
@@ -58,33 +72,21 @@ export async function createPreviewHost(options: { title: string }): Promise<Pre
     });
   });
 
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, host, () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
+  await listen(server, port, host);
 
   return {
     url,
-    registerPreview(envName, result, registerOptions = {}) {
-      if (!result.host || !result.port || !result.base || !result.url || !result.entries || !result.vendor) return;
-      previews.set(envName, {
-        envName,
-        vendor: result.vendor,
-        host: result.host,
-        port: result.port,
-        base: result.base,
-        url: result.url,
-        components: result.entries.map((entry) => ({
-          ...entry,
-          views: createViews(envName, result.base ?? "", entry, registerOptions),
-        })),
-      });
+    registerRegistrySection(section) {
+      registrySections.set(section.key, section);
     },
-    setTestProvider(provider) {
-      testProvider = provider;
+    registerRoute(route) {
+      routes.push(route);
+    },
+    registerProxy(proxy) {
+      proxies.push({
+        ...proxy,
+        pathPrefix: normalizePathPrefix(proxy.pathPrefix),
+      });
     },
     stop() {
       return new Promise<void>((resolve) => server.close(() => resolve()));
@@ -101,109 +103,89 @@ export async function createPreviewHost(options: { title: string }): Promise<Pre
       await sendAsset(res, "index.html");
       return;
     }
-    if (parsed.pathname === "/api/previews") {
+    if (parsed.pathname === "/api/registry") {
       sendJson(res, getRegistry());
       return;
     }
-    if (parsed.pathname === "/api/tests") {
-      if (!testProvider) {
-        sendText(res, 404, "tests are not registered");
-        return;
-      }
-      sendJson(res, testProvider(parsed.searchParams.get("env") ?? undefined));
+
+    const route = routes.find((candidate) => matchesRoute(candidate, req.method, parsed.pathname));
+    if (route) {
+      await route.handler({
+        req,
+        res,
+        url: parsed,
+        sendAsset: (name) => sendAsset(res, name),
+        sendHtml: (body) => sendHtml(res, body),
+        sendJson: (body) => sendJson(res, body),
+        sendText: (status, body) => sendText(res, status, body),
+      });
       return;
     }
-    if (parsed.pathname === "/tests") {
-      if (!testProvider) {
-        sendText(res, 404, "tests are not registered");
-        return;
-      }
-      await sendAsset(res, "tests.html");
+
+    const proxy = proxies.find((candidate) => matchesProxy(candidate, parsed.pathname));
+    if (proxy) {
+      proxyRequest(req, res, proxy);
       return;
     }
-    const envMatch = parsed.pathname.match(/^\/env\/([^/]+)(\/.*)?$/);
-    if (envMatch) {
-      proxyEnvRequest(req, res, decodeURIComponent(envMatch[1] ?? ""));
-      return;
-    }
+
     sendText(res, 404, "not found");
   }
 
   function getRegistry() {
-    const envs = Array.from(previews.values()).sort((left, right) => left.envName.localeCompare(right.envName));
     return {
       title: options.title,
-      envs: envs.map((env) => ({
-        envName: env.envName,
-        vendor: env.vendor,
-        url: env.url,
-        proxyBase: env.base,
-        components: env.components.map((component) => ({
-          id: component.id,
-          rootDir: component.rootDir,
-          views: component.views,
-        })),
-      })),
+      sections: Array.from(registrySections.values()).sort((left, right) => left.title.localeCompare(right.title)),
     };
-  }
-
-  function proxyEnvRequest(req: IncomingMessage, res: ServerResponse, envName: string) {
-    const env = previews.get(envName);
-    if (!env || !req.url) {
-      sendText(res, 404, `preview env "${envName}" is not running`);
-      return;
-    }
-    const proxyReq = httpRequest(
-      {
-        hostname: env.host,
-        port: env.port,
-        method: req.method,
-        path: req.url,
-        headers: req.headers,
-      },
-      (proxyRes) => {
-        res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
-        proxyRes.pipe(res);
-      }
-    );
-    proxyReq.on("error", (error) => {
-      sendText(res, 502, `failed proxying "${envName}": ${error.message}`);
-    });
-    req.pipe(proxyReq);
   }
 }
 
-function createViews(envName: string, base: string, entry: PreviewEntry, options: RegisterPreviewOptions) {
-  const component = encodeURIComponent(entry.id);
-  const views: HostView[] = [
+function listen(server: HttpServer, port: number, host: string) {
+  return new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, host, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+}
+
+function matchesRoute(route: HostRoute, method: string | undefined, pathname: string) {
+  if (route.method && route.method.toUpperCase() !== method?.toUpperCase()) return false;
+  if (typeof route.path === "string") return route.path === pathname;
+  return route.path.test(pathname);
+}
+
+function matchesProxy(proxy: HostProxy, pathname: string) {
+  const prefix = normalizePathPrefix(proxy.pathPrefix);
+  return pathname === prefix.slice(0, -1) || pathname.startsWith(prefix);
+}
+
+function normalizePathPrefix(value: string) {
+  return value.endsWith("/") ? value : `${value}/`;
+}
+
+function proxyRequest(req: IncomingMessage, res: ServerResponse, proxy: HostProxy) {
+  if (!req.url) {
+    sendText(res, 404, "not found");
+    return;
+  }
+  const proxyReq = httpRequest(
     {
-      type: "preview",
-      label: "Demo",
-      url: `${base}?component=${component}&view=preview`,
+      hostname: proxy.host,
+      port: proxy.port,
+      method: req.method,
+      path: req.url,
+      headers: req.headers,
     },
-  ];
-  if (options.docs && entry.docsFile) {
-    views.push({
-      type: "docs",
-      label: "Docs",
-      url: `${base}?component=${component}&view=docs`,
-    });
-  }
-  if (options.source && entry.sourceFile) {
-    views.push({
-      type: "source",
-      label: "Source",
-      url: `${base}?component=${component}&view=source`,
-    });
-  }
-  if (options.tests) {
-    views.push({
-      type: "tests",
-      label: "Tests",
-      url: `/tests?env=${encodeURIComponent(envName)}&component=${component}`,
-    });
-  }
-  return views;
+    (proxyRes) => {
+      res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
+      proxyRes.pipe(res);
+    }
+  );
+  proxyReq.on("error", (error) => {
+    sendText(res, 502, `failed proxying "${proxy.pathPrefix}": ${error.message}`);
+  });
+  req.pipe(proxyReq);
 }
 
 async function sendAsset(res: ServerResponse, name: string) {

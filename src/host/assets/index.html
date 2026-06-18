@@ -85,15 +85,19 @@
       const params = new URLSearchParams(location.search);
       const selected = params.get("component");
       const selectedView = params.get("view");
-      const registry = await fetch("/api/previews").then((res) => res.json());
+      const registry = await fetch("/api/registry").then((res) => res.json());
       title.textContent = registry.title ?? "bit-lite";
 
       let firstHref;
-      for (const env of registry.envs) {
+      for (const section of registry.sections) {
         const group = document.createElement("section");
         group.className = "group";
-        group.innerHTML = '<div class="group-title">' + env.envName + ' / ' + env.vendor + '</div>';
-        for (const component of env.components) {
+        group.innerHTML =
+          '<div class="group-title">' +
+          section.title +
+          (section.subtitle ? ' / ' + section.subtitle : '') +
+          '</div>';
+        for (const component of section.components) {
           const row = document.createElement("div");
           row.className = "component-row";
           row.innerHTML = '<div class="component-name">' + component.id + '</div>';
