@@ -9,6 +9,7 @@ export type OutputPayload = {
 type OutputState = {
   context: ServiceRunEventContext;
   label: string;
+  detail?: string;
   stdout: string;
   stderr: string;
   status: string;
@@ -28,8 +29,27 @@ export type OutputReporterLabels = Map<string, string | undefined>;
 export type DashboardOutputReporterOptions = {
   title: string;
   labels: OutputReporterLabels;
+  items?: DashboardReporterItem[];
+  summary?: string[] | (() => string[]);
   formatLabel?: (context: ServiceRunEventContext, vendor: string | undefined) => string;
   formatStatus?: (status: string) => string;
+};
+
+export type DashboardReporterItem = {
+  envName: string;
+  serviceRef: string;
+  serviceName?: string;
+  vendor?: string;
+  label?: string;
+  detail?: string;
+  status?: string;
+};
+
+export type DashboardOutputReporter = ServiceRunReporter & {
+  setTitle(title: string): void;
+  setSummary(summary: string[] | (() => string[])): void;
+  setItems(items: DashboardReporterItem[]): void;
+  render(): void;
 };
 
 export function createPrefixedOutputReporter(labels: OutputReporterLabels): ServiceRunReporter {
@@ -43,9 +63,11 @@ export function createPrefixedOutputReporter(labels: OutputReporterLabels): Serv
   };
 }
 
-export function createDashboardOutputReporter(options: DashboardOutputReporterOptions): ServiceRunReporter {
+export function createDashboardOutputReporter(options: DashboardOutputReporterOptions): DashboardOutputReporter {
   const outputs = new Map<string, OutputState>();
   const tasks = new Map<string, ServiceTask>();
+  let title = options.title;
+  let summary = options.summary;
   let selectedIndex = 0;
   let rendered = false;
   let focused = false;
@@ -65,11 +87,19 @@ export function createDashboardOutputReporter(options: DashboardOutputReporterOp
     const states = sortedStates(outputs);
     const selected = states[selectedIndex] ?? states[0];
     process.stdout.write("\x1b[?25l\x1b[2J\x1b[H");
-    process.stdout.write(`${options.title}\n\n`);
+    process.stdout.write(`${title}\n\n`);
+    const summaryLines = readSummaryLines(summary);
+    if (summaryLines.length > 0) {
+      for (const line of summaryLines) {
+        process.stdout.write(`${line}\n`);
+      }
+      process.stdout.write("\n");
+    }
     states.forEach((state, index) => {
       const marker = state === selected ? ">" : " ";
       const status = options.formatStatus?.(state.status) ?? state.status;
-      process.stdout.write(`${marker} ${index + 1}. ${state.label}  ${status}  ${formatTime(state.updatedAt)}\n`);
+      const detail = state.detail ? `  ${state.detail}` : "";
+      process.stdout.write(`${marker} ${index + 1}. ${state.label}  ${status}${detail}  ${formatTime(state.updatedAt)}\n`);
     });
     process.stdout.write("\n");
     process.stdout.write("mode: dashboard\n");
@@ -85,7 +115,7 @@ export function createDashboardOutputReporter(options: DashboardOutputReporterOp
     process.stdout.write(`${selected.stdout}${selected.stderr}`);
   };
 
-  return {
+  const reporter: DashboardOutputReporter = {
     onTask(task, context) {
       if (closed) return;
       tasks.set(contextKey(context), task);
@@ -106,6 +136,8 @@ export function createDashboardOutputReporter(options: DashboardOutputReporterOp
       }
       if (type === "ready") {
         state.status = "running";
+        const detail = readReadyDetail(payload);
+        if (detail) state.detail = detail;
         state.updatedAt = Date.now();
         render();
         return;
@@ -139,7 +171,28 @@ export function createDashboardOutputReporter(options: DashboardOutputReporterOp
       closed = true;
       if (rendered) process.stdout.write("\x1b[?25h");
     },
+    setTitle(nextTitle) {
+      title = nextTitle;
+      render();
+    },
+    setSummary(nextSummary) {
+      summary = nextSummary;
+      render();
+    },
+    setItems(items) {
+      for (const item of items) {
+        setOutputStateItem(item);
+      }
+      render();
+    },
+    render,
   };
+
+  for (const item of options.items ?? []) {
+    setOutputStateItem(item);
+  }
+
+  return reporter;
 
   function handleKey(value: string) {
     const states = sortedStates(outputs);
@@ -178,6 +231,24 @@ export function createDashboardOutputReporter(options: DashboardOutputReporterOp
     }
     return false;
   }
+
+  function setOutputStateItem(item: DashboardReporterItem) {
+    const context = {
+      envName: item.envName,
+      serviceName: item.serviceName ?? item.serviceRef,
+      serviceRef: item.serviceRef,
+    };
+    const state = getOutputState(
+      outputs,
+      context,
+      item.vendor ?? options.labels.get(contextKey(context)) ?? options.labels.get(item.envName),
+      options.formatLabel
+    );
+    if (item.label) state.label = item.label;
+    if (item.detail !== undefined) state.detail = item.detail;
+    if (item.status) state.status = item.status;
+    state.updatedAt = Date.now();
+  }
 }
 
 export function getServiceVendorLabels(workspace: WorkspaceRuntime, serviceName: string) {
@@ -208,6 +279,19 @@ function getOutputState(
     outputs.set(key, state);
   }
   return state;
+}
+
+function readSummaryLines(summary: DashboardOutputReporterOptions["summary"]) {
+  if (!summary) return [];
+  return typeof summary === "function" ? summary() : summary;
+}
+
+function readReadyDetail(payload: unknown) {
+  if (typeof payload !== "object" || payload === null) return undefined;
+  const candidate = payload as { url?: unknown; port?: unknown };
+  if (typeof candidate.url === "string") return candidate.url;
+  if (typeof candidate.port === "number") return `:${candidate.port}`;
+  return undefined;
 }
 
 function contextKey(context: ServiceRunEventContext) {
