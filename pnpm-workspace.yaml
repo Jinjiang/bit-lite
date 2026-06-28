@@ -1,0 +1,9 @@
+packages:
+  - "packages/*"
+
+allowBuilds:
+  "@swc/core": true
+  "cypress": true
+  "esbuild": true
+  "node-pty": true
+  "unrs-resolver": true

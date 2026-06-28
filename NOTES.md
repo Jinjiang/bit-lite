@@ -137,7 +137,7 @@ For the phase-1 demo, built-in service names (`inspect`, `typescript`, `test`) a
 
 ## Demo Workspace
 
-Add a `demo-workspace/` in the repo for debugging and examples.
+Add `packages/demo-workspace/` in the repo for debugging and examples.
 
 Suggested content:
 
@@ -152,11 +152,11 @@ The demo should be runnable from its own root so command behavior is easy to ins
 Implemented demo commands:
 
 ```sh
-npm run demo:components
-npm run demo:envs
-npm run demo:inspect
-npm run demo:typescript
-npm run demo:test
+pnpm demo:components
+pnpm demo:envs
+pnpm demo:inspect
+pnpm demo:typescript
+pnpm demo:test
 ```
 
 ## Deferred
