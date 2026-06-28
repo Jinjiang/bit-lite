@@ -10,7 +10,6 @@ export type PreviewEntry = {
   rootDir: string;
   previewFile: string;
   docsFile?: string;
-  sourceFile?: string;
 };
 
 export type PreviewVendorInput = ServiceInput<PreviewVendorConfig, unknown> & {

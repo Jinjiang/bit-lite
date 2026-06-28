@@ -87,7 +87,6 @@ function renderRegistry(entries: PreviewEntry[], base: string) {
     rootDir: entry.rootDir,
     modulePath: `${base}@fs${toPosixPath(entry.previewFile)}`,
     docsModulePath: entry.docsFile ? `${base}@fs${toPosixPath(entry.docsFile)}?raw` : undefined,
-    sourceModulePath: entry.sourceFile ? `${base}@fs${toPosixPath(entry.sourceFile)}?raw` : undefined,
   }));
   return `export const previews = ${JSON.stringify(serialized, null, 2)};\n`;
 }
@@ -159,7 +158,6 @@ type PreviewMeta = {
   rootDir: string;
   modulePath: string;
   docsModulePath?: string;
-  sourceModulePath?: string;
 };
 
 type PreviewModule = {
@@ -191,8 +189,6 @@ if (!selected) {
   previewRoot.textContent = "No component preview files were found.";
 } else if (selectedView === "docs") {
   await mountDocs(selected, previewRoot);
-} else if (selectedView === "source") {
-  await mountSource(selected, previewRoot);
 } else {
   await mountPreview(selected, previewRoot);
 }
@@ -229,21 +225,6 @@ async function mountDocs(meta: PreviewMeta, root: HTMLElement) {
   article.className = "docs";
   article.innerHTML = renderMarkdown(markdown);
   root.appendChild(article);
-}
-
-async function mountSource(meta: PreviewMeta, root: HTMLElement) {
-  root.replaceChildren();
-  if (!meta.sourceModulePath) {
-    root.innerHTML = '<div class="empty">No source file found for this component.</div>';
-    return;
-  }
-  const source = (await import(/* @vite-ignore */ meta.sourceModulePath)).default as string;
-  const pre = document.createElement("pre");
-  pre.className = "source";
-  const code = document.createElement("code");
-  code.textContent = source;
-  pre.appendChild(code);
-  root.appendChild(pre);
 }
 
 function renderMarkdown(markdown: string) {
@@ -376,15 +357,5 @@ body {
 .docs pre code {
   background: transparent;
   padding: 0;
-}
-
-.source {
-  overflow: auto;
-  margin: 0;
-  background: #111827;
-  color: #f9fafb;
-  border-radius: 8px;
-  padding: 16px;
-  line-height: 1.45;
 }
 `;

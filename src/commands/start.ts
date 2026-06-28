@@ -8,8 +8,10 @@ import {
 } from "../reporter/output-reporter.js";
 import type { ServiceRunEventContext } from "../runtime.js";
 import type { ServiceRunResult, WorkspaceRuntime } from "../types/index.js";
+import type { SourceComponent, SourceResult } from "../types/services/source.js";
 import type { PreviewEntry } from "../types/services/preview.js";
 import { closePreviewVendorServers } from "../services/preview/runtime.js";
+import { readComponentSourceFile, sourceService } from "../services/source/service.js";
 import {
   createPreviewReadyItems,
   createPreviewStartupItems,
@@ -37,6 +39,8 @@ export const startCommand: BitLiteCommand = {
     registerTestRoutes(host, tests);
 
     try {
+      const sources = await runSourceServices(workspace);
+      registerSourceRoutes(host, sources);
       const testResultsPromise = runTestServices(workspace, {
         args: { watch: true },
         signal: controller.signal,
@@ -97,13 +101,11 @@ function createStartPreviewViews(entry: PreviewEntry, context: PreviewViewContex
       url: `${context.base}?component=${component}&view=docs`,
     });
   }
-  if (entry.sourceFile) {
-    views.push({
-      type: "source",
-      label: "Source",
-      url: `${context.base}?component=${component}&view=source`,
-    });
-  }
+  views.push({
+    type: "source",
+    label: "Source",
+    url: `/source?env=${encodeURIComponent(context.envName)}&component=${component}`,
+  });
   views.push({
     type: "tests",
     label: "Tests",
@@ -188,4 +190,86 @@ function readServiceVendor(value: unknown) {
 
 function formatComponentCount(count: number) {
   return `${count} ${count === 1 ? "component" : "components"}`;
+}
+
+async function runSourceServices(workspace: WorkspaceRuntime) {
+  const results = await Promise.all(
+    workspace.groups.map(async (group): Promise<SourceResult> => {
+      const task = sourceService.run(
+        {
+          components: group.components,
+          config: {},
+          args: undefined,
+        },
+        {
+          workspaceRoot: workspace.workspaceRoot,
+          envName: group.envName,
+          cwd: workspace.workspaceRoot,
+        }
+      );
+      return task.result;
+    })
+  );
+  return createSourceStore(results.flatMap((result) => result.components));
+}
+
+type SourceStore = ReturnType<typeof createSourceStore>;
+
+function createSourceStore(components: SourceComponent[]) {
+  return {
+    find(componentId: string, envName?: string | undefined) {
+      return components.find((component) => component.id === componentId && (!envName || component.envName === envName));
+    },
+  };
+}
+
+function registerSourceRoutes(host: CommandHost, sources: SourceStore) {
+  host.registerRoute({
+    path: "/source",
+    handler({ sendAsset }) {
+      return sendAsset("source.html");
+    },
+  });
+  host.registerRoute({
+    path: "/api/source",
+    handler({ url, sendJson, sendText }) {
+      const component = readSourceRouteComponent(sources, url);
+      if (!component) {
+        sendText(404, "source component not found");
+        return;
+      }
+      sendJson({ component });
+    },
+  });
+  host.registerRoute({
+    path: "/api/source/file",
+    async handler({ url, sendJson, sendText }) {
+      const component = readSourceRouteComponent(sources, url);
+      const filePath = url.searchParams.get("file");
+      if (!component) {
+        sendText(404, "source component not found");
+        return;
+      }
+      if (!filePath) {
+        sendText(400, "source file path is required");
+        return;
+      }
+      try {
+        const content = await readComponentSourceFile(component, filePath);
+        sendJson({
+          path: filePath,
+          content,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        sendText(404, message);
+      }
+    },
+  });
+}
+
+function readSourceRouteComponent(sources: SourceStore, url: URL) {
+  const componentId = url.searchParams.get("component");
+  if (!componentId) return undefined;
+  return sources.find(componentId, url.searchParams.get("env") ?? undefined);
 }

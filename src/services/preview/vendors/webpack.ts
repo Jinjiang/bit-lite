@@ -255,14 +255,12 @@ function renderIndexHtml(base: string) {
 function renderRegistry(entries: PreviewEntry[]) {
   const rendered = entries.map((entry) => {
     const docsImport = entry.docsFile ? `() => import(${JSON.stringify(`${entry.docsFile}?raw`)})` : "undefined";
-    const sourceImport = entry.sourceFile ? `() => import(${JSON.stringify(`${entry.sourceFile}?raw`)})` : "undefined";
     return `{
       id: ${JSON.stringify(entry.id)},
       envName: ${JSON.stringify(entry.envName)},
       rootDir: ${JSON.stringify(entry.rootDir)},
       preview: () => import(${JSON.stringify(entry.previewFile)}),
-      docs: ${docsImport},
-      source: ${sourceImport}
+      docs: ${docsImport}
     }`;
   });
   return `export const previews = [${rendered.join(",")}];\n`;
@@ -337,7 +335,6 @@ type PreviewMeta = {
   rootDir: string;
   preview: () => Promise<PreviewModule>;
   docs?: () => Promise<RawModule>;
-  source?: () => Promise<RawModule>;
 };
 
 type RawModule = {
@@ -369,8 +366,6 @@ if (!selected) {
   previewRoot.textContent = "No component preview files were found.";
 } else if (selectedView === "docs") {
   await mountDocs(selected, previewRoot);
-} else if (selectedView === "source") {
-  await mountSource(selected, previewRoot);
 } else {
   await mountPreview(selected, previewRoot);
 }
@@ -409,21 +404,6 @@ async function mountDocs(meta: PreviewMeta, root: HTMLElement) {
   root.appendChild(article);
 }
 
-async function mountSource(meta: PreviewMeta, root: HTMLElement) {
-  root.replaceChildren();
-  if (!meta.source) {
-    root.innerHTML = '<div class="empty">No source file found for this component.</div>';
-    return;
-  }
-  const source = (await meta.source()).default;
-  const pre = document.createElement("pre");
-  pre.className = "source";
-  const code = document.createElement("code");
-  code.textContent = source;
-  pre.appendChild(code);
-  root.appendChild(pre);
-}
-
 function renderMarkdown(markdown: string) {
   return markdown
     .split(/\\r?\\n/)
@@ -456,15 +436,6 @@ function mountStyle() {
     .docs {
       max-width: 760px;
       line-height: 1.65;
-    }
-    .source {
-      overflow: auto;
-      margin: 0;
-      border: 1px solid #d8dee8;
-      border-radius: 8px;
-      padding: 16px;
-      background: #f7f8fb;
-      line-height: 1.5;
     }
   \`;
   document.head.appendChild(style);

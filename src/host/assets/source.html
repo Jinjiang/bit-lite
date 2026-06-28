@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>bit-lite source</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: #1b1f24;
+        background: #f6f7f9;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      #app {
+        display: grid;
+        grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+        min-height: 100vh;
+      }
+      aside {
+        min-width: 0;
+        border-right: 1px solid #d8dee8;
+        background: #fff;
+        overflow: auto;
+        padding: 14px 10px;
+      }
+      main {
+        min-width: 0;
+        overflow: auto;
+        padding: 24px 28px;
+      }
+      .component {
+        margin: 0 6px 14px;
+        color: #111827;
+        font-size: 14px;
+        font-weight: 650;
+        overflow-wrap: anywhere;
+      }
+      .tree,
+      .tree ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .tree ul {
+        padding-left: 14px;
+      }
+      .tree li {
+        margin: 1px 0;
+      }
+      details {
+        display: grid;
+        gap: 2px;
+      }
+      summary {
+        border-radius: 6px;
+        color: #344054;
+        cursor: pointer;
+        font-size: 13px;
+        line-height: 1.4;
+        min-height: 28px;
+        overflow-wrap: anywhere;
+        padding: 5px 7px;
+      }
+      summary:hover {
+        background: #eef2f7;
+      }
+      .file {
+        appearance: none;
+        width: 100%;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: #344054;
+        cursor: pointer;
+        display: block;
+        font: inherit;
+        font-size: 13px;
+        line-height: 1.4;
+        min-height: 28px;
+        overflow-wrap: anywhere;
+        padding: 5px 7px;
+        text-align: left;
+      }
+      .file:hover,
+      .file.active {
+        background: #e9eef6;
+        color: #111827;
+      }
+      .path {
+        margin: 0 0 10px;
+        color: #667085;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+      pre {
+        min-height: calc(100vh - 72px);
+        margin: 0;
+        overflow: auto;
+        border: 1px solid #d8dee8;
+        border-radius: 8px;
+        background: #111827;
+        color: #f9fafb;
+        padding: 18px;
+        tab-size: 2;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font-size: 13px;
+        line-height: 1.55;
+        white-space: pre;
+      }
+      .error {
+        color: #b42318;
+        background: #fff5f5;
+        border: 1px solid #fecdca;
+      }
+      @media (max-width: 760px) {
+        #app {
+          grid-template-columns: 1fr;
+        }
+        aside {
+          max-height: 42vh;
+          border-right: 0;
+          border-bottom: 1px solid #d8dee8;
+        }
+        main {
+          padding: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <aside>
+        <div class="component" id="component"></div>
+        <nav id="tree"></nav>
+      </aside>
+      <main>
+        <div class="path" id="path"></div>
+        <pre><code id="code"></code></pre>
+      </main>
+    </div>
+    <script type="module">
+      const params = new URLSearchParams(location.search);
+      const componentId = params.get("component") ?? "";
+      const envName = params.get("env") ?? "";
+      const selectedFile = params.get("file");
+      const componentLabel = document.querySelector("#component");
+      const treeRoot = document.querySelector("#tree");
+      const pathLabel = document.querySelector("#path");
+      const code = document.querySelector("#code");
+      let activeButton;
+
+      try {
+        const component = await loadComponent();
+        componentLabel.textContent = component.id;
+        treeRoot.replaceChildren(renderTree(component.tree));
+        const firstFile = selectedFile || findFirstFile(component.tree);
+        if (firstFile) await selectFile(firstFile);
+      } catch (error) {
+        showError(error instanceof Error ? error.message : String(error));
+      }
+
+      async function loadComponent() {
+        const url = new URL("/api/source", location.origin);
+        url.searchParams.set("component", componentId);
+        if (envName) url.searchParams.set("env", envName);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(await response.text());
+        const payload = await response.json();
+        return payload.component;
+      }
+
+      function renderTree(root) {
+        const list = document.createElement("ul");
+        list.className = "tree";
+        list.appendChild(renderNode(root, true));
+        return list;
+      }
+
+      function renderNode(node, root = false) {
+        const item = document.createElement("li");
+        if (node.type === "directory") {
+          const details = document.createElement("details");
+          details.open = root || node.path.split("/").length <= 1;
+          const summary = document.createElement("summary");
+          summary.textContent = root ? "/" : node.name;
+          details.appendChild(summary);
+          const children = document.createElement("ul");
+          for (const child of node.children) children.appendChild(renderNode(child));
+          details.appendChild(children);
+          item.appendChild(details);
+          return item;
+        }
+
+        const button = document.createElement("button");
+        button.className = "file";
+        button.type = "button";
+        button.textContent = node.name;
+        button.title = node.path;
+        button.dataset.path = node.path;
+        button.addEventListener("click", () => {
+          void selectFile(node.path);
+        });
+        item.appendChild(button);
+        return item;
+      }
+
+      async function selectFile(filePath) {
+        const url = new URL("/api/source/file", location.origin);
+        url.searchParams.set("component", componentId);
+        url.searchParams.set("file", filePath);
+        if (envName) url.searchParams.set("env", envName);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(await response.text());
+        const payload = await response.json();
+        pathLabel.textContent = payload.path;
+        code.textContent = payload.content;
+        code.parentElement?.classList.remove("error");
+        activeButton?.classList.remove("active");
+        activeButton = document.querySelector('.file[data-path="' + cssEscape(filePath) + '"]');
+        activeButton?.classList.add("active");
+        const nextUrl = new URL(location.href);
+        nextUrl.searchParams.set("file", filePath);
+        history.replaceState(null, "", nextUrl);
+      }
+
+      function findFirstFile(node) {
+        if (node.type === "file") return node.path;
+        for (const child of node.children) {
+          const file = findFirstFile(child);
+          if (file) return file;
+        }
+        return undefined;
+      }
+
+      function showError(message) {
+        pathLabel.textContent = "";
+        code.textContent = message;
+        code.parentElement?.classList.add("error");
+      }
+
+      function cssEscape(value) {
+        if (window.CSS?.escape) return CSS.escape(value);
+        return value.replaceAll("\\\\", "\\\\\\\\").replaceAll('"', '\\"');
+      }
+    </script>
+  </body>
+</html>

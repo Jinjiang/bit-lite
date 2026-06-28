@@ -12,6 +12,14 @@ export type {
   ServiceResult,
   ServiceTask,
 } from "./types/index.js";
+export type {
+  SourceComponent,
+  SourceResult,
+  SourceResultJson,
+  SourceTreeDirectory,
+  SourceTreeFile,
+  SourceTreeNode,
+} from "./types/services/source.js";
 export { loadConfig, resolveEnvs, validateConfig } from "./context/config.js";
 export { fileHasKind, findFilesByKind, findFirstFileByKind } from "./utils/file-matcher.js";
 export { runService } from "./runtime.js";
