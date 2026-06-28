@@ -15,7 +15,7 @@ import runJestTest from "../../src/runners/test/jest.js";
 import runMochaTest from "../../src/runners/test/mocha.js";
 import runPlaywrightTest from "../../src/runners/test/playwright.js";
 import runVitestTest from "../../src/runners/test/vitest.js";
-import { printAndMaybeWriteResult } from "../../src/shared/utils.js";
+import { demoRuns, printAndMaybeWriteResult } from "./demo-options.js";
 
 const runners = {
   "compile:babel": runBabelCompile,
@@ -40,9 +40,9 @@ const runners = {
 const runnerName = process.argv[2] as keyof typeof runners | undefined;
 const runner = runnerName ? runners[runnerName] : undefined;
 
-if (!runner) {
+if (!runner || !runnerName) {
   console.error(`Unknown demo runner: ${runnerName ?? "<missing>"}`);
   process.exitCode = 1;
 } else {
-  await printAndMaybeWriteResult(await runner());
+  await printAndMaybeWriteResult(await runner(demoRuns[runnerName]));
 }

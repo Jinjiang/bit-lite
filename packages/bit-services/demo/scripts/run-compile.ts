@@ -7,18 +7,18 @@ import runTypeScriptCompile from "../../src/runners/compile/typescript.js";
 import runViteCompile from "../../src/runners/compile/vite.js";
 import runVueSfcCompile from "../../src/runners/compile/vue-sfc.js";
 import runWebpackCompile from "../../src/runners/compile/webpack.js";
-import { printAndMaybeWriteResult } from "../../src/shared/utils.js";
+import { demoRuns, printAndMaybeWriteResult } from "./demo-options.js";
 
 const results = [
-  await runTypeScriptCompile(),
-  await runEsbuildCompile(),
-  await runSwcCompile(),
-  await runBabelCompile(),
-  await runVueSfcCompile(),
-  await runViteCompile(),
-  await runRollupCompile(),
-  await runWebpackCompile(),
-  await runOxcCompile(),
+  await runTypeScriptCompile(demoRuns["compile:typescript"]),
+  await runEsbuildCompile(demoRuns["compile:esbuild"]),
+  await runSwcCompile(demoRuns["compile:swc"]),
+  await runBabelCompile(demoRuns["compile:babel"]),
+  await runVueSfcCompile(demoRuns["compile:vue-sfc"]),
+  await runViteCompile(demoRuns["compile:vite"]),
+  await runRollupCompile(demoRuns["compile:rollup"]),
+  await runWebpackCompile(demoRuns["compile:webpack"]),
+  await runOxcCompile(demoRuns["compile:oxc"]),
 ];
 
 await printAndMaybeWriteResult(results, "compile.json");

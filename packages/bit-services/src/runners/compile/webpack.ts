@@ -3,17 +3,14 @@ import path from "node:path";
 import webpack from "webpack";
 import {
   createTimer,
-  demoRoot,
   makeCompileResult,
   relativePath,
   resolveRunOptions,
 } from "../../shared/utils.js";
 import type { CompileServiceResult, ServiceDiagnostic, ServiceRunOptions } from "../../types/service-results.js";
 
-export async function runWebpackCompile(options?: ServiceRunOptions): Promise<CompileServiceResult> {
-  const run = resolveRunOptions(options, {
-    targetFiles: [path.join(demoRoot, "targets/compile/webpack/entry.ts")],
-  });
+export async function runWebpackCompile(options: ServiceRunOptions): Promise<CompileServiceResult> {
+  const run = resolveRunOptions(options);
   const target = run.targetFiles[0];
   const outputDir = path.join(run.outputDir, "webpack");
   const outputFile = "bundle.js";

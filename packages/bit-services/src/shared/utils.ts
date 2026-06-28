@@ -2,12 +2,10 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type {
   ApiKind,
   CompileOutput,
   CompileServiceResult,
-  DemoServiceResult,
   LintServiceResult,
   ServiceDiagnostic,
   ServiceRunOptions,
@@ -17,18 +15,13 @@ import type {
 
 const require = createRequire(import.meta.url);
 
-export const packageRoot = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
-export const demoRoot = path.join(packageRoot, "demo");
-export const resultsRoot = path.join(demoRoot, "results");
-export const artifactsRoot = path.join(resultsRoot, "artifacts");
-
 export interface ResolvedServiceRunOptions {
   cwd: string;
   targetFiles: string[];
   configFile?: string;
   projectDir?: string;
   outputDir: string;
-  env?: NodeJS.ProcessEnv;
+  env?: Record<string, string | undefined>;
 }
 
 function resolveFrom(baseDir: string, filePath: string | undefined): string | undefined {
@@ -39,22 +32,26 @@ function resolveFrom(baseDir: string, filePath: string | undefined): string | un
 }
 
 export function resolveRunOptions(
-  options: ServiceRunOptions | undefined,
+  options: ServiceRunOptions,
   defaults: {
     cwd?: string;
-    targetFiles: string[];
+    targetFiles?: string[];
     configFile?: string;
     projectDir?: string;
     outputDir?: string;
-  },
+  } = {},
 ): ResolvedServiceRunOptions {
-  const cwd = path.resolve(options?.cwd ?? defaults.cwd ?? demoRoot);
+  const cwd = path.resolve(options?.cwd ?? defaults.cwd ?? process.cwd());
+  const targetFiles = options?.targetFiles ?? defaults.targetFiles;
+  if (!targetFiles?.length) {
+    throw new Error("service runner requires targetFiles");
+  }
   return {
     cwd,
-    targetFiles: (options?.targetFiles ?? defaults.targetFiles).map((item) => resolveFrom(cwd, item) ?? item),
+    targetFiles: targetFiles.map((item) => resolveFrom(cwd, item) ?? item),
     configFile: resolveFrom(cwd, options?.configFile ?? defaults.configFile),
     projectDir: resolveFrom(cwd, options?.projectDir ?? defaults.projectDir),
-    outputDir: resolveFrom(cwd, options?.outputDir ?? defaults.outputDir) ?? artifactsRoot,
+    outputDir: resolveFrom(cwd, options?.outputDir ?? defaults.outputDir) ?? path.join(cwd, "service-results/artifacts"),
     env: options?.env,
   };
 }
@@ -110,7 +107,7 @@ export async function runCommand(
   args: string[],
   options: {
     cwd?: string;
-    env?: NodeJS.ProcessEnv;
+    env?: Record<string, string | undefined>;
   } = {},
 ): Promise<{
   exitCode: number | null;
@@ -121,7 +118,7 @@ export async function runCommand(
   const elapsed = createTimer();
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
-      cwd: options.cwd ?? demoRoot,
+      cwd: options.cwd ?? process.cwd(),
       env: { ...process.env, ...options.env },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -277,23 +274,12 @@ export async function writeArtifact(
   vendor: string,
   fileName: string,
   code: string,
-  outputDir = artifactsRoot,
+  outputDir: string,
 ): Promise<string> {
   const outputPath = path.join(outputDir, vendor, fileName);
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, code);
   return outputPath;
-}
-
-export async function printAndMaybeWriteResult(
-  result: DemoServiceResult | DemoServiceResult[],
-  outputName?: string,
-) {
-  if (outputName) {
-    await mkdir(resultsRoot, { recursive: true });
-    await writeFile(path.join(resultsRoot, outputName), `${JSON.stringify(result, null, 2)}\n`);
-  }
-  console.log(JSON.stringify(result, null, 2));
 }
 
 export function errorDiagnostic(error: unknown, source: string): ServiceDiagnostic {

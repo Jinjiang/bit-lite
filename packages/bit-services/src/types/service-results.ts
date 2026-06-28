@@ -23,7 +23,7 @@ export interface BaseServiceResult {
 
 export interface ServiceRunOptions {
   cwd?: string;
-  targetFiles?: string[];
+  targetFiles: string[];
   configFile?: string;
   projectDir?: string;
   outputDir?: string;

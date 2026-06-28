@@ -1,7 +1,5 @@
-import path from "node:path";
 import {
   createTimer,
-  demoRoot,
   makeLintResult,
   packagePath,
   parseJsonOutput,
@@ -70,10 +68,8 @@ function mapOxlintDiagnostics(raw: unknown, baseDir: string): ServiceDiagnostic[
   });
 }
 
-export async function runOxlintLint(options?: ServiceRunOptions): Promise<LintServiceResult> {
-  const run = resolveRunOptions(options, {
-    targetFiles: [path.join(demoRoot, "targets/lint/oxlint/bad.js")],
-  });
+export async function runOxlintLint(options: ServiceRunOptions): Promise<LintServiceResult> {
+  const run = resolveRunOptions(options);
   const elapsed = createTimer();
   const oxlintBin = packagePath("oxlint", "bin/oxlint");
   const command = await runCommand(

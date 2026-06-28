@@ -1,9 +1,7 @@
 import typescriptModule from "@rollup/plugin-typescript";
-import path from "node:path";
 import { rollup, type Plugin } from "rollup";
 import {
   createTimer,
-  demoRoot,
   makeCompileResult,
   relativePath,
   resolveRunOptions,
@@ -13,10 +11,8 @@ import type { CompileOutput, CompileServiceResult, ServiceDiagnostic, ServiceRun
 
 const typescript = typescriptModule as unknown as (options: Record<string, unknown>) => Plugin;
 
-export async function runRollupCompile(options?: ServiceRunOptions): Promise<CompileServiceResult> {
-  const run = resolveRunOptions(options, {
-    targetFiles: [path.join(demoRoot, "targets/compile/rollup/entry.ts")],
-  });
+export async function runRollupCompile(options: ServiceRunOptions): Promise<CompileServiceResult> {
+  const run = resolveRunOptions(options);
   const target = run.targetFiles[0];
   const elapsed = createTimer();
   const diagnostics: ServiceDiagnostic[] = [];

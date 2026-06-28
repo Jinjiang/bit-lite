@@ -1,8 +1,6 @@
 import { transformFileAsync } from "@babel/core";
-import path from "node:path";
 import {
   createTimer,
-  demoRoot,
   makeCompileResult,
   relativePath,
   resolveRunOptions,
@@ -10,10 +8,8 @@ import {
 } from "../../shared/utils.js";
 import type { CompileServiceResult, ServiceRunOptions } from "../../types/service-results.js";
 
-export async function runBabelCompile(options?: ServiceRunOptions): Promise<CompileServiceResult> {
-  const run = resolveRunOptions(options, {
-    targetFiles: [path.join(demoRoot, "targets/compile/babel/input.tsx")],
-  });
+export async function runBabelCompile(options: ServiceRunOptions): Promise<CompileServiceResult> {
+  const run = resolveRunOptions(options);
   const target = run.targetFiles[0];
   const elapsed = createTimer();
   const result = await transformFileAsync(target, {

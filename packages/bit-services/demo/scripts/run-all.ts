@@ -15,26 +15,26 @@ import runJestTest from "../../src/runners/test/jest.js";
 import runMochaTest from "../../src/runners/test/mocha.js";
 import runPlaywrightTest from "../../src/runners/test/playwright.js";
 import runVitestTest from "../../src/runners/test/vitest.js";
-import { printAndMaybeWriteResult } from "../../src/shared/utils.js";
+import { demoRuns, printAndMaybeWriteResult } from "./demo-options.js";
 
 const results = [
-  await runEslintLint(),
-  await runOxlintLint(),
-  await runBiomeLint(),
-  await runVitestTest(),
-  await runPlaywrightTest(),
-  await runCypressTest(),
-  await runJestTest(),
-  await runMochaTest(),
-  await runTypeScriptCompile(),
-  await runEsbuildCompile(),
-  await runSwcCompile(),
-  await runBabelCompile(),
-  await runVueSfcCompile(),
-  await runViteCompile(),
-  await runRollupCompile(),
-  await runWebpackCompile(),
-  await runOxcCompile(),
+  await runEslintLint(demoRuns["lint:eslint"]),
+  await runOxlintLint(demoRuns["lint:oxlint"]),
+  await runBiomeLint(demoRuns["lint:biome"]),
+  await runVitestTest(demoRuns["test:vitest"]),
+  await runPlaywrightTest(demoRuns["test:playwright"]),
+  await runCypressTest(demoRuns["test:cypress"]),
+  await runJestTest(demoRuns["test:jest"]),
+  await runMochaTest(demoRuns["test:mocha"]),
+  await runTypeScriptCompile(demoRuns["compile:typescript"]),
+  await runEsbuildCompile(demoRuns["compile:esbuild"]),
+  await runSwcCompile(demoRuns["compile:swc"]),
+  await runBabelCompile(demoRuns["compile:babel"]),
+  await runVueSfcCompile(demoRuns["compile:vue-sfc"]),
+  await runViteCompile(demoRuns["compile:vite"]),
+  await runRollupCompile(demoRuns["compile:rollup"]),
+  await runWebpackCompile(demoRuns["compile:webpack"]),
+  await runOxcCompile(demoRuns["compile:oxc"]),
 ];
 
 await printAndMaybeWriteResult(results, "all.json");

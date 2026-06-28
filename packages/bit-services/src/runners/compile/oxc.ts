@@ -1,9 +1,7 @@
 import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { transform } from "oxc-transform";
 import {
   createTimer,
-  demoRoot,
   makeCompileResult,
   relativePath,
   resolveRunOptions,
@@ -11,10 +9,8 @@ import {
 } from "../../shared/utils.js";
 import type { CompileServiceResult, ServiceDiagnostic, ServiceRunOptions } from "../../types/service-results.js";
 
-export async function runOxcCompile(options?: ServiceRunOptions): Promise<CompileServiceResult> {
-  const run = resolveRunOptions(options, {
-    targetFiles: [path.join(demoRoot, "targets/compile/oxc/input.tsx")],
-  });
+export async function runOxcCompile(options: ServiceRunOptions): Promise<CompileServiceResult> {
+  const run = resolveRunOptions(options);
   const target = run.targetFiles[0];
   const elapsed = createTimer();
   const source = await readFile(target, "utf8");

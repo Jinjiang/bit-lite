@@ -1,10 +1,8 @@
 import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { transform } from "esbuild";
 import { compileScript, compileStyle, compileTemplate, parse } from "@vue/compiler-sfc";
 import {
   createTimer,
-  demoRoot,
   makeCompileResult,
   relativePath,
   resolveRunOptions,
@@ -17,10 +15,8 @@ import type {
   ServiceRunOptions,
 } from "../../types/service-results.js";
 
-export async function runVueSfcCompile(options?: ServiceRunOptions): Promise<CompileServiceResult> {
-  const run = resolveRunOptions(options, {
-    targetFiles: [path.join(demoRoot, "targets/compile/vue-sfc/Hello.vue")],
-  });
+export async function runVueSfcCompile(options: ServiceRunOptions): Promise<CompileServiceResult> {
+  const run = resolveRunOptions(options);
   const target = run.targetFiles[0];
   const elapsed = createTimer();
   const source = await readFile(target, "utf8");

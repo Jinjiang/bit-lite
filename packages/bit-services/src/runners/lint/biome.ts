@@ -1,7 +1,5 @@
-import path from "node:path";
 import {
   createTimer,
-  demoRoot,
   makeLintResult,
   packagePath,
   parseJsonOutput,
@@ -63,11 +61,8 @@ function mapBiomeDiagnostics(raw: unknown, baseDir: string): ServiceDiagnostic[]
   });
 }
 
-export async function runBiomeLint(options?: ServiceRunOptions): Promise<LintServiceResult> {
-  const run = resolveRunOptions(options, {
-    targetFiles: [path.join(demoRoot, "targets/lint/biome/bad.js")],
-    configFile: path.join(demoRoot, "configs/biome.json"),
-  });
+export async function runBiomeLint(options: ServiceRunOptions): Promise<LintServiceResult> {
+  const run = resolveRunOptions(options);
   const elapsed = createTimer();
   const biomeBin = packagePath("@biomejs/biome", "bin/biome");
   const command = await runCommand(biomeBin, [

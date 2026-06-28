@@ -1,8 +1,6 @@
 import cypress from "cypress";
-import path from "node:path";
 import {
   createTimer,
-  demoRoot,
   errorDiagnostic,
   makeTestResult,
   relativePath,
@@ -21,12 +19,8 @@ function mapCypressStatus(state: string | undefined): TestStatus {
   return "failed";
 }
 
-export async function runCypressTest(options?: ServiceRunOptions): Promise<TestServiceResult> {
-  const run = resolveRunOptions(options, {
-    targetFiles: [path.join(demoRoot, "targets/test/cypress/e2e/sample.cy.ts")],
-    projectDir: path.join(demoRoot, "targets/test/cypress"),
-    configFile: path.join(demoRoot, "configs/cypress-silent-reporter.cjs"),
-  });
+export async function runCypressTest(options: ServiceRunOptions): Promise<TestServiceResult> {
+  const run = resolveRunOptions(options);
   const elapsed = createTimer();
 
   try {

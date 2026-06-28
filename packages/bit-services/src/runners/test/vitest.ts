@@ -1,8 +1,6 @@
-import path from "node:path";
 import { startVitest } from "vitest/node";
 import {
   createTimer,
-  demoRoot,
   makeTestResult,
   relativePath,
   resolveRunOptions,
@@ -39,11 +37,8 @@ function mapErrors(errors: readonly unknown[] | undefined): TestFailure[] | unde
   });
 }
 
-export async function runVitestTest(options?: ServiceRunOptions): Promise<TestServiceResult> {
-  const run = resolveRunOptions(options, {
-    targetFiles: [path.join(demoRoot, "targets/test/vitest/sample.test.ts")],
-    configFile: path.join(demoRoot, "configs/vitest.config.ts"),
-  });
+export async function runVitestTest(options: ServiceRunOptions): Promise<TestServiceResult> {
+  const run = resolveRunOptions(options);
   const elapsed = createTimer();
   const tests: TestCaseResult[] = [];
   const modules: unknown[] = [];

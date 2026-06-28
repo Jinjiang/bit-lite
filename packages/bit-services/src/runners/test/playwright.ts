@@ -1,7 +1,6 @@
 import path from "node:path";
 import {
   createTimer,
-  demoRoot,
   makeTestResult,
   packagePath,
   parseJsonOutput,
@@ -62,11 +61,8 @@ function collectSuite(suite: any, baseDir: string, inheritedFile?: string): Test
   return [...current, ...childSuites];
 }
 
-export async function runPlaywrightTest(options?: ServiceRunOptions): Promise<TestServiceResult> {
-  const run = resolveRunOptions(options, {
-    targetFiles: [path.join(demoRoot, "targets/test/playwright/sample.spec.ts")],
-    configFile: path.join(demoRoot, "configs/playwright.config.ts"),
-  });
+export async function runPlaywrightTest(options: ServiceRunOptions): Promise<TestServiceResult> {
+  const run = resolveRunOptions(options);
   const elapsed = createTimer();
   const playwrightBin = packagePath("@playwright/test", "cli.js");
   const command = await runCommand(process.execPath, [

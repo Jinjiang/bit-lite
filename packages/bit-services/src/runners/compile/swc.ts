@@ -1,8 +1,6 @@
-import path from "node:path";
 import { transformFile } from "@swc/core";
 import {
   createTimer,
-  demoRoot,
   makeCompileResult,
   relativePath,
   resolveRunOptions,
@@ -10,10 +8,8 @@ import {
 } from "../../shared/utils.js";
 import type { CompileServiceResult, ServiceRunOptions } from "../../types/service-results.js";
 
-export async function runSwcCompile(options?: ServiceRunOptions): Promise<CompileServiceResult> {
-  const run = resolveRunOptions(options, {
-    targetFiles: [path.join(demoRoot, "targets/compile/swc/input.tsx")],
-  });
+export async function runSwcCompile(options: ServiceRunOptions): Promise<CompileServiceResult> {
+  const run = resolveRunOptions(options);
   const target = run.targetFiles[0];
   const elapsed = createTimer();
   const result = await transformFile(target, {

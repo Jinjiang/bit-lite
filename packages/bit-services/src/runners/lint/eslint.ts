@@ -1,18 +1,14 @@
 import { ESLint } from "eslint";
-import path from "node:path";
 import {
   createTimer,
-  demoRoot,
   makeLintResult,
   relativePath,
   resolveRunOptions,
 } from "../../shared/utils.js";
 import type { LintServiceResult, ServiceDiagnostic, ServiceRunOptions } from "../../types/service-results.js";
 
-export async function runEslintLint(options?: ServiceRunOptions): Promise<LintServiceResult> {
-  const run = resolveRunOptions(options, {
-    targetFiles: [path.join(demoRoot, "targets/lint/eslint/bad.js")],
-  });
+export async function runEslintLint(options: ServiceRunOptions): Promise<LintServiceResult> {
+  const run = resolveRunOptions(options);
   const elapsed = createTimer();
   const eslint = new ESLint({
     cwd: run.cwd,

@@ -1,8 +1,6 @@
 import { runCLI } from "jest";
-import path from "node:path";
 import {
   createTimer,
-  demoRoot,
   makeTestResult,
   relativePath,
   resolveRunOptions,
@@ -17,10 +15,8 @@ function mapStatus(status: string): TestStatus {
   return status === "pending" ? "skipped" : "failed";
 }
 
-export async function runJestTest(options?: ServiceRunOptions): Promise<TestServiceResult> {
-  const run = resolveRunOptions(options, {
-    targetFiles: [path.join(demoRoot, "targets/test/jest/sample.test.cjs")],
-  });
+export async function runJestTest(options: ServiceRunOptions): Promise<TestServiceResult> {
+  const run = resolveRunOptions(options);
   const elapsed = createTimer();
   const { value } = await withSuppressedOutput(() =>
     runCLI(

@@ -1,8 +1,6 @@
 import Mocha from "mocha";
-import path from "node:path";
 import {
   createTimer,
-  demoRoot,
   makeTestResult,
   relativePath,
   resolveRunOptions,
@@ -10,10 +8,8 @@ import {
 } from "../../shared/utils.js";
 import type { ServiceRunOptions, TestCaseResult, TestServiceResult } from "../../types/service-results.js";
 
-export async function runMochaTest(options?: ServiceRunOptions): Promise<TestServiceResult> {
-  const run = resolveRunOptions(options, {
-    targetFiles: [path.join(demoRoot, "targets/test/mocha/sample.test.mjs")],
-  });
+export async function runMochaTest(options: ServiceRunOptions): Promise<TestServiceResult> {
+  const run = resolveRunOptions(options);
   const elapsed = createTimer();
   const mocha = new Mocha({
     color: false,
