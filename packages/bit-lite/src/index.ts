@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { runCli } from "./cli.js";
 
 export type {
@@ -34,6 +35,17 @@ export { fileHasKind, findFilesByKind, findFirstFileByKind } from "./utils/file-
 export { runService } from "./runtime.js";
 export { loadWorkspace } from "./context/workspace.js";
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isCliEntryPoint()) {
   process.exitCode = await runCli();
+}
+
+function isCliEntryPoint() {
+  const entryPath = process.argv[1];
+  if (!entryPath) return false;
+
+  try {
+    return realpathSync(entryPath) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return import.meta.url === pathToFileURL(entryPath).href;
+  }
 }

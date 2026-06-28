@@ -5,21 +5,6 @@
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "scripts": {
-    "build": "pnpm --filter bit-lite run build",
-    "test": "pnpm --filter bit-lite run test",
-    "dev": "pnpm --filter bit-lite run dev",
-    "demo:components": "pnpm --filter bit-lite run demo:components",
-    "demo:envs": "pnpm --filter bit-lite run demo:envs",
-    "demo:inspect": "pnpm --filter bit-lite run demo:inspect",
-    "demo:lint": "pnpm --filter bit-lite run demo:lint",
-    "demo:typescript": "pnpm --filter bit-lite run demo:typescript",
-    "demo:test": "pnpm --filter bit-lite run demo:test",
-    "demo:test:watch": "pnpm --filter bit-lite run demo:test:watch",
-    "demo:preview": "pnpm --filter bit-lite run demo:preview",
-    "demo:start": "pnpm --filter bit-lite run demo:start",
-    "demo-services:run": "pnpm --filter bit-lite-demo-services run run",
-    "demo-services:lint": "pnpm --filter bit-lite-demo-services run run:lint",
-    "demo-services:test": "pnpm --filter bit-lite-demo-services run run:test",
-    "demo-services:compile": "pnpm --filter bit-lite-demo-services run run:compile"
+    "demo": "pnpm --filter bit-lite-demo-workspace exec bit-lite"
   }
 }

@@ -152,11 +152,11 @@ The demo should be runnable from its own root so command behavior is easy to ins
 Implemented demo commands:
 
 ```sh
-pnpm demo:components
-pnpm demo:envs
-pnpm demo:inspect
-pnpm demo:typescript
-pnpm demo:test
+pnpm demo components
+pnpm demo envs
+pnpm demo inspect
+pnpm demo typescript
+pnpm demo test
 ```
 
 ## Deferred
