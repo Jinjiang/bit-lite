@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import type { Configuration } from "webpack";
+import type { Configuration, RuleSetRule } from "webpack";
 import { createServiceTask } from "../../../runtime.js";
 import { readObjectConfig } from "../../../service-config.js";
 import { registerPreviewVendorCloser } from "../runtime.js";
@@ -22,6 +22,7 @@ export const webpackPreviewVendor: PreviewVendor = {
       const userConfig = await loadWebpackConfig(config, workspaceRoot);
       const appRoot = await generatePreviewApp(input.entries, input.base, workspaceRoot);
       const tsconfigPath = path.join(appRoot, "tsconfig.json");
+      const styleLoaderPath = path.join(appRoot, "style-inject-loader.cjs");
       const webpackModule = await import("webpack");
       const devServerModule = await import("webpack-dev-server");
       const webpack = webpackModule.default;
@@ -48,10 +49,15 @@ export const webpackPreviewVendor: PreviewVendor = {
             ".js": [".ts", ".tsx", ".js"],
           },
         },
+        resolveLoader: {
+          ...readObjectConfig(userConfig.resolveLoader),
+          modules: mergeResolverModules(userConfig.resolveLoader, workspaceRoot),
+        },
         module: {
           ...readObjectConfig(userConfig.module),
           rules: [
             ...readRules(userConfig.module?.rules),
+            ...createCssFallbackRules(userConfig.module?.rules, styleLoaderPath),
             {
               resourceQuery: /raw/,
               type: "asset/source",
@@ -172,6 +178,28 @@ function readRules(value: unknown) {
   return Array.isArray(value) ? value : [];
 }
 
+function mergeResolverModules(resolveLoader: unknown, workspaceRoot: string) {
+  const configuredModules = readStringArray(readObjectConfig(resolveLoader).modules);
+  return uniqueStrings([
+    ...configuredModules,
+    path.join(workspaceRoot, "node_modules"),
+    packageNodeModulesRoot(),
+    "node_modules",
+  ]);
+}
+
+function readStringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function uniqueStrings(values: string[]) {
+  return values.filter((value, index) => values.indexOf(value) === index);
+}
+
+function packageNodeModulesRoot() {
+  return path.dirname(path.dirname(require.resolve("webpack/package.json")));
+}
+
 function readHost(value: unknown) {
   return typeof value === "string" && value !== "0.0.0.0" ? value : DEFAULT_HOST;
 }
@@ -180,6 +208,7 @@ async function generatePreviewApp(entries: PreviewEntry[], base: string, workspa
   const appRoot = await mkdtemp(path.join(os.tmpdir(), "bit-lite-webpack-preview-"));
   const srcRoot = path.join(appRoot, "src");
   await mkdir(srcRoot, { recursive: true });
+  await writeFile(path.join(appRoot, "style-inject-loader.cjs"), STYLE_INJECT_LOADER, "utf8");
   await writeFile(path.join(appRoot, "tsconfig.json"), renderTsconfig(workspaceRoot), "utf8");
   await writeFile(path.join(appRoot, "index.html"), renderIndexHtml(base), "utf8");
   await writeFile(path.join(srcRoot, "registry.ts"), renderRegistry(entries), "utf8");
@@ -243,6 +272,62 @@ function requireWorkspaceRoot(context: { workspaceRoot?: string } | undefined) {
   if (!context?.workspaceRoot) throw new Error("preview requires workspaceRoot in context");
   return context.workspaceRoot;
 }
+
+function createCssFallbackRules(userRules: unknown, styleLoaderPath: string): RuleSetRule[] {
+  if (hasCssRule(userRules)) return [];
+  return [
+    {
+      test: /\.css$/,
+      use: [styleLoaderPath],
+    },
+  ];
+}
+
+function hasCssRule(rules: unknown): boolean {
+  return readRules(rules).some((rule) => ruleReferencesCss(rule, new Set()));
+}
+
+function ruleReferencesCss(rule: unknown, seen: Set<unknown>): boolean {
+  if (typeof rule !== "object" || rule === null) return false;
+  if (seen.has(rule)) return false;
+  seen.add(rule);
+  const candidate = rule as Record<string, unknown>;
+  return (
+    conditionReferencesCss(candidate.test) ||
+    conditionReferencesCss(candidate.resource) ||
+    conditionReferencesCss(candidate.resourceQuery) ||
+    ruleListReferencesCss(candidate.rules, seen) ||
+    ruleListReferencesCss(candidate.oneOf, seen)
+  );
+}
+
+function ruleListReferencesCss(rules: unknown, seen: Set<unknown>) {
+  return readRules(rules).some((rule) => ruleReferencesCss(rule, seen));
+}
+
+function conditionReferencesCss(value: unknown): boolean {
+  if (value instanceof RegExp) return value.test("file.css") || value.test("?vue&type=style&lang=css");
+  if (typeof value === "string") return value.includes(".css") || value.includes("lang=css") || value.includes("type=style");
+  if (Array.isArray(value)) return value.some(conditionReferencesCss);
+  if (typeof value !== "object" || value === null) return false;
+  const condition = value as Record<string, unknown>;
+  return Object.values(condition).some(conditionReferencesCss);
+}
+
+const STYLE_INJECT_LOADER = `module.exports = function bitLiteStyleInjectLoader(source) {
+  const css = JSON.stringify(String(source));
+  return [
+    "const css = " + css + ";",
+    "if (typeof document !== 'undefined') {",
+    "  const style = document.createElement('style');",
+    "  style.setAttribute('data-bit-lite-preview-style', '');",
+    "  style.textContent = css;",
+    "  document.head.appendChild(style);",
+    "}",
+    "export default css;"
+  ].join("\\n");
+};
+`;
 
 const MAIN_TS = `import { previews } from "./registry";
 
