@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { runNodeScript } from "../../../utils/process.js";
@@ -16,7 +17,7 @@ export const tsgoTypecheckVendor: TypecheckVendor = {
       rejectCliArgs(input.args, "typecheck");
       const config = readObjectConfig(input.config);
       const tsconfig = typeof config.tsconfig === "string" ? config.tsconfig : "tsconfig.json";
-      const tsgoPath = path.join(path.dirname(require.resolve("@typescript/native-preview/package.json")), "bin/tsgo.js");
+      const tsgoPath = resolveTsgoPath();
       const exitCode = await runNodeScript(tsgoPath, {
         cwd: workspaceRoot,
         args: ["-p", path.resolve(workspaceRoot, tsconfig)],
@@ -45,4 +46,10 @@ export default tsgoTypecheckVendor;
 function requireWorkspaceRoot(context: { workspaceRoot?: string } | undefined) {
   if (!context?.workspaceRoot) throw new Error("typecheck requires workspaceRoot in context");
   return context.workspaceRoot;
+}
+
+function resolveTsgoPath() {
+  const packageRoot = path.dirname(require.resolve("@typescript/native-preview/package.json"));
+  const extensionlessBin = path.join(packageRoot, "bin/tsgo");
+  return existsSync(extensionlessBin) ? extensionlessBin : path.join(packageRoot, "bin/tsgo.js");
 }

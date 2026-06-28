@@ -1,6 +1,8 @@
 import { add } from "../../lib/math/index.js";
 import { createElement } from "react";
 
+const unusedSpacingHint = "demo";
+
 export type ButtonProps = {
   label: string;
   count?: number;

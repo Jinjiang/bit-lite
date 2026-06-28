@@ -10,6 +10,12 @@ export default [
         sourceType: "module",
       },
     },
-    rules: {},
+    rules: {
+      eqeqeq: "error",
+      "no-extra-semi": "error",
+      "no-unused-vars": "error",
+      quotes: ["error", "double"],
+      semi: ["error", "always"],
+    },
   },
 ];

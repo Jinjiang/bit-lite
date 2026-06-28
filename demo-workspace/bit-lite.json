@@ -61,7 +61,9 @@
         },
         "lint": {
           "vendor": "oxlint",
-          "config": {}
+          "config": {
+            "configFile": "../demo-config/lint/oxlint.json"
+          }
         }
       }
     },
@@ -90,6 +92,7 @@
         "lint": {
           "vendor": "oxlint",
           "config": {
+            "configFile": "../demo-config/lint/oxlint.json",
             "args": ["--vue-plugin"]
           }
         },
