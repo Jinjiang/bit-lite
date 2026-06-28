@@ -19,6 +19,13 @@
           "vendor": "jest",
           "config": {}
         },
+        "lint": {
+          "vendor": "eslint",
+          "config": {
+            "configFile": "../demo-config/lint/eslint.config.mjs",
+            "args": ["--ext", ".ts"]
+          }
+        },
         "preview": {
           "vendor": "webpack",
           "config": {
@@ -51,6 +58,10 @@
         "test": {
           "vendor": "mocha",
           "config": {}
+        },
+        "lint": {
+          "vendor": "oxlint",
+          "config": {}
         }
       }
     },
@@ -74,6 +85,12 @@
           "config": {
             "configFile": "../demo-config/test/vitest.vue.config.ts",
             "args": ["run"]
+          }
+        },
+        "lint": {
+          "vendor": "oxlint",
+          "config": {
+            "args": ["--vue-plugin"]
           }
         },
         "preview": {

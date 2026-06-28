@@ -88,6 +88,7 @@ Usage:
   bit-lite components [--workspace <dir>] [--filter <pattern>]
   bit-lite envs [--workspace <dir>]
   bit-lite inspect [--workspace <dir>] [--filter <pattern>]
+  bit-lite lint [--workspace <dir>] [--filter <pattern>] [...lint args]
   bit-lite typecheck [--workspace <dir>] [--filter <pattern>]
   bit-lite test [--workspace <dir>] [--filter <pattern>] [--watch]
   bit-lite preview [--workspace <dir>] [--filter <pattern>]

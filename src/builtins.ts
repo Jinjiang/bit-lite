@@ -1,4 +1,5 @@
 import { inspectService } from "./services/inspect/service.js";
+import { lintService } from "./services/lint/service.js";
 import { previewService } from "./services/preview/service.js";
 import { sourceService } from "./services/source/service.js";
 import { testService } from "./services/test/service.js";
@@ -8,6 +9,7 @@ import type { BitLiteService } from "./types/index.js";
 export const builtinServices: Record<string, BitLiteService> = {
   preview: previewService,
   inspect: inspectService,
+  lint: lintService,
   typecheck: typecheckService,
   typescript: typecheckService,
   test: testService,

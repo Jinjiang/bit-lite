@@ -10,6 +10,7 @@ export const commands: Record<string, BitLiteCommand> = {
   components: componentsCommand,
   envs: envsCommand,
   inspect: createServiceCommand("inspect"),
+  lint: createServiceCommand("lint"),
   preview: previewCommand,
   start: startCommand,
   test: testCommand,

@@ -13,6 +13,15 @@ export type {
   ServiceTask,
 } from "./types/index.js";
 export type {
+  LintArgs,
+  LintResult,
+  LintResultJson,
+  LintService,
+  LintVendor,
+  LintVendorConfig,
+  LintVendorInput,
+} from "./types/services/lint.js";
+export type {
   SourceComponent,
   SourceResult,
   SourceResultJson,
