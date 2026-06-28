@@ -1,8 +1,0 @@
-node_modules
-results
-.cache
-.rollup.cache
-coverage
-cypress/screenshots
-cypress/videos
-test-results
