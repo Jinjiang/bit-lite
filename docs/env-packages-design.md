@@ -6,26 +6,22 @@ Bit-lite 当前把每个 component 使用的 env 定义写在 workspace 配置�
 
 - 每个 env 需要声明 services。
 - 每个 service 需要声明 runner、vendor、targets、config。
-- lint、test、typecheck、preview 等工具都有自己的默认配置。
+- lint、test、typecheck、preview、compile 等工具都有自己的默认配置。
 - React、Vue、Node 等常规 env 会重复出现大量相似配置。
 
-未来希望把 env 定义发布为独立 npm package。workspace 配置只引用 env package name，具体 env 能力、默认 service、默认工具配置都由 env package 提供。
+未来希望把 env 定义发布为独立 npm package。workspace 配置只在每个 component 上引用具体 env package，具体 env 能力、默认 service、默认工具配置都由 env package 提供。
 
 这个文档先记录早期技术设计和可行性判断，不规定最终实现细节。
 
 ## 目标
 
-`bit.json` 只负责 workspace 级别组装：
-
-- 声明 component pattern。
-- 声明每个 component pattern 使用哪个 env package。
-- 为特定 env package 提供少量 workspace override。
+`bit.json` 只负责声明每个 component 使用哪个 env package。不同 component 可以使用不同 env，不通过 pattern 做批量推导。
 
 env package 负责具体环境能力：
 
 - 默认 services。
 - 默认 service runner。
-- 默认 targets 规则。
+- 默认 target patterns。
 - 默认工具配置。
 - 需要的 npm dependencies。
 
@@ -33,23 +29,30 @@ env package 负责具体环境能力：
 
 ```json
 {
-  "defaultEnv": "@acme/bit-env-node",
-  "components": {
-    "components/ui/**": "@acme/bit-env-react",
-    "components/vue/**": "@acme/bit-env-vue",
-    "components/lib/**": "@acme/bit-env-node"
-  },
-  "envs": {
-    "@acme/bit-env-react": {
-      "config": {
-        "preview": {
-          "port": 3301
-        }
+  "components": [
+    {
+      "path": "components/ui/button",
+      "id": "ui/button",
+      "packageName": "@acme/ui.button",
+      "env": {
+        "packageName": "@acme/bit-env-react",
+        "version": "workspace:*"
+      }
+    },
+    {
+      "path": "components/lib/math",
+      "id": "lib/math",
+      "packageName": "@acme/lib.math",
+      "env": {
+        "packageName": "@acme/bit-env-node",
+        "version": "^1.0.0"
       }
     }
-  }
+  ]
 }
 ```
+
+每个 `env` 都是一个真实 package reference。版本使用 semver spec；如果 env package 是当前 pnpm workspace 里的本地 package，使用 `workspace:*`。
 
 ## 非目标
 
@@ -64,9 +67,14 @@ env package 负责具体环境能力：
       "package": "@acme/bit-env-react"
     }
   },
-  "components": {
-    "components/ui/**": "react"
-  }
+  "components": [
+    {
+      "path": "components/ui/button",
+      "id": "ui/button",
+      "packageName": "@acme/ui.button",
+      "env": "react"
+    }
+  ]
 }
 ```
 
@@ -79,31 +87,44 @@ env package 负责具体环境能力：
 
 因此，env package name 就是 env identity。
 
+初期也不支持：
+
+- 用 component pattern 批量匹配 env。
+- `defaultEnv`。
+- workspace 级 env override。
+- 通过配置项覆盖 env package 的 service targets。
+
+这些能力都容易让 env 分配规则变得隐式。当前设计要求每个 component 明确写出自己的 env。
+
 ## 配置模型
 
-建议未来配置文件以 package name 作为唯一 env 标识。
+建议未来配置文件以 component record 作为唯一 env 绑定入口。
 
 ```json
 {
-  "defaultEnv": "@acme/bit-env-node",
-  "components": {
-    "components/lib/**": "@acme/bit-env-node",
-    "components/ui/**": "@acme/bit-env-react"
-  },
-  "envs": {
-    "@acme/bit-env-node": {},
-    "@acme/bit-env-react": {
-      "config": {
-        "lint": {
-          "args": ["--max-warnings=0"]
-        }
+  "components": [
+    {
+      "path": "components/app/header",
+      "id": "app/header",
+      "packageName": "@acme/app.header",
+      "env": {
+        "packageName": "@acme/bit-env-react",
+        "version": "workspace:*"
       }
     }
-  }
+  ]
 }
 ```
 
-`envs` 是可选 override。没有 override 时，Bit-lite 直接加载 env package 默认定义。
+规则：
+
+- `env.packageName` 必须是合法 npm package name。
+- `env.version` 必须是合法 semver/package-manager spec。
+- 本地 workspace env package 使用 `workspace:*` 或后续允许的 workspace semver spec。
+- Bit-lite 不根据 path 或 pattern 推断 env。
+- Bit-lite 不维护 env alias 表。
+
+env package 必须能被当前 workspace 的 package manager resolve。它可以来自 registry，也可以是 monorepo 里的 workspace package。
 
 ## Env Package 协议
 
@@ -136,7 +157,15 @@ env package 负责具体环境能力：
 }
 ```
 
-env package 可以导出 object，也可以导出 factory。建议优先支持 factory，因为它能接收 workspace override。
+env package 可以导出 object，也可以导出 factory。建议优先支持 factory，但这里的 factory 不是为了 workspace override，而是为了未来支持 env package 之间的继承和局部替换。
+
+例如长期可能需要：
+
+- env A 基于 env B，只替换 test runner。
+- env A 基于 env B，只换一个 config file。
+- env A 复用 env B 的大部分 services，只增加 preview 能力。
+
+这类 env-to-env composition 可以后续具体设计。初期只需要保留 factory 入口，不在 workspace 配置里引入 override 语义。
 
 ```ts
 export default function createEnv(context) {
@@ -149,14 +178,10 @@ export default function createEnv(context) {
           configFile: "./configs/eslint"
         },
         targets: {
-          components: [
+          patterns: [
             {
-              patterns: [
-                {
-                  include: ["**/*.{js,jsx,ts,tsx}"],
-                  exclude: ["dist/**"]
-                }
-              ]
+              include: ["**/*.{js,jsx,ts,tsx}"],
+              exclude: ["dist/**"]
             }
           ]
         }
@@ -167,13 +192,9 @@ export default function createEnv(context) {
           configFile: "./configs/vitest"
         },
         targets: {
-          components: [
+          patterns: [
             {
-              patterns: [
-                {
-                  include: ["**/*.{test,spec}.{js,jsx,ts,tsx}"]
-                }
-              ]
+              include: ["**/*.{test,spec}.{js,jsx,ts,tsx}"]
             }
           ]
         }
@@ -200,11 +221,13 @@ factory context 概念类型：
 ```ts
 type EnvFactoryContext = {
   packageName: string;
+  version: string;
   envPackageRoot: string;
   workspaceRoot: string;
-  userConfig?: unknown;
 };
 ```
+
+`userConfig` 暂不放入 context，因为当前设计不支持 workspace env override。
 
 ## Env Definition
 
@@ -223,11 +246,12 @@ type EnvServiceDefinition = {
   runner: string;
   config?: unknown;
   targets?: ServiceTargetInput;
-  mode?: "run-once" | "watch" | "serve";
 };
 ```
 
 `name` 必须等于 env package name，或者在加载时被 Bit-lite 归一化成 env package name。这样可以避免 alias 和 package identity 不一致。
+
+`EnvServiceDefinition` 不包含 `mode`。run once、watch、serve 等运行模式由 service 语义和运行时 args 决定，而不是 env package 静态声明决定。
 
 ## Service Runner 协议
 
@@ -248,7 +272,7 @@ runner 应该导出带 `run` 的对象，而不是单独函数。
 
 ```ts
 type ServiceRunner = {
-  service: "lint" | "test" | "typecheck" | "preview" | string;
+  service: "lint" | "test" | "typecheck" | "preview" | "compile" | string;
   vendor: string;
   run(input: ServiceInput, host?: ServiceHost): ServiceTask | Promise<ServiceResult>;
 };
@@ -258,15 +282,15 @@ runner 输入和输出应该是结构化 JSON，而不是依赖命令行字符�
 
 ## 路径解析规则
 
-路径解析必须在早期明确，否则 env package 和 workspace override 会很容易混乱。
+路径解析必须在早期明确，否则 env package、runner package 和 workspace 文件会很容易混乱。
 
 建议规则：
 
 - env package 内声明的相对路径，相对 env package root 解析。
-- `bit.json` 里 workspace override 的相对路径，相对 workspace root 解析。
 - component source 永远来自 workspace。
 - runner package 优先从 env package 解析，失败后再从 workspace root 解析。
 - config package subpath 通过 Node package exports 解析。
+- 运行时 CLI args 中的 workspace 文件路径，相对 workspace root 解析。
 
 示例：
 
@@ -280,45 +304,19 @@ configFile: "./configs/vite"
 node_modules/@acme/bit-env-react/dist/configs/vite.js
 ```
 
-如果来自 workspace override，解析为：
-
-```txt
-<workspace-root>/configs/vite.config.ts
-```
-
-## Workspace Override
-
-workspace 可以覆盖 env package 的部分配置，但不应该复制完整 env 定义。
-
-示例：
-
-```json
-{
-  "envs": {
-    "@acme/bit-env-react": {
-      "config": {
-        "lint": {
-          "args": ["--max-warnings=0"]
-        },
-        "preview": {
-          "port": 3301
-        }
-      }
-    }
-  }
-}
-```
-
-merge 规则需要谨慎设计。早期建议使用浅层 service-level merge：
-
-- env package 提供完整默认 service definition。
-- workspace override 只覆盖对应 service 的 `config` 和少量标准字段。
-- 不支持任意深层魔法 merge。
-- 如果需要完全替换某个 service，应显式声明 `replace: true` 或类似机制。
-
 ## Targets 模型
 
-env package 应该能声明默认 targets。Bit-lite 根据 component 和 pattern 解析出具体 files，再传给 runner。
+env package 可以声明默认 target patterns，但不应该声明具体 components。
+
+component 选择由 Bit-lite 运行时决定，例如：
+
+```sh
+bit-lite test --filter @acme/ui.button
+```
+
+因此 service targets 里不需要 `components` 字段。Bit-lite 会根据 `--filter`、component package registry 和当前命令上下文选出 component set，再把解析后的文件列表或 component context 传给 runner。
+
+`rootDir` 也不建议放进 targets。多个 component 共享的 root 通常就是 workspace root；每个 component 的 rootDir 已经存在于 component registry，不需要 env package 重复配置。
 
 概念模型：
 
@@ -326,29 +324,20 @@ env package 应该能声明默认 targets。Bit-lite 根据 component 和 patter
 type ServiceTargetInput = {
   files?: string[];
   patterns?: ServiceTargetPattern[];
-  components?: ServiceComponentTargetSelector[];
 };
 
 type ServiceTargetPattern = {
   kind?: string;
   include?: string[];
   exclude?: string[];
-  rootDir?: string;
-};
-
-type ServiceComponentTargetSelector = {
-  component: ComponentRef;
-  patterns?: ServiceTargetPattern[];
-  files?: string[];
-  filter?: Record<string, unknown>;
 };
 ```
 
 这个模型支持：
 
-- lint 对所有源码文件生效。
-- test 只匹配 `*.test.*` 和 `*.spec.*`。
-- preview 查找 `preview.ts`、`preview.tsx` 或 docs 文件。
+- lint 对选中 components 的源码文件生效。
+- test 只匹配选中 components 内的 `*.test.*` 和 `*.spec.*`。
+- preview 查找选中 components 内的 `preview.ts`、`preview.tsx` 或 docs 文件。
 - typecheck 可以选择 workspace-level tsconfig，也可以未来支持 component-level project references。
 
 ## Service 重新定义方向
@@ -357,7 +346,7 @@ type ServiceComponentTargetSelector = {
 
 lint service 应该定义为：
 
-- 输入：component targets、config file、args。
+- 输入：runtime 选出的 component set、target files、config file、args。
 - 输出：diagnostics、summary。
 - 不依赖 human-readable CLI output 判断结果。
 
@@ -367,9 +356,9 @@ ESLint、Oxlint、Biome 都应该去掉 demo hardcode。默认规则属于 env p
 
 test service 应该定义为：
 
-- 输入：test targets、config file、run mode。
+- 输入：runtime 选出的 component set、test files、config file、run args。
 - 输出：suites、cases、failures、summary。
-- watch mode 通过结构化 event 更新状态。
+- watch mode 通过运行时 args 启用，并通过结构化 event 更新状态。
 
 CLI output 可以作为 `output` event 附带，但不应该是主要数据源。
 
@@ -429,28 +418,34 @@ compile service 应该定义为：
 2. workspace dependencies。
 3. 友好错误提示。
 
+如果 env package 是当前 workspace 内的本地 package，应通过 package manager 的 workspace protocol 管理版本，例如 `workspace:*`。
+
 ## 加载流程
 
 Bit-lite 加载 workspace 时：
 
-1. 读取 `bit.json`。
-2. 根据 component patterns 发现 components。
-3. 收集所有 env package names。
-4. 从 workspace root 解析并加载 env package。
-5. 调用 env factory，传入 package root、workspace root、user config。
-6. 得到 env definition。
-7. 根据 component pattern 把 components 分组到 env package。
-8. 运行 service 时加载对应 runner package。
-9. Bit-lite 解析 targets，并把结构化 input 传给 runner。
-10. runner 通过结构化 event/result 返回执行信息。
+1. 读取 `bit.json` component records。
+2. 读取每个 component 的 `.comp.json`。
+3. 构建 component package registry。
+4. 从 component records 收集所有 env package refs。
+5. 根据 `{ packageName, version }` 解析并加载 env package。
+6. 调用 env factory，传入 package name、version、env package root、workspace root。
+7. 得到 env definition，并校验 `name` 与 package identity 一致。
+8. 运行 service 时根据 `--filter` 和 component registry 选出 component set。
+9. Bit-lite 根据 env service targets 解析文件或入口。
+10. 运行时加载对应 runner package，并把结构化 input 传给 runner。
+11. runner 通过结构化 event/result 返回执行信息。
+
+这个流程没有 component pattern 到 env 的匹配步骤，也没有 workspace override merge 步骤。
 
 ## 可行性判断
 
-这个方案整体可行，并且比 alias 方案更简单。
+这个方案整体可行，并且比 alias、pattern、override 混合方案更简单。
 
 优点：
 
 - package name 就是 env identity。
+- 每个 component 的 env 选择是显式的。
 - 版本管理交给 npm/package manager。
 - 常规 env 不需要本地或云端维护映射表。
 - env 能力可以独立发布和升级。
@@ -462,18 +457,21 @@ Bit-lite 加载 workspace 时：
 - env package 自带依赖可能导致工具版本重复。
 - Vite/Webpack 插件 resolution 可能受 package root 影响。
 - TypeScript、React、Vue 等 peer dependency 需要友好错误提示。
-- workspace override 和 env default 的 merge 规则不能过度魔法。
+- 没有 workspace override 后，短期定制能力会更少，需要通过 env package composition 或新 env package 解决。
 
 ## 第一阶段建议
 
 第一阶段只做最小闭环：
 
-- `bit.json` 支持直接用 env package name。
+- `bit.json` 在每个 component record 上直接声明 env package ref。
 - env package 支持 default export factory。
 - env definition 返回 services。
+- service targets 只描述 files/patterns，不描述 components/rootDir。
 - service runner 使用结构化 input/event/result。
-- 先支持 lint、test、typecheck、preview 四类常用 service。
+- 先支持 lint、test、typecheck、preview、compile 五类常用 service。
 - 不支持 alias。
+- 不支持 component pattern env mapping。
+- 不支持 workspace env override。
 - 不支持复杂 dependency conflict resolution。
 - 不支持云端 env registry。
 
