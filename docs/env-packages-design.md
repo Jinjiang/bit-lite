@@ -340,63 +340,6 @@ type ServiceTargetPattern = {
 - preview 查找选中 components 内的 `preview.ts`、`preview.tsx` 或 docs 文件。
 - typecheck 可以选择 workspace-level tsconfig，也可以未来支持 component-level project references。
 
-## Service 重新定义方向
-
-### Lint
-
-lint service 应该定义为：
-
-- 输入：runtime 选出的 component set、target files、config file、args。
-- 输出：diagnostics、summary。
-- 不依赖 human-readable CLI output 判断结果。
-
-ESLint、Oxlint、Biome 都应该去掉 demo hardcode。默认规则属于 env package 或 config file，不属于 runner。
-
-### Test
-
-test service 应该定义为：
-
-- 输入：runtime 选出的 component set、test files、config file、run args。
-- 输出：suites、cases、failures、summary。
-- watch mode 通过运行时 args 启用，并通过结构化 event 更新状态。
-
-CLI output 可以作为 `output` event 附带，但不应该是主要数据源。
-
-### Typecheck
-
-typecheck 不应该复用 compile runner。
-
-typecheck service 应该定义为：
-
-- 输入：tsconfig、component set、可选 project references。
-- 输出：diagnostics、files count、errors、warnings。
-- runner 可以是 TypeScript API、`tsc`、`tsgo`。
-
-TypeScript compile/transpile 是另一个 service，不应和 typecheck 混在一起。
-
-### Preview
-
-preview 不应该复用一次性 Vite/Webpack build runner。
-
-preview service 应该定义为：
-
-- 输入：preview entries、docs entries、base、port、config file。
-- 输出：server url、host、port、base、entries。
-- 生命周期：启动 dev server，发送 `ready` event，直到 abort 时关闭。
-
-Vite preview 和 Webpack preview 应该是 dev-server runner，而不是 compile runner。
-
-### Compile
-
-compile service 独立存在，用于产出 artifacts。
-
-compile service 应该定义为：
-
-- 输入：entry targets、output dir、config。
-- 输出：artifacts、diagnostics、summary。
-
-它可以复用 Vite/Webpack/Rollup/esbuild/SWC/Babel，但语义和 preview 不同。
-
 ## 依赖策略
 
 早期建议 env package 自带默认工具依赖，优先保证开箱可用。
@@ -419,24 +362,6 @@ compile service 应该定义为：
 3. 友好错误提示。
 
 如果 env package 是当前 workspace 内的本地 package，应通过 package manager 的 workspace protocol 管理版本，例如 `workspace:*`。
-
-## 加载流程
-
-Bit-lite 加载 workspace 时：
-
-1. 读取 `bit.json` component records。
-2. 读取每个 component 的 `.comp.json`。
-3. 构建 component package registry。
-4. 从 component records 收集所有 env package refs。
-5. 根据 `{ packageName, version }` 解析并加载 env package。
-6. 调用 env factory，传入 package name、version、env package root、workspace root。
-7. 得到 env definition，并校验 `name` 与 package identity 一致。
-8. 运行 service 时根据 `--filter` 和 component registry 选出 component set。
-9. Bit-lite 根据 env service targets 解析文件或入口。
-10. 运行时加载对应 runner package，并把结构化 input 传给 runner。
-11. runner 通过结构化 event/result 返回执行信息。
-
-这个流程没有 component pattern 到 env 的匹配步骤，也没有 workspace override merge 步骤。
 
 ## 可行性判断
 
