@@ -1,108 +1,11 @@
 {
-  "defaultEnv": "node",
   "envs": {
-    "node": {
-      "services": {
-        "inspect": {
-          "vendor": "default",
-          "config": {
-            "label": "node components"
-          }
-        },
-        "typescript": {
-          "vendor": "typescript-api",
-          "config": {
-            "tsconfig": "../demo-config/typecheck/tsconfig.json"
-          }
-        },
-        "test": {
-          "vendor": "jest",
-          "config": {}
-        },
-        "lint": {
-          "vendor": "eslint",
-          "config": {
-            "configFile": "../demo-config/lint/eslint.config.mjs",
-            "args": ["--ext", ".ts"]
-          }
-        },
-        "preview": {
-          "vendor": "webpack",
-          "config": {
-            "configFile": "../demo-config/preview/webpack.node.config.mjs"
-          }
-        }
-      }
-    },
+    "node": {},
     "react": {
-      "extends": "node",
-      "services": {
-        "inspect": {
-          "vendor": "summary",
-          "config": {
-            "label": "react components"
-          }
-        },
-        "preview": {
-          "vendor": "vite",
-          "config": {
-            "configFile": "../demo-config/preview/vite.react.config.mjs"
-          }
-        },
-        "typescript": {
-          "vendor": "tsc",
-          "config": {
-            "tsconfig": "../demo-config/typecheck/tsconfig.json"
-          }
-        },
-        "test": {
-          "vendor": "mocha",
-          "config": {}
-        },
-        "lint": {
-          "vendor": "oxlint",
-          "config": {
-            "configFile": "../demo-config/lint/oxlint.json"
-          }
-        }
-      }
+      "extends": "node"
     },
     "vue": {
-      "extends": "node",
-      "services": {
-        "inspect": {
-          "vendor": "summary",
-          "config": {
-            "label": "vue components"
-          }
-        },
-        "typescript": {
-          "vendor": "tsgo",
-          "config": {
-            "tsconfig": "../demo-config/typecheck/tsconfig.json"
-          }
-        },
-        "test": {
-          "vendor": "vitest",
-          "config": {
-            "configFile": "../demo-config/test/vitest.vue.config.ts",
-            "args": ["run"]
-          }
-        },
-        "lint": {
-          "vendor": "oxlint",
-          "config": {
-            "configFile": "../demo-config/lint/oxlint.json",
-            "args": ["--vue-plugin"]
-          }
-        },
-        "preview": {
-          "vendor": "webpack",
-          "config": {
-            "configFile": "../demo-config/preview/webpack.vue.config.mjs"
-          }
-        }
-      }
+      "extends": "node"
     }
   },
   "components": {

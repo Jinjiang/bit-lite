@@ -1,9 +1,12 @@
 import path from "node:path";
-import { commands } from "./commands/index.js";
-import { loadWorkspace } from "./context/workspace.js";
 import { BitLiteError } from "./utils/errors.js";
-import { matchPattern } from "./utils/patterns.js";
-import type { WorkspaceRuntime } from "./types/index.js";
+
+export type ParsedCliArgs = {
+  command: string | undefined;
+  args: string[];
+  workspaceRoot: string;
+  help: boolean;
+};
 
 export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   const parsed = parseArgs(argv);
@@ -13,14 +16,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   }
 
   try {
-    const loadedWorkspace = await loadWorkspace(parsed.workspaceRoot);
-    const workspace = parsed.filterPattern ? filterWorkspace(loadedWorkspace, parsed.filterPattern) : loadedWorkspace;
-    const command = commands[parsed.command];
-    if (!command) throw new BitLiteError(`unknown command "${parsed.command}"`);
-    return await command.run({
-      workspace,
-      args: parsed.args,
-    });
+    throw new BitLiteError(`command "${parsed.command}" is not registered in this clean-slate build`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(message);
@@ -28,18 +24,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   }
 }
 
-type ParsedArgs = {
-  command: string | undefined;
-  args: string[];
-  workspaceRoot: string;
-  filterPattern: string | undefined;
-  help: boolean;
-};
-
-function parseArgs(argv: string[]): ParsedArgs {
+export function parseArgs(argv: string[]): ParsedCliArgs {
   const remaining: string[] = [];
   let workspaceRoot = process.cwd();
-  let filterPattern: string | undefined;
   let help = false;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -52,31 +39,15 @@ function parseArgs(argv: string[]): ParsedArgs {
       if (!value) throw new BitLiteError("--workspace requires a path");
       workspaceRoot = path.resolve(value);
       index += 1;
-    } else if (arg === "--filter") {
-      const value = argv[index + 1];
-      if (!value) throw new BitLiteError("--filter requires a pattern");
-      filterPattern = value;
-      index += 1;
     } else {
       remaining.push(arg);
     }
-  }
-
-  if (remaining[0] === "run") {
-    return {
-      command: remaining[1],
-      args: remaining.slice(2),
-      workspaceRoot,
-      filterPattern,
-      help,
-    };
   }
 
   return {
     command: remaining[0],
     args: remaining.slice(1),
     workspaceRoot,
-    filterPattern,
     help,
   };
 }
@@ -85,33 +56,9 @@ function printUsage() {
   console.log(`bit-lite
 
 Usage:
-  bit-lite components [--workspace <dir>] [--filter <pattern>]
-  bit-lite envs [--workspace <dir>]
-  bit-lite inspect [--workspace <dir>] [--filter <pattern>]
-  bit-lite lint [--workspace <dir>] [--filter <pattern>] [...lint args]
-  bit-lite typecheck [--workspace <dir>] [--filter <pattern>]
-  bit-lite test [--workspace <dir>] [--filter <pattern>] [--watch]
-  bit-lite preview [--workspace <dir>] [--filter <pattern>]
-  bit-lite start [--workspace <dir>] [--filter <pattern>]
+  bit-lite --help
+  bit-lite <command> [--workspace <dir>] [...args]
 
-Compatibility:
-  bit-lite run <service> [--workspace <dir>] [--filter <pattern>] [...service args]
+No built-in commands are registered in this clean-slate build.
 `);
-}
-
-function filterWorkspace(workspace: WorkspaceRuntime, pattern: string): WorkspaceRuntime {
-  const components = workspace.components.filter((component) => matchPattern(component.id, pattern));
-  const componentIds = new Set(components.map((component) => component.id));
-  const groups = workspace.groups
-    .map((group) => ({
-      ...group,
-      components: group.components.filter((component) => componentIds.has(component.id)),
-    }))
-    .filter((group) => group.components.length > 0);
-
-  return {
-    ...workspace,
-    components,
-    groups,
-  };
 }

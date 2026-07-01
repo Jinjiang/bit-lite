@@ -2,17 +2,15 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { runService } from "../runtime.js";
 import { loadWorkspace } from "./workspace.js";
 
 describe("workspace runtime", () => {
-  it("discovers components, assigns envs, and runs inspect", async () => {
+  it("discovers components and assigns envs", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "bit-lite-"));
     await writeFile(
       path.join(workspaceRoot, "bit-lite.json"),
       JSON.stringify(
         {
-          defaultEnv: "node",
           envs: {
             node: {
               services: {
@@ -59,15 +57,16 @@ describe("workspace runtime", () => {
     await writeFile(path.join(workspaceRoot, "components/vue/card/index.vue"), "<template><div>Card</div></template>\n");
 
     const workspace = await loadWorkspace(workspaceRoot);
-    const results = await runService(workspace, "inspect");
 
     expect(workspace.components.map((component) => [component.id, component.envName])).toEqual([
       ["components/lib/math", "node"],
       ["components/ui/button", "react"],
       ["components/vue/card", "vue"],
     ]);
-    expect(results).toHaveLength(3);
-    expect(results.map((result) => result.envName).sort()).toEqual(["node", "react", "vue"]);
-    expect(results.every((result) => result.result.ok)).toBe(true);
+    expect(workspace.groups.map((group) => [group.envName, group.components.map((component) => component.id)])).toEqual([
+      ["node", ["components/lib/math"]],
+      ["react", ["components/ui/button"]],
+      ["vue", ["components/vue/card"]],
+    ]);
   });
 });

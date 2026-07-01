@@ -1,60 +1,37 @@
-export type ServiceResult<JsonValue = unknown> = {
-  ok: boolean;
-  toJSON(): JsonValue;
-  toString(): string;
-  toTerminalString?(): string;
-};
+// General interface
 
 export type ComponentRef = {
   id: string;
   rootDir: string;
 };
 
-export type ServiceInput<Config = unknown, Args = unknown> = {
-  components: ComponentRef[];
-  config: Config;
-  args: Args;
-};
-
-export type ServiceContext = {
-  workspaceRoot?: string;
-  envName?: string;
-  cwd?: string;
-};
-
-export type ServiceEventListener = (type: string, payload: unknown) => void;
-
-export type ServiceTask<Result = ServiceResult> = {
-  result: Promise<Result>;
-  listen(listener: ServiceEventListener): () => void;
-  abort(): void;
-  call(type: string, payload?: unknown): void;
-};
-
-export type BitLiteService<
-  Config = unknown,
-  Args = unknown,
-  Result extends ServiceResult = ServiceResult,
-> = {
-  name: string;
-  run(input: ServiceInput<Config, Args>, context?: ServiceContext): ServiceTask<Result>;
-};
+// Workspace Config interface
 
 export type EnvConfig = {
   extends?: string;
+  // TODO: unknown should be more particularly an optional JSON value
   services?: Record<string, unknown>;
-};
-
-export type BitLiteConfig = {
-  defaultEnv: string;
-  envs: Record<string, EnvConfig>;
-  components?: Record<string, string>;
 };
 
 export type ResolvedEnvConfig = {
   name: string;
+  // TODO: unknown should be more particularly an optional JSON value
   services: Record<string, unknown>;
 };
+
+export type WorkspaceConfig = {
+  envs: Record<string, EnvConfig>;
+  // TODO: should be 1v1 map instead of wildcard patterns
+  components?: Record<string, string>;
+};
+
+export type ResolvedWorkspaceConfig = {
+  envs: Record<string, ResolvedEnvConfig>;
+  // TODO: should be 1v1 map instead of wildcard patterns
+  components: Record<string, string>;
+};
+
+// Runtime interface
 
 export type ComponentRuntime = ComponentRef & {
   envName: string;
@@ -68,14 +45,40 @@ export type EnvRuntime = {
 
 export type WorkspaceRuntime = {
   workspaceRoot: string;
-  config: BitLiteConfig;
+  config: ResolvedWorkspaceConfig;
   envs: Record<string, ResolvedEnvConfig>;
   components: ComponentRuntime[];
   groups: EnvRuntime[];
 };
 
-export type ServiceRunResult = {
-  envName: string;
-  serviceName: string;
-  result: ServiceResult;
+// Service Vendor interface
+
+export type ServiceVendorInput<Config = unknown, Args = unknown> = {
+  components: ComponentRef[];
+  config: Config;
+  args: Args;
+};
+
+export type ServiceVendorResult<JsonValue = unknown> = {
+  status: string;
+  toJSON(): JsonValue;
+  toString(forTerminal: boolean): string;
+};
+
+export type ServiceVendorEventListener = (type: string, payload: unknown) => void;
+
+export type ServiceVendorTask<Result = ServiceVendorResult> = {
+  result: Promise<Result>;
+  listen(listener: ServiceVendorEventListener): () => void;
+  abort(): void;
+  call(type: string, payload?: unknown): void;
+};
+
+export type ServiceVendor<
+  Config = unknown,
+  Args = unknown,
+  Result extends ServiceVendorResult = ServiceVendorResult,
+> = {
+  name: string;
+  run(input: ServiceVendorInput<Config, Args>, context?: WorkspaceRuntime): ServiceVendorTask<Result>;
 };

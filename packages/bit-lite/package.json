@@ -2,43 +2,24 @@
   "name": "bit-lite",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
-    "bit-lite": "dist/index.js"
+    "bit-lite": "dist/bin.js"
   },
   "scripts": {
     "test": "vitest run",
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/bin.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "devDependencies": {
-    "@jest/test-result": "^30.4.1",
-    "@jest/types": "^30.4.1",
     "@types/node": "^25.9.1",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@typescript/native-preview": "^7.0.0-dev.20260614.1",
-    "@vue/compiler-sfc": "^3.5.38",
-    "eslint": "^10.6.0",
-    "jest": "^30.4.2",
-    "mocha": "^11.7.6",
-    "node-pty": "^1.1.0",
-    "oxlint": "^1.71.0",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "ts-loader": "^9.6.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.62.0",
-    "vite": "^8.0.16",
-    "vitest": "^4.1.8",
-    "vue": "^3.5.38",
-    "vue-loader": "^17.4.2",
-    "webpack": "^5.107.2",
-    "webpack-dev-server": "^5.2.5"
+    "vitest": "^4.1.8"
   }
 }

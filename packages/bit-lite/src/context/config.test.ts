@@ -4,7 +4,6 @@ import { resolveEnvs, validateConfig } from "./config.js";
 describe("config", () => {
   it("resolves inherited env services", () => {
     const config = validateConfig({
-      defaultEnv: "node",
       envs: {
         node: {
           services: {
@@ -37,7 +36,6 @@ describe("config", () => {
   it("rejects components that point to unknown envs", () => {
     expect(() =>
       validateConfig({
-        defaultEnv: "node",
         envs: {
           node: {},
         },
