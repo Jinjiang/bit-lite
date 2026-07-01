@@ -3,33 +3,16 @@
     "node": {
       "services": {
         "foo": {
-          "defaultVendor": "x",
-          "vendors": {
-            "x": {
-              "module": "./vendors/foo-x.js",
-              "config": {
-                "label": "node foo x",
-                "delay": 5
-              }
-            },
-            "y": {
-              "module": "./vendors/foo-y.js",
-              "config": {
-                "label": "node foo y",
-                "delay": 10
-              }
-            }
+          "vendor": "x",
+          "config": {
+            "label": "node foo",
+            "delay": 5
           }
         },
         "bar": {
-          "defaultVendor": "x",
-          "vendors": {
-            "x": {
-              "module": "./vendors/bar-x.js",
-              "config": {
-                "label": "node bar x"
-              }
-            }
+          "vendor": "y",
+          "config": {
+            "label": "node bar"
           }
         }
       }
@@ -38,32 +21,16 @@
       "extends": "node",
       "services": {
         "foo": {
-          "defaultVendor": "z",
-          "vendors": {
-            "y": {
-              "module": "./vendors/foo-y.js",
-              "config": {
-                "label": "react foo y",
-                "delay": 15
-              }
-            },
-            "z": {
-              "module": "./vendors/foo-z.js",
-              "config": {
-                "label": "react foo z"
-              }
-            }
+          "vendor": "z",
+          "config": {
+            "label": "react foo",
+            "delay": 15
           }
         },
         "baz": {
-          "defaultVendor": "x",
-          "vendors": {
-            "x": {
-              "module": "./vendors/baz-x.js",
-              "config": {
-                "label": "react baz x"
-              }
-            }
+          "vendor": "x",
+          "config": {
+            "label": "react baz"
           }
         }
       }
@@ -72,21 +39,10 @@
       "extends": "node",
       "services": {
         "bar": {
-          "defaultVendor": "z",
-          "vendors": {
-            "x": {
-              "module": "./vendors/bar-x.js",
-              "config": {
-                "label": "vue bar x"
-              }
-            },
-            "z": {
-              "module": "./vendors/bar-z.js",
-              "config": {
-                "label": "vue bar z",
-                "delay": 20
-              }
-            }
+          "vendor": "z",
+          "config": {
+            "label": "vue bar",
+            "delay": 20
           }
         }
       }

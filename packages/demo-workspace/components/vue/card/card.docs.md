@@ -1,5 +1,5 @@
 # Vue card
 
-The Vue card component is configured to use alternate service vendors in the demo workspace.
+The Vue card component is configured with placeholder demo services in the demo workspace.
 
-It exists to exercise dynamic vendor loading for inspect, typecheck, test, and preview.
+It exists to exercise component-to-env mapping and service configuration shape.
