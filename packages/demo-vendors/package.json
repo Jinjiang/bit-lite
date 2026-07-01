@@ -1,0 +1,22 @@
+{
+  "name": "demo-vendors",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:vendors": "pnpm --filter bit-lite-vendors build",
+    "foo-x": "pnpm run build:vendors && tsx src/foo-x.ts",
+    "bar-x": "pnpm run build:vendors && tsx src/bar-x.ts",
+    "baz-x": "pnpm run build:vendors && tsx src/baz-x.ts"
+  },
+  "dependencies": {
+    "bit-lite-context": "workspace:*",
+    "bit-lite-vendors": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}

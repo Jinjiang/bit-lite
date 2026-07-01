@@ -1,12 +1,5 @@
-import path from "node:path";
+import { parseArgs } from "bit-lite-context";
 import { BitLiteError } from "./utils/errors.js";
-
-export type ParsedCliArgs = {
-  command: string | undefined;
-  args: string[];
-  workspaceRoot: string;
-  help: boolean;
-};
 
 export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   const parsed = parseArgs(argv);
@@ -22,34 +15,6 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
     console.error(message);
     return 1;
   }
-}
-
-export function parseArgs(argv: string[]): ParsedCliArgs {
-  const remaining: string[] = [];
-  let workspaceRoot = process.cwd();
-  let help = false;
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (!arg) continue;
-    if (arg === "--help" || arg === "-h") {
-      help = true;
-    } else if (arg === "--workspace" || arg === "-w") {
-      const value = argv[index + 1];
-      if (!value) throw new BitLiteError("--workspace requires a path");
-      workspaceRoot = path.resolve(value);
-      index += 1;
-    } else {
-      remaining.push(arg);
-    }
-  }
-
-  return {
-    command: remaining[0],
-    args: remaining.slice(1),
-    workspaceRoot,
-    help,
-  };
 }
 
 function printUsage() {

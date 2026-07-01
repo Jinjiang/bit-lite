@@ -20,10 +20,10 @@
     "react": {
       "extends": "node",
       "services": {
-        "foo": {
-          "vendor": "z",
+        "bar": {
+          "vendor": "x",
           "config": {
-            "label": "react foo",
+            "label": "react bar",
             "delay": 15
           }
         },

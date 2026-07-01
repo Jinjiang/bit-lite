@@ -1,0 +1,23 @@
+import { fooXVendor } from "bit-lite-vendors";
+import { createDemoInput } from "./runtime.js";
+import { reportDemoError, runVendorDemo } from "./run-demo.js";
+
+async function main() {
+  await runVendorDemo({
+    title: "FooX",
+    vendor: fooXVendor,
+    input: createDemoInput({
+      serviceName: "foo",
+      config: {
+        label: "foo x demo",
+      },
+      args: ["--demo", "foo-x"],
+      componentIds: ["components/demo/foo-alpha"],
+    }),
+    beforeResult(task) {
+      task.call("stdin", { chunk: "hello from demo-vendors/foo-x" });
+    },
+  });
+}
+
+main().catch(reportDemoError);

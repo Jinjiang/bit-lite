@@ -5,6 +5,17 @@ export type ComponentRef = {
   rootDir: string;
 };
 
+// CLI Arguments
+
+export type CliArguments = string[];
+
+export type ParsedCliArgs = {
+  command: string | undefined;
+  args: CliArguments;
+  workspaceRoot: string;
+  help: boolean;
+};
+
 // Workspace Config interface
 
 export type EnvConfig = {
