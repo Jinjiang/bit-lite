@@ -177,7 +177,7 @@ registry 负责：
 - 建立 component dependency graph。
 - 为 `install`、`link`、`compile`、`inspect`、`test`、`preview`、`typecheck` 提供统一 metadata。
 
-判断 internal dependency 时，不能只看 version spec。只要 dependency package name 出现在当前 workspace 的 component package registry 里，就应该被视为 workspace 内部 component dependency；`workspace:*` 是推荐写法，但 registry 仍应以 package name 反查为准。
+判断 internal dependency 时，应以 dependency version spec 为准。使用 `workspace:*` 或后续允许的 workspace protocol 时，表示依赖当前 workspace 内部 component；此时 package name 必须能在当前 workspace 的 component package registry 中反查到。使用普通 semver version spec 时，即使 package name 恰好也出现在当前 workspace registry 中，也应该按已发布 package 版本处理，而不是自动链接到当前 workspace 的 component。
 
 ## Dependency Graph
 
@@ -219,36 +219,33 @@ bit-lite install
 
 然后再把推导出的 package metadata、workspace 内部链接关系和外部依赖交给底层 package manager 或 Bit-lite 自己的链接器处理。
 
-构建产物不建议直接写进 `node_modules`。`node_modules` 可能被 package manager 清理或重写。
+生成的 component package 仍然直接放在 `node_modules` 里。这里需要和原版 Bit 的行为保持一致：IDE、TypeScript、bundler、test runner 都应该看到一个真实的 `node_modules/<package>` package，而不是先解析到一个中间目录再跳转。
 
-建议 Bit-lite 自己管理生成目录：
+关键区别是安装入口必须是 `bit-lite install`，而不是让用户直接运行 `pnpm install`。`bit-lite install` 负责在底层 package manager 完成依赖安装后，恢复和维护 Bit-lite 生成的 component package 内容，避免这些 package 被清理或重写。
+
+建议生成结构：
 
 ```txt
-.bit-lite/packages/@acme/ui.button/
+node_modules/@acme/ui.button/
   package.json
+  src -> ../../../components/ui/button
   dist/index.js
   dist/index.d.ts
 ```
 
-然后在 workspace 根目录生成 symlink：
+其中：
 
-```txt
-node_modules/@acme/ui.button -> .bit-lite/packages/@acme/ui.button
-```
-
-好处：
-
-- `node_modules` 只是解析入口。
-- 构建产物在 Bit-lite 可控目录里。
-- 清理、重建、缓存、watch 更容易设计。
-- 避免把用户真实依赖和生成产物混在一起。
-- workspace 内部 component dependency 可以通过 symlink 稳定解析。
+- `package.json` 由 Bit-lite 根据 `bit.json` 和 `.comp.json` 生成。
+- `src` 或等价源码入口通过 symlink 指向 component 源目录。
+- `dist` 放置 `compile` 生成的最终消费产物。
+- `node_modules/<package>` 组合源码 symlink、dist 和 package manifest，形成最终 package。
+- `bit-lite install` 负责保证这些生成内容在 package manager install 后仍然存在。
 
 ## Generated Package Manifest
 
-每个 component package 可以生成自己的 `package.json`。
+每个 component package 都生成自己的 `package.json`，并且以 compiled package mode 为准。不要同时保留另一套源码入口模式，避免未来切换到 compiled package 时产生语义误会。
 
-compiled package mode 示例：
+示例：
 
 ```json
 {
@@ -274,66 +271,20 @@ compiled package mode 示例：
 }
 ```
 
-source link mode 示例：
+`devDependencies` 不写入 generated package manifest。这里的 package manifest 是最终消费代码看到的 package 描述，dev 相关依赖只保留在 `.comp.json` 中，供 Bit-lite 自己的开发期 service 或后续安装策略使用。
 
-```json
-{
-  "name": "@acme/ui.button",
-  "version": "0.0.0",
-  "type": "module",
-  "exports": {
-    ".": "./index.ts"
-  },
-  "types": "./index.ts",
-  "dependencies": {
-    "@acme/lib.math": "workspace:*",
-    "clsx": "^2.1.0"
-  },
-  "peerDependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
-  }
-}
+第一阶段即使还没有真实 compiler，也仍然保持 compiled package mode。`bit-lite compile` 可以先生成 workaround 产物：
+
+```txt
+node_modules/@acme/ui.button/
+  package.json
+  src -> ../../../components/ui/button
+  dist/index.js
 ```
 
-`devDependencies` 是否写入 generated package manifest 需要按运行场景区分。用于 test/typecheck 的本地 manifest 可以包含它们；用于未来 publish 的 manifest 则通常不应该带上 component 本地 dev dependencies。
+其中 `dist/index.js` 可以是一个空文件或最小占位文件。等 compile pipeline 完整后，再把真实 JS、types、assets 写入同一个 `dist` 目录。如果第一阶段还不能生成 `.d.ts`，可以暂时省略 `types` 字段，或者同时生成最小 `dist/index.d.ts`；但 package exports 不应该改为指向源码入口。
 
-## 两种落地模式
-
-### Source Link Mode
-
-第一阶段可以先做 source link mode。
-
-特点：
-
-- 生成 package manifest。
-- 创建 `node_modules/<package>` symlink。
-- `exports` 和 `types` 暂时指向源码入口。
-- 不要求先完成 compile pipeline。
-
-目标：
-
-- 验证 package name import。
-- 验证 IDE 和 TypeScript resolution。
-- 验证 test、preview、typecheck 能否在 package import 下跑通。
-- 尽早暴露 module resolution 问题。
-
-### Compiled Package Mode
-
-第二阶段再引入真正编译产物。
-
-特点：
-
-- component 源码编译到 `.bit-lite/packages/<package>/dist`。
-- package manifest 指向 `dist`。
-- 生成 `.d.ts`。
-- compile 按 dependency graph 拓扑排序。
-- watch mode 可增量更新 dist。
-
-目标：
-
-- 更接近真实 npm package。
-- 为未来 publish/cache/isolated build 留接口。
+这种方式让 package manifest、exports、runtime resolution 一开始就面向最终 compiled package 形态，不引入另一套临时公开语义。
 
 ## 命令设计
 
@@ -349,7 +300,7 @@ bit-lite install
 bit-lite link
 ```
 
-生成 `.bit-lite/packages` package manifests 和 `node_modules` symlinks。这个命令可以被 `bit-lite install` 调用，也可以用于快速重建链接。
+生成或修复 `node_modules/<package>` 下的 package manifest、源码 symlink 和基础目录结构。这个命令可以被 `bit-lite install` 调用，也可以用于快速重建链接。
 
 ```sh
 bit-lite compile
@@ -373,41 +324,9 @@ bit-lite inspect
 bit-lite clean
 ```
 
-清理 Bit-lite 生成的 package outputs 和 symlinks。
+清理 Bit-lite 在 `node_modules` 中生成的 component package 内容。
 
 `build` 先保留给未来更高层的语义，不在当前阶段使用。`graph` 也先不作为独立命令引入，现有或未来的 graph 输出应放进 `inspect`。
-
-## Service 集成
-
-现有 service 可以逐步利用 component package registry。
-
-### Typecheck
-
-初期可以继续按 env group 运行。引入 package link 后，TypeScript resolution 应能解析内部 package imports。
-
-后续可考虑：
-
-- 每个 component package 生成 tsconfig fragment。
-- 支持 project references。
-- 支持按 dependency graph typecheck。
-
-### Test
-
-test service 仍可按 component root 查找 test files。区别是 test 中 import 内部 component 时可以走 package name。
-
-### Preview
-
-preview app 可以继续从 preview file 入口启动。组件间依赖可通过 package name 解析。
-
-### Compile
-
-compile 应成为新的核心 service 或 command。它负责：
-
-- 读取 component package registry。
-- 按 env 选择 compiler/bundler。
-- 生成 JS、types、assets。
-- 写入 `.bit-lite/packages`。
-- 更新 package manifests。
 
 ## External Dependencies
 
@@ -418,7 +337,8 @@ compile 应成为新的核心 service 或 command。它负责：
 - 把 external dependencies 写入 generated package manifest。
 - 通过 `bit-lite install` 把 external dependencies 交给底层 package manager 安装。
 - 校验 workspace root 是否已经可 resolve 对应 dependency。
-- 对 workspace 内部 component dependency 使用 registry 反查和 symlink 处理。
+- 对 `workspace:*` 或后续允许的 workspace protocol dependency，使用 registry 反查并生成 workspace 内部 package。
+- 对普通 semver dependency，按外部已发布 package 处理。
 
 后续需要讨论：
 
@@ -434,7 +354,6 @@ compile 应成为新的核心 service 或 command。它负责：
 
 - `node_modules` 容易被 package manager 重写，所以不能作为唯一状态源。
 - `bit-lite install` 需要和底层 package manager 的 lockfile、workspace protocol、hoisting 策略协作。
-- source link mode 对某些工具可能需要额外 loader 或 tsconfig 配置。
 - compiled package mode 需要解决 `.d.ts`、assets、CSS、Vue/SFC、React JSX 等 env 差异。
 - dependency graph 如果只依赖显式配置，可能和真实 import 不一致。
 - 如果自动扫描 import，又会引入 parser、alias、conditional exports 等复杂度。
@@ -446,11 +365,11 @@ compile 应成为新的核心 service 或 command。它负责：
 2. 为每个 component 引入 `.comp.json`，记录 dependencies、devDependencies、peerDependencies。
 3. 实现 component package registry、entry detection 和校验。
 4. 实现 `bit-lite inspect`，输出 registry、entry、env、dependency graph 信息。
-5. 实现 `bit-lite link` 的 source link mode。
-6. 修改 demo workspace，让 component 之间用 package name import。
-7. 验证 TypeScript、test、preview 是否能跑通。
-8. 设计并实现 `bit-lite install`。
-9. 设计并实现 compiled package mode 和 `bit-lite compile`。
+5. 实现 `bit-lite link`，生成 `node_modules/<package>` package manifest、源码 symlink 和目录结构。
+6. 设计并实现 `bit-lite install`，保证 package manager install 后恢复 Bit-lite 生成内容。
+7. 实现 `bit-lite compile` 的占位输出，先生成空的 `dist/index.js`。
+8. 修改 demo workspace，让 component 之间用 package name import。
+9. 验证 TypeScript、test、preview 是否能跑通。
 10. 再讨论 external dependency conflict policy、publish、cache、isolated build。
 
 ## 待讨论问题
@@ -460,6 +379,5 @@ compile 应成为新的核心 service 或 command。它负责：
 - 默认 package scope 从哪里来？
 - `id` 到 `packageName` 的默认转换规则是否应该可配置？
 - internal dependency 是否必须使用 `workspace:*`，还是允许其他 workspace semver spec？
-- source link mode 下 `exports` 指向 `.ts` 是否对目标工具链足够友好？
 - `bit-lite install` 和 pnpm/npm/yarn lockfile 的关系如何设计？
 - generated package 是否应该加入 package manager workspace？
