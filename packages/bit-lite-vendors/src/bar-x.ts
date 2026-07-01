@@ -154,6 +154,7 @@ function createBarXServer(
 
     response.statusCode = 200;
     response.setHeader("content-type", "application/json; charset=utf-8");
+    response.setHeader("connection", "close");
     response.end(
       JSON.stringify({
         service: "bar",
@@ -200,6 +201,8 @@ function stopServer(
     }
     emit("status", { status: "stopped", message: reason });
   });
+  server.closeIdleConnections();
+  server.closeAllConnections();
 }
 
 function createResult(
