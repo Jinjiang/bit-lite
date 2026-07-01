@@ -1,16 +1,100 @@
 {
   "envs": {
-    "node": {},
+    "node": {
+      "services": {
+        "foo": {
+          "defaultVendor": "x",
+          "vendors": {
+            "x": {
+              "module": "./vendors/foo-x.js",
+              "config": {
+                "label": "node foo x",
+                "delay": 5
+              }
+            },
+            "y": {
+              "module": "./vendors/foo-y.js",
+              "config": {
+                "label": "node foo y",
+                "delay": 10
+              }
+            }
+          }
+        },
+        "bar": {
+          "defaultVendor": "x",
+          "vendors": {
+            "x": {
+              "module": "./vendors/bar-x.js",
+              "config": {
+                "label": "node bar x"
+              }
+            }
+          }
+        }
+      }
+    },
     "react": {
-      "extends": "node"
+      "extends": "node",
+      "services": {
+        "foo": {
+          "defaultVendor": "z",
+          "vendors": {
+            "y": {
+              "module": "./vendors/foo-y.js",
+              "config": {
+                "label": "react foo y",
+                "delay": 15
+              }
+            },
+            "z": {
+              "module": "./vendors/foo-z.js",
+              "config": {
+                "label": "react foo z"
+              }
+            }
+          }
+        },
+        "baz": {
+          "defaultVendor": "x",
+          "vendors": {
+            "x": {
+              "module": "./vendors/baz-x.js",
+              "config": {
+                "label": "react baz x"
+              }
+            }
+          }
+        }
+      }
     },
     "vue": {
-      "extends": "node"
+      "extends": "node",
+      "services": {
+        "bar": {
+          "defaultVendor": "z",
+          "vendors": {
+            "x": {
+              "module": "./vendors/bar-x.js",
+              "config": {
+                "label": "vue bar x"
+              }
+            },
+            "z": {
+              "module": "./vendors/bar-z.js",
+              "config": {
+                "label": "vue bar z",
+                "delay": 20
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
-    "components/lib/**": "node",
-    "components/ui/**": "react",
-    "components/vue/**": "vue"
+    "components/lib/math": "node",
+    "components/ui/button": "react",
+    "components/vue/card": "vue"
   }
 }

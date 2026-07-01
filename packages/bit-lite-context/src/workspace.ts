@@ -1,9 +1,9 @@
 import path from "node:path";
 import { loadConfig, resolveEnvs } from "./config.js";
-import { BitLiteError } from "../utils/errors.js";
-import { componentIdFromDir, discoverComponentDirs, matchPattern } from "../utils/patterns.js";
-import type { ComponentRuntime, WorkspaceRuntime } from "../types/index.js";
-import { toPosixPath } from "../utils/path-utils.js";
+import { BitLiteError } from "./utils/errors.js";
+import { componentIdFromDir, discoverComponentDirs, matchPattern } from "./utils/patterns.js";
+import type { ComponentRuntime, WorkspaceRuntime } from "./types/index.js";
+import { toPosixPath } from "./utils/path-utils.js";
 
 export async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceRuntime> {
   const absoluteRoot = path.resolve(workspaceRoot);
