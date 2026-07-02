@@ -4,9 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node src/main.js",
-    "start:no-ui": "node src/main.js --no-ui",
-    "smoke": "DEMO_INTEGRATIONS_AUTO_EXIT_MS=15000 node src/main.js --no-ui"
+    "start": "tsx src/main.ts",
+    "start:worker": "tsx src/main.ts --runner=worker",
+    "start:inline": "tsx src/main.ts --runner=inline",
+    "start:no-ui": "tsx src/main.ts --no-ui",
+    "smoke": "DEMO_INTEGRATIONS_AUTO_EXIT_MS=15000 tsx src/main.ts --runner=worker --no-ui",
+    "smoke:inline": "DEMO_INTEGRATIONS_AUTO_EXIT_MS=15000 tsx src/main.ts --runner=inline --no-ui",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "jest": "^30.4.2",
@@ -14,5 +18,10 @@
     "vitest": "^4.1.9",
     "webpack": "^5.108.3",
     "webpack-dev-server": "^5.2.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
   }
 }
