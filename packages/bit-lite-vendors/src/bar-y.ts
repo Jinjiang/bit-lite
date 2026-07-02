@@ -1,7 +1,7 @@
 import type {
   ServiceVendor,
   ServiceVendorCallPayload,
-  ServiceVendorEventListener,
+  ServiceVendorEventPayload,
   ServiceVendorResult,
 } from "./types/index.js";
 
@@ -13,8 +13,7 @@ export type BarYResult = {
 
 export const barYVendor: ServiceVendor<Record<string, unknown>, string[], BarYResult> = {
   name: "y",
-  run(input) {
-    const listeners = new Set<ServiceVendorEventListener>();
+  run(input, _context, listener) {
     let completed = false;
     let resolveResult: (result: ServiceVendorResult<BarYResult>) => void;
 
@@ -22,8 +21,8 @@ export const barYVendor: ServiceVendor<Record<string, unknown>, string[], BarYRe
       resolveResult = resolve;
     });
 
-    const emit = (type: string, payload: Parameters<ServiceVendorEventListener>[1]) => {
-      for (const listener of listeners) listener(type, payload);
+    const emit = (type: "progress" | "result", payload: ServiceVendorEventPayload) => {
+      listener?.(type, payload);
     };
 
     const finish = (status: string) => {
@@ -34,7 +33,6 @@ export const barYVendor: ServiceVendor<Record<string, unknown>, string[], BarYRe
         vendor: "y" as const,
         count: input.components.length,
       };
-      emit("status", { status });
       emit("result", { status, data });
       resolveResult({
         status,
@@ -44,22 +42,21 @@ export const barYVendor: ServiceVendor<Record<string, unknown>, string[], BarYRe
     };
 
     setTimeout(() => {
-      emit("status", { status: "running", message: "bar/y running" });
-      emit("progress", { total: input.components.length || 1, current: input.components.length || 1, label: "bar y" });
+      emit("progress", {
+        status: "running",
+        total: input.components.length || 1,
+        current: input.components.length || 1,
+        label: "bar y",
+      });
       finish("success");
     }, 0);
 
     return {
       result,
-      listen(listener) {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
       abort() {
         finish("aborted");
       },
-      call(type: string, payload?: ServiceVendorCallPayload) {
-        emit("log", { level: "info", message: `${type}:${payload?.reason ?? ""}`, scope: "bar" });
+      call(type: string, _payload?: ServiceVendorCallPayload) {
         if (type === "stop") finish("stopped");
       },
     };

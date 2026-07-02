@@ -10,28 +10,24 @@ export type JsonObject = {
 
 // event listeners
 
-export type ServiceVendorEventType = "log" | "status" | "result" | "progress" | string;
+export type ServiceVendorEventType = "result" | "progress";
 
 export type ServiceVendorEventPayload = {
   // for all types
+  status: string;
   message?: string;
-  // for `log` type
-  level?: "debug" | "info" | "warn" | "error" | string;
-  scope?: string;
   // for `status` type
-  status?: string;
-  // for `progress` type
   total?: number;
   current?: number;
   label?: string;
-  // for `result` type and other extended types
+  // for `result` type
   data?: unknown;
 };
 
 export type ServiceVendorEventListener = (
   type: ServiceVendorEventType,
   payload: ServiceVendorEventPayload
-) => void
+) => void;
 
 // calls
 
@@ -56,6 +52,7 @@ export type ServiceVendorInput<Config = unknown, Args = CliArguments> = {
 
 export type ServiceVendorResult<ResultData = unknown> = {
   status: string;
+  data: ResultData;
   toJSON(): ResultData;
   toString(forTerminal?: boolean): string;
 };
@@ -64,12 +61,15 @@ export type ServiceVendorResult<ResultData = unknown> = {
 
 export type ServiceVendorTask<ResultData = unknown> = {
   result: Promise<ServiceVendorResult<ResultData>>;
-  listen(listener: ServiceVendorEventListener): () => void;
   abort(): void;
   call(type: ServiceVendorCallType, payload?: ServiceVendorCallPayload): void;
 };
 
 export type ServiceVendor<Config = unknown, Args = CliArguments, ResultData = unknown> = {
   name: string;
-  run(input: ServiceVendorInput<Config, Args>, context?: WorkspaceRuntime): ServiceVendorTask<ResultData>;
+  run(
+    input: ServiceVendorInput<Config, Args>,
+    context?: WorkspaceRuntime,
+    listener?: ServiceVendorEventListener
+  ): ServiceVendorTask<ResultData>;
 };

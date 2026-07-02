@@ -25,21 +25,14 @@ export async function runVendorDemo<Config, ResultData>(options: VendorDemoOptio
   printInput(options.input);
 
   const startedAt = Date.now();
-  const task = options.vendor.run(options.input, demoWorkspaceRuntime);
-  const unlisten = task.listen((type, payload) => printEvent(type, payload, Date.now() - startedAt));
+  const task = options.vendor.run(options.input, demoWorkspaceRuntime, (type, payload) => {
+    printEvent(type, payload, Date.now() - startedAt);
+  });
 
-  try {
-    await options.beforeResult?.(task);
-    const result = await task.result;
-    printResult(result);
-    await options.afterResult?.(task, result);
-  } finally {
-    unlisten();
-  }
-}
-
-export function delay(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+  await options.beforeResult?.(task);
+  const result = await task.result;
+  printResult(result);
+  await options.afterResult?.(task, result);
 }
 
 export function reportDemoError(error: unknown) {

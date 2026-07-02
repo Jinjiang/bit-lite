@@ -36,13 +36,13 @@ const demoNodeEnv = {
     bar: {
       vendor: "x",
       config: {
-        port: 43100,
+        label: "demo bar x",
       },
     },
     baz: {
       vendor: "x",
       config: {
-        watch: false,
+        label: "demo baz x",
       },
     },
   },

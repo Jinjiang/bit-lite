@@ -1,7 +1,5 @@
 import type {
   ServiceVendor,
-  ServiceVendorEventListener,
-  ServiceVendorEventType,
   ServiceVendorEventPayload,
   ServiceVendorCallPayload,
   ServiceVendorResult,
@@ -16,15 +14,14 @@ export type FooXResult = {
 
 export const fooXVendor: ServiceVendor<Record<string, unknown>, string[], FooXResult> = {
   name: "x",
-  run(input) {
+  run(input, _context, listener) {
     // input process
     const compList = input.components.map((component) => component.id);
 
-    // demo listeners and calls
-    const listeners = new Set<ServiceVendorEventListener>();
+    // demo calls
     const calls: string[] = [];
-    const emit = (type: ServiceVendorEventType, payload: ServiceVendorEventPayload) => {
-      for (const listener of listeners) listener(type, payload);
+    const emit = (type: "progress" | "result", payload: ServiceVendorEventPayload) => {
+      listener?.(type, payload);
     };
 
     // done result and promise object
@@ -42,7 +39,6 @@ export const fooXVendor: ServiceVendor<Record<string, unknown>, string[], FooXRe
     const finish = (status: string) => {
       if (done) return;
       done = true;
-      emit("status", { status });
       emit("result", { status, data });
       resolveResult({
         status,
@@ -53,25 +49,20 @@ export const fooXVendor: ServiceVendor<Record<string, unknown>, string[], FooXRe
 
     queueMicrotask(async () => {
       await wait(1000);
-      emit("log", { level: "info", message: `foo/x task starting`, scope: "foo" });
+      emit("progress", { status: "running", total: 3, current: 1, label: "foo x" });
       await wait(1000);
-      emit("progress", { total: 3, current: 2, label: "foo x 2/3" });
+      emit("progress", { status: "running", total: 3, current: 2, label: "foo x" });
       await wait(1000);
       finish("success");
     });
 
     return {
       result,
-      listen(listener) {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
       abort() {
         finish("aborted");
       },
       call(type: string, payload?: ServiceVendorCallPayload) {
         calls.push(`${type}:${readCallPayload(payload)}`);
-        if (type === "stdin") emit("log", { level: "debug", message: readCallPayload(payload), scope: "foo" });
         if (type === "stop") finish("stopped");
       },
     };
