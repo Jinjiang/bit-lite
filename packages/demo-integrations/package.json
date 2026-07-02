@@ -1,0 +1,18 @@
+{
+  "name": "demo-integrations",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.js",
+    "start:no-ui": "node src/main.js --no-ui",
+    "smoke": "DEMO_INTEGRATIONS_AUTO_EXIT_MS=15000 node src/main.js --no-ui"
+  },
+  "dependencies": {
+    "jest": "^30.4.2",
+    "vite": "^8.1.2",
+    "vitest": "^4.1.9",
+    "webpack": "^5.108.3",
+    "webpack-dev-server": "^5.2.5"
+  }
+}
