@@ -37,7 +37,7 @@ export type ManagedTerminalItem = {
   label: string;
   status: string;
   hint?: string | undefined;
-  url?: string | undefined;
+  details?: string[] | undefined;
   rawOutput: RawOutputBuffer;
   writeInput?(chunk: Buffer | string): void;
   canAttach?: boolean | undefined;
@@ -361,8 +361,8 @@ export class ManagedTerminal<Item extends ManagedTerminalItem = ManagedTerminalI
       const label = item.label.padEnd(labelWidth);
       const status = item.status.padEnd(statusWidth);
       const hint = item.hint ? ` ${item.hint}` : "";
-      const url = item.url ? ` ${item.url}` : "";
-      lines.push(fitTerminalLine(`${marker} ${label} ${status}${hint}${url}`, columns));
+      const details = item.details?.length ? ` ${item.details.join(" ")}` : "";
+      lines.push(fitTerminalLine(`${marker} ${label} ${status}${hint}${details}`, columns));
     });
 
     return fillTerminalScreen(lines, rows);

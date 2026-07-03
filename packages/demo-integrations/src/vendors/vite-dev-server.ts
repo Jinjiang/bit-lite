@@ -47,7 +47,8 @@ export default async function startViteDevServer(runtime: VendorRuntime<DevServe
   server.printUrls();
 
   const url = `http://127.0.0.1:${port}`;
-  runtime.postMessage({ type: "ready", url });
+  runtime.postMessage({ type: "result", data: { kind: "dev-server", url, port } });
+  runtime.postMessage({ type: "ready" });
 
   return {
     async stop() {

@@ -13,9 +13,16 @@ export type { RunnerExitCode, RunnerMode };
 
 export type OutputStream = RunnerOutputStream;
 
+export type JsonPrimitive = string | number | boolean | null;
+
+export type JsonObject = {
+  [key: string]: JsonValue;
+};
+
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+
 export type VendorReadyMessage = {
   type: "ready";
-  url?: string;
 };
 
 export type VendorStatusMessage = {
@@ -28,7 +35,16 @@ export type VendorErrorMessage = {
   message: string;
 };
 
-export type VendorMessage = VendorReadyMessage | VendorStatusMessage | VendorErrorMessage;
+export type VendorResultMessage<Data extends JsonValue = JsonValue> = {
+  type: "result";
+  data: Data;
+};
+
+export type VendorMessage<Data extends JsonValue = JsonValue> =
+  | VendorReadyMessage
+  | VendorStatusMessage
+  | VendorErrorMessage
+  | VendorResultMessage<Data>;
 
 export type VendorConfig = Record<string, unknown>;
 
@@ -59,7 +75,8 @@ export type VendorRunner<Config extends VendorConfig = VendorConfig> = Runner<Ve
 export type VendorRuntimeState<Config extends VendorConfig = VendorConfig> = VendorDefinition<Config> &
   ManagedTerminalItem & {
     status: string;
-    url: string | undefined;
+    details: string[];
+    result: JsonValue | undefined;
     rawOutput: RawOutputBuffer;
     runner: VendorRunner<Config> | undefined;
     exitPromise: Promise<RunnerExitCode> | undefined;

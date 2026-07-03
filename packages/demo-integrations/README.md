@@ -8,6 +8,10 @@ The reusable pieces live outside the demo:
 - `bit-lite-terminal` provides the parent menu, child terminal attach/detach,
   output buffering, and worker TTY helpers.
 
+Vendors report lifecycle messages and structured `result` data. The demo's main
+process interprets those results and turns them into menu `details`, keeping the
+terminal UI generic.
+
 ```sh
 pnpm --filter demo-integrations start
 ```

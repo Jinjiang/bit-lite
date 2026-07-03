@@ -217,6 +217,7 @@ const item = {
   label: "Vite Dev Server",
   status: "starting",
   hint: "Node API: vite.createServer",
+  details: [],
   rawOutput: new RawOutputBuffer(),
   writeInput(chunk: Buffer | string) {
     worker.stdin?.write(chunk);
@@ -258,14 +259,18 @@ type ManagedTerminalItem = {
   label: string;
   status: string;
   hint?: string;
-  url?: string;
+  details?: string[];
   rawOutput: RawOutputBuffer;
   writeInput?(chunk: Buffer | string): void;
   canAttach?: boolean;
 };
 ```
 
-The menu renders `label`, `status`, optional `hint`, and optional `url`.
+The menu renders `label`, `status`, optional `hint`, and optional `details`.
+`details` is a list of caller-formatted text fragments shown after the static
+hint. The terminal manager does not interpret those values; callers can derive
+them from any higher-level result message or domain-specific state.
+
 `rawOutput` stores recent stdout/stderr chunks. When the user attaches to an
 item, the buffer is replayed before new output is passed through live.
 
@@ -349,6 +354,7 @@ const item = {
   id: "webpack",
   label: "Webpack Dev Server",
   status: "starting",
+  details: [],
   rawOutput: new RawOutputBuffer(),
   writeInput(chunk: Buffer | string) {
     worker.stdin?.write(chunk);
@@ -372,9 +378,13 @@ worker.stderr?.on("data", (chunk: Buffer) => {
 });
 
 worker.on("message", (message) => {
+  if (message.type === "result" && message.data.kind === "dev-server") {
+    item.details = [message.data.url];
+    terminal.scheduleRender();
+  }
+
   if (message.type === "ready") {
     item.status = "ready";
-    item.url = message.url;
     terminal.scheduleRender();
   }
 });

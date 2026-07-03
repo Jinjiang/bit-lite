@@ -5,6 +5,8 @@ import { ManagedTerminal, RawOutputBuffer } from "bit-lite-terminal";
 import { createRunner } from "bit-lite-runner";
 import type {
   DevServerVendorConfig,
+  JsonObject,
+  JsonValue,
   RunnerMode,
   VendorData,
   VendorDefinition,
@@ -76,8 +78,10 @@ const runtimes: VendorRuntimeState[] = vendors.map((vendor) => ({
   ...vendor,
   // Current high-level lifecycle state displayed in the menu.
   status: "starting",
-  // Optional URL reported by dev-server style vendors.
-  url: undefined,
+  // Human-readable detail fragments rendered by the terminal menu.
+  details: [],
+  // Latest structured result reported by the vendor.
+  result: undefined,
   // Original stdout/stderr chunks used when attaching the terminal to one vendor.
   rawOutput: new RawOutputBuffer(),
   // Runner instance once `startManagedVendor()` has created it.
@@ -154,7 +158,7 @@ function startManagedVendor(vendor: VendorRuntimeState) {
   runner.onOutput((stream, chunk) => terminal.appendOutput(vendor, stream, chunk));
 
   // Structured messages are separate from raw stdout/stderr. Both runner modes
-  // use this path for lifecycle metadata such as readiness, URL, and errors.
+  // use this path for lifecycle metadata, errors, and structured results.
   runner.onMessage((message) => handleVendorMessage(vendor, message));
 
   Promise.resolve(runner.start()).catch((error) => {
@@ -166,7 +170,6 @@ function startManagedVendor(vendor: VendorRuntimeState) {
 function handleVendorMessage(vendor: VendorRuntimeState, message: VendorMessage) {
   if (message.type === "ready") {
     vendor.status = "ready";
-    vendor.url = typeof message.url === "string" ? message.url : undefined;
     terminal.scheduleRender();
   }
 
@@ -180,6 +183,43 @@ function handleVendorMessage(vendor: VendorRuntimeState, message: VendorMessage)
     vendor.status = "error";
     terminal.scheduleRender();
   }
+
+  if (message.type === "result") {
+    vendor.result = message.data;
+    vendor.details = formatVendorDetails(message.data);
+    terminal.scheduleRender();
+  }
+}
+
+function formatVendorDetails(result: JsonValue) {
+  if (!isJsonObject(result)) return [];
+
+  if (result.kind === "dev-server" && typeof result.url === "string") {
+    return [result.url];
+  }
+
+  if (result.kind === "test-summary") {
+    const details = [
+      formatCountDetail(result.total, "tests"),
+      formatCountDetail(result.passed, "passed"),
+      formatCountDetail(result.failed, "failed"),
+    ];
+    return details.filter((detail): detail is string => Boolean(detail));
+  }
+
+  if (typeof result.summary === "string") {
+    return [result.summary];
+  }
+
+  return [];
+}
+
+function formatCountDetail(value: JsonValue | undefined, label: string) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value} ${label}` : undefined;
+}
+
+function isJsonObject(value: JsonValue): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // Stop every runner and restore the terminal before exiting the parent process.

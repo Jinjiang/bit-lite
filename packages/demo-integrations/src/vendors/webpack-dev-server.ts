@@ -59,7 +59,8 @@ export default async function startWebpackDevServer(runtime: VendorRuntime<DevSe
 
   const url = `http://127.0.0.1:${port}`;
   console.log(`Webpack Dev Server is listening on ${url}`);
-  runtime.postMessage({ type: "ready", url });
+  runtime.postMessage({ type: "result", data: { kind: "dev-server", url, port } });
+  runtime.postMessage({ type: "ready" });
 
   return {
     async stop() {
