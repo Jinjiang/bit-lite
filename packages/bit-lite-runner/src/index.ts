@@ -20,7 +20,9 @@ export type RunnerParentMessage<Message = never> = Message | RunnerShutdownMessa
 
 export type RunnerMessageListener<Message> = (message: Message) => void;
 
-export type RunnerParentMessageListener<Message> = (message: RunnerParentMessage<Message>) => void | Promise<void>;
+export type RunnerParentMessageListener<Message = never> = (
+  message: RunnerParentMessage<Message>
+) => void | Promise<void>;
 
 export type RunnerOutputListener = (stream: RunnerOutputStream, chunk: Buffer) => void;
 
@@ -49,10 +51,8 @@ export type RunnerTargetDefinition = {
 export type WorkerRunnerData<Data = unknown> = {
   data: Data;
   moduleUrl: string;
-  terminalApiUrl: string;
   terminal: TerminalSize;
   emulateTty: boolean;
-  tsxApiUrl: string;
 };
 
 export type WorkerRunnerOptions = {
@@ -203,10 +203,8 @@ export function createWorkerRunner<Data, ChildMessage = unknown, ParentMessage =
       const workerData: WorkerRunnerData<Data> = {
         data,
         moduleUrl: toModuleUrl(target.moduleUrl),
-        terminalApiUrl: import.meta.resolve("bit-lite-terminal"),
         terminal: options.terminal ?? readTerminalSize(),
         emulateTty: options.emulateTty ?? true,
-        tsxApiUrl: import.meta.resolve("tsx/esm/api"),
       };
 
       worker = new Worker(createWorkerEntryUrl(), {
@@ -253,7 +251,7 @@ export function createWorkerRunner<Data, ChildMessage = unknown, ParentMessage =
 }
 
 function createWorkerEntryUrl() {
-  return new URL(`data:text/javascript,${encodeURIComponent(workerEntrySource)}`);
+  return new URL("./worker-entry.js", import.meta.url);
 }
 
 function toModuleUrl(moduleUrl: URL | string) {
@@ -263,61 +261,3 @@ function toModuleUrl(moduleUrl: URL | string) {
 function formatError(error: unknown) {
   return error instanceof Error ? error.stack ?? error.message : String(error);
 }
-
-const workerEntrySource = String.raw`
-import { parentPort, workerData } from "node:worker_threads";
-
-const parentMessageListeners = new Set();
-let runnerHandle;
-let terminalApi;
-const { tsImport } = await import(workerData.tsxApiUrl);
-
-if (workerData.emulateTty) {
-  terminalApi = await tsImport(workerData.terminalApiUrl, {
-    parentURL: workerData.terminalApiUrl,
-  });
-  terminalApi.installWorkerTtyShim({ terminal: workerData.terminal });
-}
-
-const runtime = {
-  data: workerData.data,
-  postMessage(message) {
-    parentPort?.postMessage(message);
-  },
-  onMessage(listener) {
-    parentMessageListeners.add(listener);
-    return () => parentMessageListeners.delete(listener);
-  },
-};
-
-parentPort?.on("message", async (message) => {
-  if (terminalApi?.isTerminalResizeMessage(message)) {
-    terminalApi.setTerminalSize(message);
-    return;
-  }
-
-  for (const listener of parentMessageListeners) await listener(message);
-
-  if (message?.type === "shutdown") {
-    await runnerHandle?.stop?.();
-    process.exit(0);
-  }
-});
-
-try {
-  const runnerModule = await tsImport(workerData.moduleUrl, {
-    parentURL: workerData.moduleUrl,
-  });
-  const startRunnerTarget = runnerModule.default;
-
-  if (typeof startRunnerTarget !== "function") {
-    throw new Error("Runner target module must default export a StartRunnerTarget function.");
-  }
-
-  runnerHandle = await startRunnerTarget(runtime);
-} catch (error) {
-  runtime.postMessage({ type: "error", message: error.stack ?? error.message });
-  console.error(error);
-  process.exit(1);
-}
-`;

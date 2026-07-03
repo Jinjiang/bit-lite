@@ -250,8 +250,9 @@ menu, and `q` or Ctrl+C to call `onQuit()`.
   worker mode, buffer their raw output, and attach the terminal to one selected
   integration at a time.
 
-Run the package type check with:
+Build and type check the package with:
 
 ```sh
+pnpm --filter bit-lite-terminal build
 pnpm --filter bit-lite-terminal typecheck
 ```

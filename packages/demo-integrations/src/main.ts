@@ -41,7 +41,7 @@ const vendors: VendorDefinition[] = [
     // Short note that reminds us which Node API this vendor exercises.
     hint: "Node API: webpack + webpack-dev-server",
     // Vendor module used by both runner modes.
-    moduleUrl: new URL("./vendors/webpack-dev-server.ts", import.meta.url),
+    moduleUrl: new URL("./vendors/webpack-dev-server.js", import.meta.url),
     // Dev-server specific options. The vendor will fall back to a random port if busy.
     config: {
       preferredPort: 4301,
@@ -51,7 +51,7 @@ const vendors: VendorDefinition[] = [
     id: "vite",
     label: "Vite Dev Server",
     hint: "Node API: vite.createServer",
-    moduleUrl: new URL("./vendors/vite-dev-server.ts", import.meta.url),
+    moduleUrl: new URL("./vendors/vite-dev-server.js", import.meta.url),
     config: {
       preferredPort: 4302,
     } satisfies DevServerVendorConfig,
@@ -60,13 +60,13 @@ const vendors: VendorDefinition[] = [
     id: "jest",
     label: "Jest Watch Mode",
     hint: "Node API: jest.runCLI",
-    moduleUrl: new URL("./vendors/jest-watch.ts", import.meta.url),
+    moduleUrl: new URL("./vendors/jest-watch.js", import.meta.url),
   },
   {
     id: "vitest",
     label: "Vitest Watch Mode",
     hint: "Node API: vitest/node.startVitest",
-    moduleUrl: new URL("./vendors/vitest-watch.ts", import.meta.url),
+    moduleUrl: new URL("./vendors/vitest-watch.js", import.meta.url),
   },
 ];
 

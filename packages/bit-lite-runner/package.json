@@ -3,18 +3,20 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "build": "pnpm --filter bit-lite-terminal build && tsc -p tsconfig.json",
+    "typecheck": "pnpm --filter bit-lite-terminal build && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "bit-lite-terminal": "workspace:*",
-    "tsx": "^4.22.4"
+    "bit-lite-terminal": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

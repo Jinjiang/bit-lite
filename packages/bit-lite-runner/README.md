@@ -3,6 +3,10 @@
 Reusable Node.js runners for integration tools that can run either inline in the
 parent process or inside a `worker_threads` Worker.
 
+Target modules are loaded with standard Node.js ESM `import()`, so pass a URL to
+compiled JavaScript. TypeScript targets should be compiled to `dist` before the
+runner starts.
+
 The package defines a small runtime contract:
 
 - the parent passes serializable `data` to the target module
@@ -28,7 +32,7 @@ type ChildMessage = {
 const runner = createRunner<Data, ChildMessage>({
   mode: "worker",
   target: {
-    moduleUrl: new URL("./tool.ts", import.meta.url),
+    moduleUrl: new URL("./tool.js", import.meta.url),
   },
   data: {
     label: "Example Tool",
@@ -114,8 +118,9 @@ createWorkerRunner(target, data, {
 - `packages/demo-integrations` uses `bit-lite-runner` to switch each integration
   between inline and worker execution.
 
-Run the package type check with:
+Build and type check the package with:
 
 ```sh
+pnpm --filter bit-lite-runner build
 pnpm --filter bit-lite-runner typecheck
 ```

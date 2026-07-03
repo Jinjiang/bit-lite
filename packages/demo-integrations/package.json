@@ -3,11 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "dist/main.js",
+  "types": "dist/main.d.ts",
   "scripts": {
-    "start": "tsx src/main.ts",
-    "start:worker": "tsx src/main.ts --runner=worker",
-    "start:inline": "tsx src/main.ts --runner=inline",
-    "typecheck": "tsc -p tsconfig.json"
+    "build": "pnpm --filter bit-lite-runner build && tsc -p tsconfig.json",
+    "start": "pnpm run build && node dist/main.js",
+    "start:worker": "pnpm run build && node dist/main.js --runner=worker",
+    "start:inline": "pnpm run build && node dist/main.js --runner=inline",
+    "typecheck": "pnpm --filter bit-lite-runner build && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "bit-lite-runner": "workspace:*",
@@ -20,7 +23,6 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
-    "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   }
 }

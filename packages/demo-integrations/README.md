@@ -12,6 +12,9 @@ The reusable pieces live outside the demo:
 pnpm --filter demo-integrations start
 ```
 
+The start scripts compile the demo to `dist` first, then run the compiled
+JavaScript with Node.js.
+
 Use the arrow keys to select a vendor. In worker mode, press Enter to attach the terminal to the selected vendor's raw output, then press Escape to return to the vendor menu. Press `q` or `Ctrl+C` to stop the demo from the menu.
 
 By default the demo uses the Worker Thread runner:
@@ -26,9 +29,10 @@ Inline mode imports and runs the same vendor modules directly in the parent proc
 pnpm --filter demo-integrations start:inline
 ```
 
-For type checking:
+For building and type checking:
 
 ```sh
+pnpm --filter demo-integrations build
 pnpm --filter demo-integrations typecheck
 ```
 
