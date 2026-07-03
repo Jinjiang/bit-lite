@@ -1,13 +1,10 @@
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import process from "node:process";
-import readline from "node:readline";
-import { RawOutputBuffer, writeTerminalOutput } from "bit-lite-terminal";
-import { createInlineRunner } from "./runners/inline-runner.js";
-import { createWorkerRunner } from "./runners/worker-runner.js";
+import { ManagedTerminal, RawOutputBuffer } from "bit-lite-terminal";
+import { createRunner } from "bit-lite-runner";
 import type {
   DevServerVendorConfig,
-  OutputStream,
   RunnerMode,
   VendorData,
   VendorDefinition,
@@ -44,7 +41,7 @@ const vendors: VendorDefinition[] = [
     // Short note that reminds us which Node API this vendor exercises.
     hint: "Node API: webpack + webpack-dev-server",
     // Vendor module used by both runner modes.
-    vendorModuleUrl: new URL("./vendors/webpack-dev-server.ts", import.meta.url),
+    moduleUrl: new URL("./vendors/webpack-dev-server.ts", import.meta.url),
     // Dev-server specific options. The vendor will fall back to a random port if busy.
     config: {
       preferredPort: 4301,
@@ -54,7 +51,7 @@ const vendors: VendorDefinition[] = [
     id: "vite",
     label: "Vite Dev Server",
     hint: "Node API: vite.createServer",
-    vendorModuleUrl: new URL("./vendors/vite-dev-server.ts", import.meta.url),
+    moduleUrl: new URL("./vendors/vite-dev-server.ts", import.meta.url),
     config: {
       preferredPort: 4302,
     } satisfies DevServerVendorConfig,
@@ -63,13 +60,13 @@ const vendors: VendorDefinition[] = [
     id: "jest",
     label: "Jest Watch Mode",
     hint: "Node API: jest.runCLI",
-    vendorModuleUrl: new URL("./vendors/jest-watch.ts", import.meta.url),
+    moduleUrl: new URL("./vendors/jest-watch.ts", import.meta.url),
   },
   {
     id: "vitest",
     label: "Vitest Watch Mode",
     hint: "Node API: vitest/node.startVitest",
-    vendorModuleUrl: new URL("./vendors/vitest-watch.ts", import.meta.url),
+    moduleUrl: new URL("./vendors/vitest-watch.ts", import.meta.url),
   },
 ];
 
@@ -87,23 +84,19 @@ const runtimes: VendorRuntimeState[] = vendors.map((vendor) => ({
   runner: undefined,
   // Promise resolved when the runner exits. Shutdown waits on these promises.
   exitPromise: undefined,
+  // Worker runners can receive input when their raw terminal is attached.
+  canAttach: runnerMode === "worker",
 }));
 
-// Index of the currently highlighted vendor in the menu screen.
-let selectedIndex = 0;
+const terminal = new ManagedTerminal({
+  title: () => `demo-integrations (${runnerMode} runner)`,
+  items: runtimes,
+  canAttach: () => runnerMode === "worker",
+  onQuit(reason) {
+    void shutdown(0, reason === "ctrl-c" ? "received Ctrl+C" : "quit requested");
+  },
+});
 
-// Current terminal screen. `menu` lists all vendors, and `terminal` gives one
-// worker vendor raw control of the terminal.
-let screen: "menu" | "terminal" = "menu";
-
-// Vendor id currently attached to the raw terminal screen.
-let activeVendorId: string | undefined = undefined;
-
-// Render throttling flag. Many status updates can arrive together; this prevents
-// scheduling multiple redundant screen redraws in the same event loop turn.
-let renderPending = false;
-
-// Once shutdown begins, the UI stops repainting and waits for runners to close.
 let shuttingDown = false;
 
 // Start every vendor immediately. The manager is intentionally simple: one
@@ -112,8 +105,7 @@ for (const vendor of runtimes) {
   startManagedVendor(vendor);
 }
 
-setupInteractiveInput();
-scheduleRender();
+terminal.start();
 
 // Optional short-run timer for manual interactive verification.
 if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
@@ -140,24 +132,26 @@ function startManagedVendor(vendor: VendorRuntimeState) {
     config: vendor.config ?? {},
     packageRoot,
   };
-  const runner =
-    runnerMode === "worker"
-      ? createWorkerRunner(vendor, vendorData)
-      : createInlineRunner(vendor, vendorData);
+  const runner = createRunner<VendorData, VendorMessage>({
+    mode: runnerMode,
+    target: vendor,
+    data: vendorData,
+  });
 
   vendor.runner = runner;
+  vendor.writeInput = (chunk) => runner.writeInput(chunk);
 
   // Keep a per-vendor exit promise. Shutdown races all exits against a timeout
   // before force-terminating any runner that did not close cleanly.
   vendor.exitPromise = runner.exitPromise.then((code) => {
     vendor.status = code === 0 || shuttingDown ? "stopped" : `exited ${code}`;
-    scheduleRender();
+    terminal.scheduleRender();
     return code;
   });
 
   // Worker mode emits proxied stdout/stderr here. Inline mode intentionally
   // emits no output events because the tool writes directly to the terminal.
-  runner.onOutput((stream, chunk) => appendChunk(vendor, stream, chunk));
+  runner.onOutput((stream, chunk) => terminal.appendOutput(vendor, stream, chunk));
 
   // Structured messages are separate from raw stdout/stderr. Both runner modes
   // use this path for lifecycle metadata such as readiness, URL, and errors.
@@ -173,172 +167,19 @@ function handleVendorMessage(vendor: VendorRuntimeState, message: VendorMessage)
   if (message.type === "ready") {
     vendor.status = "ready";
     vendor.url = typeof message.url === "string" ? message.url : undefined;
-    scheduleRender();
+    terminal.scheduleRender();
   }
 
   // `status` lets a vendor expose an intermediate state such as `watching`.
   if (message.type === "status" && typeof message.status === "string") {
     vendor.status = message.status;
-    scheduleRender();
+    terminal.scheduleRender();
   }
 
   if (message.type === "error") {
     vendor.status = "error";
-    scheduleRender();
+    terminal.scheduleRender();
   }
-}
-
-// Keep raw worker output for later terminal replay. When the attached vendor is
-// active, pass through new chunks immediately so the terminal keeps moving.
-function appendChunk(vendor: VendorRuntimeState, stream: OutputStream, chunk: Buffer) {
-  recordRawOutput(vendor, stream, chunk);
-  if (screen === "terminal" && activeVendorId === vendor.id) {
-    writeTerminalOutput(stream, chunk);
-  }
-}
-
-function recordRawOutput(vendor: VendorRuntimeState, stream: OutputStream, chunk: Buffer) {
-  vendor.rawOutput.append(stream, chunk);
-}
-
-// Put stdin into raw keypress mode and route keys according to the active screen.
-function setupInteractiveInput() {
-  readline.emitKeypressEvents(process.stdin);
-  process.stdin.setRawMode(true);
-  process.stdin.resume();
-  process.stdin.on("keypress", (input, key) => {
-    if (key.ctrl && key.name === "c") {
-      shutdown(0, "received Ctrl+C");
-      return;
-    }
-
-    if (screen === "terminal") {
-      handleTerminalKey(input, key);
-      return;
-    }
-
-    if (key.name === "q") {
-      shutdown(0, "quit requested");
-      return;
-    }
-
-    if (screen === "menu") {
-      handleMenuKey(key);
-    }
-  });
-}
-
-// Handle keys while the menu is visible.
-function handleMenuKey(key: readline.Key) {
-  if (key.name === "up") {
-    // Wrap around so repeated Up/Down can cycle through all vendors.
-    selectedIndex = (selectedIndex + runtimes.length - 1) % runtimes.length;
-    scheduleRender();
-    return;
-  }
-
-  if (key.name === "down") {
-    selectedIndex = (selectedIndex + 1) % runtimes.length;
-    scheduleRender();
-    return;
-  }
-
-  if (key.name === "return") {
-    enterVendorTerminal(runtimes[selectedIndex]);
-  }
-}
-
-function handleTerminalKey(input: string | undefined, key: readline.Key) {
-  if (key.name === "escape") {
-    leaveVendorTerminal();
-    return;
-  }
-
-  const vendor = runtimes.find((item) => item.id === activeVendorId);
-  if (input && vendor?.runner?.kind === "worker") {
-    vendor.runner.writeInput(input);
-  }
-}
-
-function enterVendorTerminal(vendor: VendorRuntimeState | undefined) {
-  if (!vendor || runnerMode !== "worker") return;
-
-  activeVendorId = vendor.id;
-  screen = "terminal";
-  renderPending = false;
-
-  process.stdout.write("\x1b[?25h\x1b[2J\x1b[H");
-  for (const entry of vendor.rawOutput.entries()) {
-    writeTerminalOutput(entry.stream, entry.chunk);
-  }
-}
-
-function leaveVendorTerminal() {
-  screen = "menu";
-  activeVendorId = undefined;
-  process.stdout.write("\x1b[2J\x1b[H");
-  scheduleRender();
-}
-
-// Schedule one screen redraw. Rendering through setImmediate batches together
-// status updates that arrive in the same tick.
-function scheduleRender() {
-  if (renderPending || shuttingDown || screen === "terminal") return;
-
-  renderPending = true;
-  setImmediate(() => {
-    renderPending = false;
-    render();
-  });
-}
-
-// Redraw the whole terminal. This intentionally uses a tiny custom renderer so
-// the demo does not depend on a terminal UI framework.
-function render() {
-  if (screen === "terminal") return;
-
-  const columns = process.stdout.columns || 100;
-  const rows = process.stdout.rows || 30;
-  const lines = renderMenu(columns, rows);
-
-  process.stdout.write("\x1b[?25l");
-  process.stdout.write("\x1b[2J\x1b[H");
-  process.stdout.write(lines.join("\n"));
-}
-
-// Build the menu screen as an array of terminal lines.
-function renderMenu(columns: number, rows: number) {
-  const lines = [
-    `demo-integrations (${runnerMode} runner)`,
-    "",
-    "Use Up/Down and Enter for raw terminal. Press q or Ctrl+C to stop.",
-    "",
-  ];
-
-  runtimes.forEach((vendor, index) => {
-    // `marker` visually highlights the item controlled by Up/Down.
-    const marker = index === selectedIndex ? ">" : " ";
-    // Fixed-width fields keep the menu readable while statuses change.
-    const label = vendor.label.padEnd(22);
-    const status = vendor.status.padEnd(10);
-    const url = vendor.url ? ` ${vendor.url}` : "";
-    lines.push(fitLine(`${marker} ${label} ${status} ${vendor.hint}${url}`, columns));
-  });
-
-  return fillScreen(lines, rows);
-}
-
-// Pad or trim the rendered screen to the current terminal height.
-function fillScreen(lines: string[], rows: number) {
-  const result = lines.slice(0, rows);
-  while (result.length < rows) result.push("");
-  return result;
-}
-
-// Trim long lines instead of letting them wrap and distort the menu layout.
-function fitLine(line: string, columns: number) {
-  if (line.length <= columns) return line;
-  return line.slice(0, Math.max(0, columns - 1));
 }
 
 // Stop every runner and restore the terminal before exiting the parent process.
@@ -348,8 +189,7 @@ async function shutdown(code: number, reason?: string) {
 
   // Leave raw mode and show the cursor even if runners keep printing while
   // they shut down.
-  process.stdin.setRawMode(false);
-  process.stdout.write("\x1b[?25h\x1b[2J\x1b[H");
+  terminal.stop({ clearScreen: true });
 
   process.stdout.write(`Stopping demo-integrations${reason ? ` (${reason})` : ""}...\n`);
 

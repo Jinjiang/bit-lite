@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "bit-lite-runner": "workspace:*",
     "bit-lite-terminal": "workspace:*",
     "jest": "^30.4.2",
     "vite": "^8.1.2",

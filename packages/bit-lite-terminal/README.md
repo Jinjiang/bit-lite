@@ -3,12 +3,17 @@
 Small Node.js terminal helpers for running CLI-like integrations inside
 `worker_threads`.
 
-The package focuses on one common worker-runner problem: when a tool runs inside
-a Worker with `stdout: true` and `stderr: true`, those streams are no longer real
-TTY streams. Many dev tools then disable colors, clear-screen output, progress
-UI, terminal sizing, or raw input handling. `bit-lite-terminal` provides a small
-shim for the worker side plus helpers for the parent process to forward output
-and terminal resize events.
+The package focuses on two related problems:
+
+- when a tool runs inside a Worker with `stdout: true` and `stderr: true`, those
+  streams are no longer real TTY streams
+- when multiple child terminals are running at once, the parent terminal needs a
+  menu, output buffers, and an attach/detach flow for forwarding input
+
+Many dev tools disable colors, clear-screen output, progress UI, terminal
+sizing, or raw input handling when they do not see a TTY. `bit-lite-terminal`
+provides a small shim for the worker side plus helpers for the parent process to
+forward output and terminal resize events.
 
 ## Usage
 
@@ -190,6 +195,52 @@ for (const entry of output.entries()) {
 ```
 
 When the buffer grows past `limitBytes`, the oldest chunks are dropped.
+
+### `ManagedTerminal`
+
+Runs a small parent terminal UI for multiple child terminals. It renders a menu,
+tracks the selected item, buffers stdout/stderr per item, replays buffered output
+when attaching to one child terminal, and forwards key input to the attached
+item's `writeInput()` callback.
+
+```ts
+import { ManagedTerminal, RawOutputBuffer } from "bit-lite-terminal";
+
+const item = {
+  id: "vite",
+  label: "Vite Dev Server",
+  status: "starting",
+  hint: "Node API: vite.createServer",
+  rawOutput: new RawOutputBuffer(),
+  writeInput(chunk: Buffer | string) {
+    worker.stdin?.write(chunk);
+  },
+};
+
+const terminal = new ManagedTerminal({
+  title: "integrations",
+  items: [item],
+  onQuit() {
+    void shutdown();
+  },
+});
+
+terminal.start();
+
+worker.stdout?.on("data", (chunk: Buffer) => {
+  terminal.appendOutput(item, "stdout", chunk);
+});
+
+worker.stderr?.on("data", (chunk: Buffer) => {
+  terminal.appendOutput(item, "stderr", chunk);
+});
+
+item.status = "ready";
+terminal.scheduleRender();
+```
+
+Press Enter from the menu to attach to a child terminal, Escape to return to the
+menu, and `q` or Ctrl+C to call `onQuit()`.
 
 ## Examples in this repository
 

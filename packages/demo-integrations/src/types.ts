@@ -1,14 +1,17 @@
-import type { RawOutputBuffer, TerminalSize } from "bit-lite-terminal";
+import type { ManagedTerminalItem, RawOutputBuffer } from "bit-lite-terminal";
+import type {
+  Runner,
+  RunnerExitCode,
+  RunnerHandle,
+  RunnerMode,
+  RunnerOutputStream,
+  RunnerRuntime,
+  RunnerTargetDefinition,
+} from "bit-lite-runner";
 
-export type RunnerMode = "worker" | "inline";
+export type { RunnerExitCode, RunnerMode };
 
-export type RunnerKind = RunnerMode;
-
-export type OutputStream = "stdout" | "stderr";
-
-export type RunnerExitCode = number | null | undefined;
-
-export type Unsubscribe = () => void;
+export type OutputStream = RunnerOutputStream;
 
 export type VendorReadyMessage = {
   type: "ready";
@@ -27,18 +30,6 @@ export type VendorErrorMessage = {
 
 export type VendorMessage = VendorReadyMessage | VendorStatusMessage | VendorErrorMessage;
 
-export type ManagerShutdownMessage = {
-  type: "shutdown";
-};
-
-export type ManagerMessage = ManagerShutdownMessage;
-
-export type VendorMessageListener = (message: VendorMessage) => void;
-
-export type ManagerMessageListener = (message: ManagerMessage) => void | Promise<void>;
-
-export type OutputListener = (stream: OutputStream, chunk: Buffer) => void;
-
 export type VendorConfig = Record<string, unknown>;
 
 export type DevServerVendorConfig = VendorConfig & {
@@ -52,57 +43,24 @@ export type VendorData<Config extends VendorConfig = VendorConfig> = {
   packageRoot: string;
 };
 
-export type WorkerVendorData<Config extends VendorConfig = VendorConfig> = {
-  vendorData: VendorData<Config>;
-  vendorModuleUrl: string;
-  terminalApiUrl: string;
-  terminal: TerminalSize;
-  emulateTty: boolean;
-  tsxApiUrl: string;
-};
+export type VendorRuntime<Config extends VendorConfig = VendorConfig> = RunnerRuntime<VendorData<Config>, VendorMessage>;
 
-export type VendorRuntime<Config extends VendorConfig = VendorConfig> = {
-  data: VendorData<Config>;
-  postMessage(message: VendorMessage): void;
-  onMessage(listener: ManagerMessageListener): Unsubscribe;
-};
+export type VendorHandle = RunnerHandle;
 
-export type VendorHandle = {
-  stop?(): void | Promise<void>;
-};
-
-export type StartVendor<Config extends VendorConfig = VendorConfig> = (
-  runtime: VendorRuntime<Config>
-) => void | VendorHandle | Promise<void | VendorHandle>;
-
-export type VendorModule<Config extends VendorConfig = VendorConfig> = {
-  default: StartVendor<Config>;
-};
-
-export type VendorDefinition<Config extends VendorConfig = VendorConfig> = {
+export type VendorDefinition<Config extends VendorConfig = VendorConfig> = RunnerTargetDefinition & {
   id: string;
   label: string;
   hint: string;
-  vendorModuleUrl: URL;
   config?: Config;
 };
 
-export type VendorRunner = {
-  kind: RunnerKind;
-  exitPromise: Promise<RunnerExitCode>;
-  onMessage(listener: VendorMessageListener): Unsubscribe;
-  onOutput(listener: OutputListener): Unsubscribe;
-  send(message: ManagerMessage): void;
-  writeInput(chunk: Buffer | string): void;
-  start(): void | Promise<void>;
-  stop(): void | Promise<void>;
-  terminate(): void | Promise<void>;
-};
+export type VendorRunner<Config extends VendorConfig = VendorConfig> = Runner<VendorData<Config>, VendorMessage>;
 
-export type VendorRuntimeState<Config extends VendorConfig = VendorConfig> = VendorDefinition<Config> & {
-  status: string;
-  url: string | undefined;
-  rawOutput: RawOutputBuffer;
-  runner: VendorRunner | undefined;
-  exitPromise: Promise<RunnerExitCode> | undefined;
-};
+export type VendorRuntimeState<Config extends VendorConfig = VendorConfig> = VendorDefinition<Config> &
+  ManagedTerminalItem & {
+    status: string;
+    url: string | undefined;
+    rawOutput: RawOutputBuffer;
+    runner: VendorRunner<Config> | undefined;
+    exitPromise: Promise<RunnerExitCode> | undefined;
+  };

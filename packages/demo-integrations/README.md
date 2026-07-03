@@ -2,6 +2,12 @@
 
 Standalone TypeScript demo for running several JavaScript tool integrations through Node APIs with a switchable execution runner.
 
+The reusable pieces live outside the demo:
+
+- `bit-lite-runner` provides the inline and Worker Thread runners.
+- `bit-lite-terminal` provides the parent menu, child terminal attach/detach,
+  output buffering, and worker TTY helpers.
+
 ```sh
 pnpm --filter demo-integrations start
 ```

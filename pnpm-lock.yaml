@@ -48,6 +48,22 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  packages/bit-lite-runner:
+    dependencies:
+      bit-lite-terminal:
+        specifier: workspace:*
+        version: link:../bit-lite-terminal
+      tsx:
+        specifier: ^4.22.4
+        version: 4.22.4
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.4
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   packages/bit-lite-terminal:
     devDependencies:
       '@types/node':
@@ -77,6 +93,9 @@ importers:
 
   packages/demo-integrations:
     dependencies:
+      bit-lite-runner:
+        specifier: workspace:*
+        version: link:../bit-lite-runner
       bit-lite-terminal:
         specifier: workspace:*
         version: link:../bit-lite-terminal
