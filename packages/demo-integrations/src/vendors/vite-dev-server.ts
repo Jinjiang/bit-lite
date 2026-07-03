@@ -1,16 +1,16 @@
 import path from "node:path";
 import { createServer } from "vite";
 import { findOpenPort } from "../utils/ports.js";
-import type { ServiceHandle, ServiceRuntime } from "../types.js";
+import type { DevServerVendorConfig, VendorHandle, VendorRuntime } from "../types.js";
 
 // Create and start Vite Dev Server using Vite's JavaScript API. This function
 // is shared by the inline runner and the Worker Thread runner.
-export default async function startViteDevServer(runtime: ServiceRuntime): Promise<ServiceHandle> {
+export default async function startViteDevServer(runtime: VendorRuntime<DevServerVendorConfig>): Promise<VendorHandle> {
   const fixtureRoot = path.join(runtime.data.packageRoot, "fixtures/vite");
   let server: Awaited<ReturnType<typeof createServer>> | undefined;
 
   // Pick a predictable port unless it is already occupied.
-  const port = await findOpenPort(runtime.data.preferredPort);
+  const port = await findOpenPort(runtime.data.config.preferredPort);
 
   console.log("Starting Vite Dev Server through createServer()...");
   server = await createServer({
@@ -21,7 +21,7 @@ export default async function startViteDevServer(runtime: ServiceRuntime): Promi
       host: "127.0.0.1",
       port,
       strictPort: true,
-      hmr: false,
+      // hmr: false,
     },
     plugins: [
       {
@@ -33,6 +33,9 @@ export default async function startViteDevServer(runtime: ServiceRuntime): Promi
         // Another hook that runs during startup and writes to stdout.
         buildStart() {
           console.log("[vite plugin] buildStart wrote to stdout");
+        },
+        handleHotUpdate(context) {
+          console.log(`[vite plugin] hot update: ${path.relative(fixtureRoot, context.file)}`);
         },
       },
     ],

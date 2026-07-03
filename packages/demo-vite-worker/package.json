@@ -1,0 +1,21 @@
+{
+  "name": "demo-vite-worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start:direct": "tsx src/direct.ts",
+    "start:worker": "tsx src/worker-proxy.ts",
+    "start:worker:tty": "DEMO_VITE_WORKER_TTY_SHIM=1 tsx src/worker-proxy.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "bit-lite-terminal": "workspace:*",
+    "vite": "^8.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}

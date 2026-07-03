@@ -1,22 +1,28 @@
 import { Worker } from "node:worker_threads";
+import { bindTerminalResize, readTerminalSize } from "bit-lite-terminal";
 import type {
   ManagerMessage,
   OutputListener,
   RunnerExitCode,
-  ServiceData,
-  ServiceDefinition,
-  ServiceMessageListener,
-  ServiceRunner,
-  WorkerServiceData,
+  VendorConfig,
+  VendorData,
+  VendorDefinition,
+  VendorMessageListener,
+  VendorRunner,
+  WorkerVendorData,
 } from "../types.js";
 
-// Worker runner: starts a service in a Worker Thread and exposes a small runner
+// Worker runner: starts a vendor in a Worker Thread and exposes a small runner
 // API to the parent process. This is the only file that directly touches
 // Node's Worker constructor.
-export function createWorkerRunner(service: ServiceDefinition, serviceData: ServiceData): ServiceRunner {
+export function createWorkerRunner<Config extends VendorConfig>(
+  vendor: VendorDefinition<Config>,
+  vendorData: VendorData<Config>
+): VendorRunner {
   const outputListeners = new Set<OutputListener>();
-  const messageListeners = new Set<ServiceMessageListener>();
+  const messageListeners = new Set<VendorMessageListener>();
   let worker: Worker | undefined;
+  let unbindTerminalResize: (() => void) | undefined;
   let resolveExit!: (code: RunnerExitCode) => void;
 
   const exitPromise = new Promise<RunnerExitCode>((resolve) => {
@@ -37,10 +43,16 @@ export function createWorkerRunner(service: ServiceDefinition, serviceData: Serv
     send(message: ManagerMessage) {
       worker?.postMessage(message);
     },
+    writeInput(chunk) {
+      worker?.stdin?.write(chunk);
+    },
     start() {
-      const workerData: WorkerServiceData = {
-        ...serviceData,
-        serviceModuleUrl: service.serviceModuleUrl.href,
+      const workerData: WorkerVendorData<Config> = {
+        vendorData,
+        vendorModuleUrl: vendor.vendorModuleUrl.href,
+        terminalApiUrl: import.meta.resolve("bit-lite-terminal"),
+        terminal: readTerminalSize(),
+        emulateTty: true,
         tsxApiUrl: import.meta.resolve("tsx/esm/api"),
       };
 
@@ -57,6 +69,7 @@ export function createWorkerRunner(service: ServiceDefinition, serviceData: Serv
 
       worker.stdout?.on("data", (chunk: Buffer) => emitOutput("stdout", chunk));
       worker.stderr?.on("data", (chunk: Buffer) => emitOutput("stderr", chunk));
+      unbindTerminalResize = bindTerminalResize(worker);
       worker.on("message", (message) => {
         for (const listener of messageListeners) listener(message);
       });
@@ -66,6 +79,8 @@ export function createWorkerRunner(service: ServiceDefinition, serviceData: Serv
         }
       });
       worker.once("exit", (code) => {
+        unbindTerminalResize?.();
+        unbindTerminalResize = undefined;
         resolveExit(code);
       });
     },
@@ -73,6 +88,8 @@ export function createWorkerRunner(service: ServiceDefinition, serviceData: Serv
       this.send({ type: "shutdown" });
     },
     async terminate() {
+      unbindTerminalResize?.();
+      unbindTerminalResize = undefined;
       if (worker) await worker.terminate();
     },
   };
@@ -83,7 +100,7 @@ export function createWorkerRunner(service: ServiceDefinition, serviceData: Serv
 }
 
 // Generate one generic Worker entry instead of keeping one wrapper file per
-// service. The entry imports the service module named in workerData and runs the
+// vendor. The entry imports the vendor module named in workerData and runs the
 // same runtime contract used by inline mode.
 function createWorkerEntryUrl() {
   return new URL(`data:text/javascript,${encodeURIComponent(workerEntrySource)}`);
@@ -92,41 +109,54 @@ function createWorkerEntryUrl() {
 const workerEntrySource = String.raw`
 import { parentPort, workerData } from "node:worker_threads";
 
-const serviceMessageListeners = new Set();
-let serviceHandle;
+const vendorMessageListeners = new Set();
+let vendorHandle;
+let terminalApi;
+const { tsImport } = await import(workerData.tsxApiUrl);
+
+if (workerData.emulateTty) {
+  terminalApi = await tsImport(workerData.terminalApiUrl, {
+    parentURL: workerData.terminalApiUrl,
+  });
+  terminalApi.installWorkerTtyShim({ terminal: workerData.terminal });
+}
 
 const runtime = {
-  data: workerData,
+  data: workerData.vendorData,
   postMessage(message) {
     parentPort?.postMessage(message);
   },
   onMessage(listener) {
-    serviceMessageListeners.add(listener);
-    return () => serviceMessageListeners.delete(listener);
+    vendorMessageListeners.add(listener);
+    return () => vendorMessageListeners.delete(listener);
   },
 };
 
 parentPort?.on("message", async (message) => {
-  for (const listener of serviceMessageListeners) await listener(message);
+  if (terminalApi?.isTerminalResizeMessage(message)) {
+    terminalApi.setTerminalSize(message);
+    return;
+  }
+
+  for (const listener of vendorMessageListeners) await listener(message);
 
   if (message?.type === "shutdown") {
-    await serviceHandle?.stop?.();
+    await vendorHandle?.stop?.();
     process.exit(0);
   }
 });
 
 try {
-  const { tsImport } = await import(workerData.tsxApiUrl);
-  const serviceModule = await tsImport(workerData.serviceModuleUrl, {
-    parentURL: workerData.serviceModuleUrl,
+  const vendorModule = await tsImport(workerData.vendorModuleUrl, {
+    parentURL: workerData.vendorModuleUrl,
   });
-  const startService = serviceModule.default;
+  const startVendor = vendorModule.default;
 
-  if (typeof startService !== "function") {
-    throw new Error("Service module must default export a StartService function.");
+  if (typeof startVendor !== "function") {
+    throw new Error("Vendor module must default export a StartVendor function.");
   }
 
-  serviceHandle = await startService(runtime);
+  vendorHandle = await startVendor(runtime);
 } catch (error) {
   runtime.postMessage({ type: "error", message: error.stack ?? error.message });
   console.error(error);

@@ -1,9 +1,9 @@
 import path from "node:path";
-import type { ServiceHandle, ServiceRuntime } from "../types.js";
+import type { VendorHandle, VendorRuntime } from "../types.js";
 
 // Run Jest in watchAll mode through the public Node API. Jest runCLI does not
 // expose a close handle for watch mode, so stop() is intentionally best-effort.
-export default async function startJestWatch(runtime: ServiceRuntime): Promise<ServiceHandle> {
+export default async function startJestWatch(runtime: VendorRuntime): Promise<VendorHandle> {
   const fixtureRoot = path.join(runtime.data.packageRoot, "fixtures/jest");
 
   // Dynamic import keeps this file ESM-friendly even though Jest exposes some
@@ -28,7 +28,7 @@ export default async function startJestWatch(runtime: ServiceRuntime): Promise<S
   };
 
   // Do not await this promise. In watch mode, runCLI normally never resolves.
-  // Let it own its file watchers while the runner keeps the service handle.
+  // Let it own its file watchers while the runner keeps the vendor handle.
   runCLI(
     {
       $0: "demo-integrations",

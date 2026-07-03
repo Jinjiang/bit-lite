@@ -1,10 +1,10 @@
 import path from "node:path";
 import { startVitest } from "vitest/node";
-import type { ServiceHandle, ServiceRuntime } from "../types.js";
+import type { VendorHandle, VendorRuntime } from "../types.js";
 
 // Run Vitest watch mode through the Vitest Node API. This function is shared by
 // both runner modes.
-export default async function startVitestWatch(runtime: ServiceRuntime): Promise<ServiceHandle> {
+export default async function startVitestWatch(runtime: VendorRuntime): Promise<VendorHandle> {
   const fixtureRoot = path.join(runtime.data.packageRoot, "fixtures/vitest");
   let vitest: Awaited<ReturnType<typeof startVitest>> | undefined;
 

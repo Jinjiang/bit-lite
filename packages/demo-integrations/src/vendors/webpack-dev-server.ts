@@ -4,16 +4,16 @@ import webpack from "webpack";
 import WebpackDevServer from "webpack-dev-server";
 import { findOpenPort } from "../utils/ports.js";
 import type { Compiler, Stats } from "webpack";
-import type { ServiceHandle, ServiceRuntime } from "../types.js";
+import type { DevServerVendorConfig, VendorHandle, VendorRuntime } from "../types.js";
 
 // Create and start Webpack Dev Server entirely through the Node API. The
 // `runtime` argument is the abstraction shared by inline and worker execution.
-export default async function startWebpackDevServer(runtime: ServiceRuntime): Promise<ServiceHandle> {
+export default async function startWebpackDevServer(runtime: VendorRuntime<DevServerVendorConfig>): Promise<VendorHandle> {
   const fixtureRoot = path.join(runtime.data.packageRoot, "fixtures/webpack");
   let server: WebpackDevServer | undefined;
 
   // Prefer a stable demo port, but avoid failing if the port is already in use.
-  const port = await findOpenPort(runtime.data.preferredPort);
+  const port = await findOpenPort(runtime.data.config.preferredPort);
 
   // Webpack compiler configuration kept inline so the demo is self-contained.
   const compiler = webpack({

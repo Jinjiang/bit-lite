@@ -1,4 +1,4 @@
-// Inline runner: starts a service by importing its JavaScript module directly in
+// Inline runner: starts a vendor by importing its JavaScript module directly in
 // the parent process. Tool stdout/stderr are not intercepted in this mode, so
 // console output goes straight to the terminal.
 
@@ -7,19 +7,23 @@ import type {
   ManagerMessageListener,
   OutputListener,
   RunnerExitCode,
-  ServiceDefinition,
-  ServiceHandle,
-  ServiceMessageListener,
-  ServiceRunner,
-  ServiceRuntime,
-  ServiceData,
-  ServiceModule,
+  VendorConfig,
+  VendorDefinition,
+  VendorHandle,
+  VendorMessageListener,
+  VendorRunner,
+  VendorRuntime,
+  VendorData,
+  VendorModule,
 } from "../types.js";
 
-export function createInlineRunner(service: ServiceDefinition, serviceData: ServiceData): ServiceRunner {
-  const parentMessageListeners = new Set<ServiceMessageListener>();
-  const serviceMessageListeners = new Set<ManagerMessageListener>();
-  let serviceHandle: ServiceHandle | void;
+export function createInlineRunner<Config extends VendorConfig>(
+  vendor: VendorDefinition<Config>,
+  vendorData: VendorData<Config>
+): VendorRunner {
+  const parentMessageListeners = new Set<VendorMessageListener>();
+  const vendorMessageListeners = new Set<ManagerMessageListener>();
+  let vendorHandle: VendorHandle | void;
   let stopped = false;
   let resolveExit!: (code: RunnerExitCode) => void;
 
@@ -27,16 +31,19 @@ export function createInlineRunner(service: ServiceDefinition, serviceData: Serv
     resolveExit = resolve;
   });
 
-  // Runtime object passed to the service implementation. It mirrors the worker
-  // runtime shape so services can be written without knowing where they run.
-  const runtime: ServiceRuntime = {
-    data: serviceData,
+  // Runtime object passed to the vendor implementation. It mirrors the worker
+  // runtime shape so vendors can be written without knowing where they run.
+  // Clone values at the runtime boundary to preserve Worker-style message
+  // semantics even when the vendor runs in the same JavaScript realm.
+  const runtime: VendorRuntime<Config> = {
+    data: structuredClone(vendorData),
     postMessage(message) {
-      for (const listener of parentMessageListeners) listener(message);
+      const clonedMessage = structuredClone(message);
+      for (const listener of parentMessageListeners) listener(clonedMessage);
     },
     onMessage(listener) {
-      serviceMessageListeners.add(listener);
-      return () => serviceMessageListeners.delete(listener);
+      vendorMessageListeners.add(listener);
+      return () => vendorMessageListeners.delete(listener);
     },
   };
 
@@ -48,23 +55,25 @@ export function createInlineRunner(service: ServiceDefinition, serviceData: Serv
       return () => parentMessageListeners.delete(listener);
     },
     onOutput(_listener: OutputListener) {
-      // Inline mode deliberately does not proxy stdout/stderr. The service runs
+      // Inline mode deliberately does not proxy stdout/stderr. The vendor runs
       // in the parent process, so its terminal output is already visible.
       return () => {};
     },
     send(message: ManagerMessage) {
-      for (const listener of serviceMessageListeners) listener(message);
+      const clonedMessage = structuredClone(message);
+      for (const listener of vendorMessageListeners) listener(clonedMessage);
     },
+    writeInput(_chunk) {},
     async start() {
       try {
-        const serviceModule = (await import(service.serviceModuleUrl.href)) as ServiceModule;
-        const startService = serviceModule.default;
+        const vendorModule = (await import(vendor.vendorModuleUrl.href)) as VendorModule<Config>;
+        const startVendor = vendorModule.default;
 
-        if (typeof startService !== "function") {
-          throw new Error("Service module must default export a StartService function.");
+        if (typeof startVendor !== "function") {
+          throw new Error("Vendor module must default export a StartVendor function.");
         }
 
-        serviceHandle = await startService(runtime);
+        vendorHandle = await startVendor(runtime);
       } catch (error) {
         runtime.postMessage({ type: "error", message: formatError(error) });
         console.error(error);
@@ -76,7 +85,7 @@ export function createInlineRunner(service: ServiceDefinition, serviceData: Serv
       stopped = true;
 
       this.send({ type: "shutdown" });
-      await serviceHandle?.stop?.();
+      await vendorHandle?.stop?.();
       resolveExit(0);
     },
     async terminate() {

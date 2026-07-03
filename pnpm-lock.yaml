@@ -48,6 +48,15 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  packages/bit-lite-terminal:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.4
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   packages/bit-lite-vendors:
     dependencies:
       bit-lite-context:
@@ -68,6 +77,9 @@ importers:
 
   packages/demo-integrations:
     dependencies:
+      bit-lite-terminal:
+        specifier: workspace:*
+        version: link:../bit-lite-terminal
       jest:
         specifier: ^30.4.2
         version: 30.4.2(@types/node@25.9.4)
@@ -102,6 +114,25 @@ importers:
       bit-lite-vendors:
         specifier: workspace:*
         version: link:../bit-lite-vendors
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.4
+      tsx:
+        specifier: ^4.22.4
+        version: 4.22.4
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/demo-vite-worker:
+    dependencies:
+      bit-lite-terminal:
+        specifier: workspace:*
+        version: link:../bit-lite-terminal
+      vite:
+        specifier: ^8.1.2
+        version: 8.1.2(@types/node@25.9.4)(esbuild@0.28.1)(terser@5.48.0)(tsx@4.22.4)
     devDependencies:
       '@types/node':
         specifier: ^25.9.1
