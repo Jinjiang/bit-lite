@@ -203,6 +203,12 @@ tracks the selected item, buffers stdout/stderr per item, replays buffered outpu
 when attaching to one child terminal, and forwards key input to the attached
 item's `writeInput()` callback.
 
+Use it when a parent process owns several long-running integrations and needs to
+show one compact status screen while preserving access to each child's raw
+terminal output. `ManagedTerminal` does not start, stop, or supervise child
+processes itself. The caller owns those processes and connects their output,
+input, status, and shutdown handling to the terminal manager.
+
 ```ts
 import { ManagedTerminal, RawOutputBuffer } from "bit-lite-terminal";
 
@@ -241,6 +247,150 @@ terminal.scheduleRender();
 
 Press Enter from the menu to attach to a child terminal, Escape to return to the
 menu, and `q` or Ctrl+C to call `onQuit()`.
+
+#### Item shape
+
+Each managed item is mutable state owned by the caller:
+
+```ts
+type ManagedTerminalItem = {
+  id: string;
+  label: string;
+  status: string;
+  hint?: string;
+  url?: string;
+  rawOutput: RawOutputBuffer;
+  writeInput?(chunk: Buffer | string): void;
+  canAttach?: boolean;
+};
+```
+
+The menu renders `label`, `status`, optional `hint`, and optional `url`.
+`rawOutput` stores recent stdout/stderr chunks. When the user attaches to an
+item, the buffer is replayed before new output is passed through live.
+
+`writeInput()` is called only while an item is attached. Use it to forward typed
+keys to a Worker, child process, pty, or any other terminal-like backend.
+
+`canAttach` controls whether Enter can open an item. If omitted, attach is
+enabled when `writeInput()` exists. You can also centralize the decision with the
+constructor-level `canAttach(item)` option.
+
+#### Options
+
+```ts
+const terminal = new ManagedTerminal({
+  title: () => "integrations",
+  items,
+  instructions: "Use Up/Down and Enter. Press q to quit.",
+  labelWidth: 24,
+  statusWidth: 12,
+  stdin: process.stdin,
+  stdout: process.stdout,
+  stderr: process.stderr,
+  canAttach(item) {
+    return item.status !== "starting";
+  },
+  onQuit(reason) {
+    void shutdown(reason);
+  },
+});
+```
+
+- `title` can be a string or callback. The callback form is useful when the menu
+  title includes mutable state such as a selected runner mode.
+- `items` is the live list rendered in the menu. Mutate item fields and call
+  `scheduleRender()` after status changes.
+- `instructions` overrides the default help line.
+- `labelWidth` and `statusWidth` control fixed-width menu columns.
+- `stdin`, `stdout`, and `stderr` default to the current process streams. Pass
+  custom streams for tests or embedding.
+- `canAttach(item)` overrides per-item attach behavior.
+- `onQuit(reason)` receives `"quit"` for `q` and `"ctrl-c"` for Ctrl+C.
+
+#### Lifecycle
+
+```ts
+terminal.start();
+terminal.scheduleRender();
+terminal.renderNow();
+terminal.stop({ clearScreen: true });
+```
+
+`start()` enables keypress handling, puts stdin into raw mode when supported, and
+schedules the first render. It is safe to call more than once.
+
+`scheduleRender()` batches menu redraws with `setImmediate()`. It does nothing
+while a raw child terminal is attached, so child output is not overwritten by
+menu redraws.
+
+`renderNow()` redraws the menu immediately. Most callers should prefer
+`scheduleRender()` after changing item state.
+
+`stop()` removes the keypress listener, leaves raw mode when supported, and shows
+the cursor. Pass `{ clearScreen: true }` during shutdown if the parent process
+should leave a clean terminal behind.
+
+#### Output
+
+```ts
+terminal.appendOutput(item, "stdout", chunk);
+terminal.appendOutput(item.id, "stderr", chunk);
+```
+
+`appendOutput()` records the chunk in the item's `RawOutputBuffer`. If that item
+is currently attached, the same chunk is also written immediately to the managed
+stdout or stderr stream. Passing an unknown item id is ignored.
+
+For a typical Worker-backed integration:
+
+```ts
+const item = {
+  id: "webpack",
+  label: "Webpack Dev Server",
+  status: "starting",
+  rawOutput: new RawOutputBuffer(),
+  writeInput(chunk: Buffer | string) {
+    worker.stdin?.write(chunk);
+  },
+};
+
+const terminal = new ManagedTerminal({
+  title: () => `integrations (${runnerMode})`,
+  items: [item],
+  onQuit(reason) {
+    void shutdown(reason);
+  },
+});
+
+worker.stdout?.on("data", (chunk: Buffer) => {
+  terminal.appendOutput(item, "stdout", chunk);
+});
+
+worker.stderr?.on("data", (chunk: Buffer) => {
+  terminal.appendOutput(item, "stderr", chunk);
+});
+
+worker.on("message", (message) => {
+  if (message.type === "ready") {
+    item.status = "ready";
+    item.url = message.url;
+    terminal.scheduleRender();
+  }
+});
+
+terminal.start();
+```
+
+#### State Getters
+
+- `terminal.screen` is `"menu"` or `"terminal"`.
+- `terminal.selectedItem` is the currently highlighted menu item, or `undefined`
+  when the item list is empty.
+- `terminal.activeItem` is the attached item while a child terminal is open.
+
+These are read-only convenience getters. Navigation, attach, and detach are
+driven by keyboard input.
 
 ## Examples in this repository
 
