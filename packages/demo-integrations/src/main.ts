@@ -7,6 +7,7 @@ import type {
   DevServerVendorConfig,
   JsonObject,
   JsonValue,
+  RunnerExitCode,
   RunnerMode,
   VendorData,
   VendorDefinition,
@@ -148,7 +149,12 @@ function startManagedVendor(vendor: VendorRuntimeState) {
   // Keep a per-vendor exit promise. Shutdown races all exits against a timeout
   // before force-terminating any runner that did not close cleanly.
   vendor.exitPromise = runner.exitPromise.then((code) => {
-    vendor.status = code === 0 || shuttingDown ? "stopped" : `exited ${code}`;
+    vendor.status = code === 0 || shuttingDown ? "stopped" : `exited ${formatExitCode(code)}`;
+
+    if (!shuttingDown) {
+      terminal.appendOutput(vendor, "stderr", formatVendorExitNotice(vendor, code));
+    }
+
     terminal.scheduleRender();
     return code;
   });
@@ -294,4 +300,14 @@ function readRunnerMode(args: string[]): RunnerMode {
   }
 
   return mode;
+}
+
+function formatVendorExitNotice(vendor: VendorRuntimeState, code: RunnerExitCode) {
+  return `\n[demo-integrations] ${vendor.label} exited with code ${formatExitCode(
+    code
+  )}. Press Escape to return to the menu.\n`;
+}
+
+function formatExitCode(code: RunnerExitCode) {
+  return typeof code === "number" ? String(code) : "unknown";
 }
