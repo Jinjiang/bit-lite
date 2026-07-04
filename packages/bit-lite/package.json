@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "bit-lite": "dist/bin.js"
+    "bit-lite": "bin/bit-lite.js"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",
