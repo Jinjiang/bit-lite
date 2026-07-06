@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm run build:vendors && tsc -p tsconfig.json",
     "build:vendors": "pnpm --filter bit-lite-vendors build",
     "foo-x": "pnpm run build:vendors && tsx src/foo-x.ts",
     "bar-x": "pnpm run build:vendors && tsx src/bar-x.ts",
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "bit-lite-context": "workspace:*",
+    "bit-lite-runner": "workspace:*",
     "bit-lite-vendors": "workspace:*"
   },
   "devDependencies": {

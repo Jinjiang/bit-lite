@@ -1,58 +1,100 @@
 import { describe, expect, it } from "vitest";
 import { barXVendor, barYVendor, barZVendor, bazXVendor, fooXVendor } from "./index.js";
+import startFooXVendor from "./foo-x.js";
+import startBarZVendor from "./bar-z.js";
+import type {
+  JsonValue,
+  VendorData,
+  VendorHandle,
+  VendorMessage,
+  VendorResultMessage,
+  VendorRuntime,
+} from "./index.js";
 
 describe("demo vendors", () => {
   it("exports the five configured demo vendors", () => {
-    expect(fooXVendor.name).toBe("x");
-    expect(barXVendor.name).toBe("x");
-    expect(barYVendor.name).toBe("y");
-    expect(barZVendor.name).toBe("z");
-    expect(bazXVendor.name).toBe("x");
+    expect(fooXVendor.id).toBe("foo-x");
+    expect(barXVendor.id).toBe("bar-x");
+    expect(barYVendor.id).toBe("bar-y");
+    expect(barZVendor.id).toBe("bar-z");
+    expect(bazXVendor.id).toBe("baz-x");
+    expect(fooXVendor.moduleUrl).toBeTruthy();
   });
 
-  it("emits simple event payloads and resolves a result", async () => {
-    const events: string[] = [];
-    const task = fooXVendor.run(
-      {
-        components: [{ id: "components/lib/math", rootDir: "/workspace/components/lib/math" }],
-        config: {},
-        args: ["--demo"],
-      },
-      undefined,
-      (type) => events.push(type)
-    );
+  it("posts lifecycle messages and result data", async () => {
+    const harness = createHarness({
+      components: [{ id: "components/lib/math", rootDir: "/workspace/components/lib/math" }],
+      config: {},
+      args: ["--demo"],
+    });
 
-    task.call("stdin", { chunk: "hello" });
+    startFooXVendor(harness.runtime);
 
-    const result = await task.result;
+    const result = await waitForResult(harness.messages);
 
-    expect(result.status).toBe("success");
-    expect(result.toJSON()).toMatchObject({
+    expect(result).toMatchObject({
       service: "foo",
       vendor: "x",
       compList: ["components/lib/math"],
+      calls: [],
     });
-    expect(events).toContain("progress");
-    expect(events).toContain("result");
-    expect(events).not.toContain("log");
-    expect(events).not.toContain("status");
+    expect(harness.messages.map((message) => message.type)).toContain("ready");
+    expect(harness.messages.map((message) => message.type)).toContain("status");
+    expect(harness.messages.map((message) => message.type)).toContain("result");
   });
 
-  it("supports stop calls", async () => {
-    const task = barZVendor.run(
-      {
-        components: [{ id: "components/vue/card", rootDir: "/workspace/components/vue/card" }],
-        config: { delay: 10 },
-        args: [],
-      },
-      undefined,
-      () => {}
-    );
+  it("supports handle stop", async () => {
+    const harness = createHarness({
+      components: [{ id: "components/vue/card", rootDir: "/workspace/components/vue/card" }],
+      config: { delay: 10 },
+      args: [],
+    });
 
-    task.call("stop", { reason: "test" });
+    const handle = startBarZVendor(harness.runtime);
+    await handle.stop?.();
 
-    await expect(task.result).resolves.toMatchObject({
-      status: "stopped",
+    await expect(waitForResult(harness.messages)).resolves.toMatchObject({
+      statusText: "stopped:1",
     });
   });
 });
+
+function createHarness<Config extends Record<string, unknown>>(data: VendorData<Config>) {
+  type Runtime = VendorRuntime<Config>;
+  type ControlListener = Parameters<Runtime["onMessage"]>[0];
+
+  const messages: VendorMessage[] = [];
+  const controlListeners = new Set<ControlListener>();
+  const runtime: Runtime = {
+    data,
+    postMessage(message) {
+      messages.push(message);
+    },
+    onMessage(listener) {
+      controlListeners.add(listener);
+      return () => controlListeners.delete(listener);
+    },
+  };
+
+  return {
+    runtime,
+    messages,
+    shutdown() {
+      for (const listener of Array.from(controlListeners)) void listener({ type: "shutdown" });
+    },
+  };
+}
+
+async function waitForResult(messages: VendorMessage[]) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = messages.find(isResultMessage);
+    if (result) return result.data;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+
+  throw new Error("Timed out waiting for vendor result message.");
+}
+
+function isResultMessage(message: VendorMessage): message is VendorResultMessage<JsonValue> {
+  return message.type === "result";
+}

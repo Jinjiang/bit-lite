@@ -1,9 +1,5 @@
-import type {
-  ServiceVendor,
-  ServiceVendorCallPayload,
-  ServiceVendorEventPayload,
-  ServiceVendorResult,
-} from "./types/index.js";
+import type { VendorDefinition, VendorHandle, VendorRuntime } from "./types/index.js";
+import { isShutdownMessage } from "./vendor-utils.js";
 
 export type BazXResult = {
   service: "baz";
@@ -13,57 +9,45 @@ export type BazXResult = {
   calls: string[];
 };
 
-export const bazXVendor: ServiceVendor<Record<string, unknown>, string[], BazXResult> = {
-  name: "x",
-  run(input, _context, listener) {
-    const calls: string[] = [];
-    let finished = false;
-    let resolveResult: (result: ServiceVendorResult<BazXResult>) => void;
-    const result = new Promise<ServiceVendorResult<BazXResult>>((resolve) => {
-      resolveResult = resolve;
-    });
-    const data: BazXResult = {
-      service: "baz",
-      vendor: "x",
-      componentIds: input.components.map((component) => component.id),
-      args: input.args,
-      calls,
-    };
-
-    const emit = (type: "progress" | "result", payload: ServiceVendorEventPayload) => {
-      listener?.(type, payload);
-    };
-
-    const finish = (status: string) => {
-      if (finished) return;
-      finished = true;
-      emit("result", { status, data });
-      resolveResult({
-        status,
-        toJSON: () => data,
-        toString: () => `baz/x:${status}:${data.componentIds.join(",")}`,
-      });
-    };
-
-    queueMicrotask(() => finish("success"));
-
-    return {
-      result,
-      abort() {
-        finish("aborted");
-      },
-      call(type: string, payload?: ServiceVendorCallPayload) {
-        calls.push(`${type}:${readCallPayload(payload)}`);
-        if (type === "stop") finish("stopped");
-      },
-    };
-  },
+export const bazXVendor: VendorDefinition<Record<string, unknown>> = {
+  id: "baz-x",
+  label: "Baz X",
+  hint: "Demo vendor for baz service using vendor x",
+  moduleUrl: import.meta.url,
 };
 
-function readCallPayload(payload: ServiceVendorCallPayload | undefined) {
-  if (!payload) return "";
-  if (typeof payload.chunk === "string") return payload.chunk;
-  if (payload.chunk instanceof Uint8Array) return new TextDecoder().decode(payload.chunk);
-  if (payload.reason) return payload.reason;
-  return payload.data === undefined ? "" : JSON.stringify(payload.data);
+export default function startBazXVendor(runtime: VendorRuntime<Record<string, unknown>>): VendorHandle {
+  const calls: string[] = [];
+  const data: BazXResult = {
+    service: "baz",
+    vendor: "x",
+    componentIds: runtime.data.components.map((component) => component.id),
+    args: runtime.data.args,
+    calls,
+  };
+
+  let finished = false;
+  let unsubscribe: (() => void) | undefined;
+
+  const finish = (status: string) => {
+    if (finished) return;
+    finished = true;
+    runtime.postMessage({ type: "status", status });
+    runtime.postMessage({ type: "result", data });
+    unsubscribe?.();
+  };
+
+  unsubscribe = runtime.onMessage((message) => {
+    if (isShutdownMessage(message)) finish("stopped");
+  });
+
+  runtime.postMessage({ type: "ready" });
+  runtime.postMessage({ type: "status", status: "running" });
+  queueMicrotask(() => finish("success"));
+
+  return {
+    stop() {
+      finish("stopped");
+    },
+  };
 }

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { CliArguments, ComponentRuntime, WorkspaceRuntime } from "bit-lite-context";
-import type { ServiceVendorInput } from "bit-lite-vendors";
+import type { VendorData } from "bit-lite-vendors";
 
 const packageSrcDir = path.dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = path.resolve(packageSrcDir, "../../demo-workspace");
@@ -71,16 +71,16 @@ export const demoWorkspaceRuntime: WorkspaceRuntime = {
   ],
 };
 
-export type DemoInputOptions<Config = Record<string, unknown>> = {
+export type DemoInputOptions<Config extends Record<string, unknown> = Record<string, unknown>> = {
   serviceName: "foo" | "bar" | "baz" | string;
   config?: Config;
   args?: CliArguments;
   componentIds?: string[];
 };
 
-export function createDemoInput<Config = Record<string, unknown>>(
+export function createDemoInput<Config extends Record<string, unknown> = Record<string, unknown>>(
   options: DemoInputOptions<Config>
-): ServiceVendorInput<Config, CliArguments> {
+): VendorData<Config> {
   const selectedComponents = options.componentIds
     ? components.filter((component) => options.componentIds?.includes(component.id))
     : components;

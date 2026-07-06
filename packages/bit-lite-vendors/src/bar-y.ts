@@ -1,9 +1,5 @@
-import type {
-  ServiceVendor,
-  ServiceVendorCallPayload,
-  ServiceVendorEventPayload,
-  ServiceVendorResult,
-} from "./types/index.js";
+import type { VendorDefinition, VendorHandle, VendorRuntime } from "./types/index.js";
+import { isShutdownMessage } from "./vendor-utils.js";
 
 export type BarYResult = {
   service: "bar";
@@ -11,54 +7,48 @@ export type BarYResult = {
   count: number;
 };
 
-export const barYVendor: ServiceVendor<Record<string, unknown>, string[], BarYResult> = {
-  name: "y",
-  run(input, _context, listener) {
-    let completed = false;
-    let resolveResult: (result: ServiceVendorResult<BarYResult>) => void;
-
-    const result = new Promise<ServiceVendorResult<BarYResult>>((resolve) => {
-      resolveResult = resolve;
-    });
-
-    const emit = (type: "progress" | "result", payload: ServiceVendorEventPayload) => {
-      listener?.(type, payload);
-    };
-
-    const finish = (status: string) => {
-      if (completed) return;
-      completed = true;
-      const data = {
-        service: "bar" as const,
-        vendor: "y" as const,
-        count: input.components.length,
-      };
-      emit("result", { status, data });
-      resolveResult({
-        status,
-        toJSON: () => data,
-        toString: () => `bar/y:${status}:${data.count}`,
-      });
-    };
-
-    setTimeout(() => {
-      emit("progress", {
-        status: "running",
-        total: input.components.length || 1,
-        current: input.components.length || 1,
-        label: "bar y",
-      });
-      finish("success");
-    }, 0);
-
-    return {
-      result,
-      abort() {
-        finish("aborted");
-      },
-      call(type: string, _payload?: ServiceVendorCallPayload) {
-        if (type === "stop") finish("stopped");
-      },
-    };
-  },
+export const barYVendor: VendorDefinition<Record<string, unknown>> = {
+  id: "bar-y",
+  label: "Bar Y",
+  hint: "Demo vendor for bar service using vendor y",
+  moduleUrl: import.meta.url,
 };
+
+export default function startBarYVendor(runtime: VendorRuntime<Record<string, unknown>>): VendorHandle {
+  let completed = false;
+  let timer: NodeJS.Timeout | undefined;
+  let unsubscribe: (() => void) | undefined;
+
+  const finish = (status: string) => {
+    if (completed) return;
+    completed = true;
+    if (timer) clearTimeout(timer);
+
+    const data: BarYResult = {
+      service: "bar",
+      vendor: "y",
+      count: runtime.data.components.length,
+    };
+
+    runtime.postMessage({ type: "status", status });
+    runtime.postMessage({ type: "result", data });
+    unsubscribe?.();
+  };
+
+  unsubscribe = runtime.onMessage((message) => {
+    if (isShutdownMessage(message)) finish("stopped");
+  });
+
+  runtime.postMessage({ type: "ready" });
+
+  timer = setTimeout(() => {
+    runtime.postMessage({ type: "status", status: "running" });
+    finish("success");
+  }, 0);
+
+  return {
+    stop() {
+      finish("stopped");
+    },
+  };
+}

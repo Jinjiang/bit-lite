@@ -13,10 +13,12 @@
   },
   "scripts": {
     "test": "vitest run",
-    "build": "tsc -p tsconfig.json"
+    "build": "pnpm --filter bit-lite-runner build && tsc -p tsconfig.json"
   },
   "dependencies": {
-    "bit-lite-context": "workspace:*"
+    "bit-lite-context": "workspace:*",
+    "bit-lite-runner": "workspace:*",
+    "bit-lite-terminal": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

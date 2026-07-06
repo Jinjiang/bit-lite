@@ -1,38 +1,72 @@
-import type { CliArguments } from "bit-lite-context";
 import type {
-  ServiceVendor,
-  ServiceVendorEventPayload,
-  ServiceVendorEventType,
-  ServiceVendorInput,
-  ServiceVendorResult,
-  ServiceVendorTask,
+  JsonValue,
+  VendorData,
+  VendorDefinition,
+  VendorMessage,
 } from "bit-lite-vendors";
+import { createRunner } from "bit-lite-runner";
 import { demoWorkspaceRuntime } from "./runtime.js";
 
-export type VendorDemoOptions<Config, ResultData> = {
-  title: string;
-  vendor: ServiceVendor<Config, CliArguments, ResultData>;
-  input: ServiceVendorInput<Config, CliArguments>;
-  beforeResult?: (task: ServiceVendorTask<ResultData>) => void | Promise<void>;
-  afterResult?: (
-    task: ServiceVendorTask<ResultData>,
-    result: ServiceVendorResult<ResultData>
-  ) => void | Promise<void>;
+export type VendorDemoTask = {
+  stop(reason?: string): Promise<void>;
 };
 
-export async function runVendorDemo<Config, ResultData>(options: VendorDemoOptions<Config, ResultData>) {
+export type VendorDemoOptions<Config extends Record<string, unknown>> = {
+  title: string;
+  vendor: VendorDefinition<Config>;
+  input: VendorData<Config>;
+  beforeResult?: (task: VendorDemoTask) => void | Promise<void>;
+  afterResult?: (task: VendorDemoTask, result: JsonValue) => void | Promise<void>;
+};
+
+export async function runVendorDemo<Config extends Record<string, unknown>>(options: VendorDemoOptions<Config>) {
   printHeader(options.title);
   printInput(options.input);
 
   const startedAt = Date.now();
-  const task = options.vendor.run(options.input, demoWorkspaceRuntime, (type, payload) => {
-    printEvent(type, payload, Date.now() - startedAt);
+  let latestStatus = "starting";
+  let resolveResult!: (result: JsonValue) => void;
+  let rejectResult!: (error: unknown) => void;
+  const resultPromise = new Promise<JsonValue>((resolve, reject) => {
+    resolveResult = resolve;
+    rejectResult = reject;
   });
 
+  const runner = createRunner<VendorData<Config>, VendorMessage>({
+    mode: "inline",
+    target: options.vendor,
+    data: {
+      ...options.input,
+      context: demoWorkspaceRuntime,
+    },
+  });
+
+  runner.onMessage((message) => {
+    if (message.type === "status") latestStatus = message.status;
+    if (message.type === "result") resolveResult(message.data);
+    if (message.type === "error") rejectResult(new Error(message.message));
+    printMessage(message, Date.now() - startedAt);
+  });
+
+  runner.onOutput((stream, chunk) => {
+    const target = stream === "stderr" ? process.stderr : process.stdout;
+    target.write(chunk);
+  });
+
+  Promise.resolve(runner.start()).catch(rejectResult);
+
+  const task: VendorDemoTask = {
+    async stop(reason) {
+      if (reason) console.log(`stop.reason: ${reason}`);
+      await runner.stop();
+    },
+  };
+
   await options.beforeResult?.(task);
-  const result = await task.result;
-  printResult(result);
+  const result = await resultPromise;
+  printResult(result, latestStatus);
   await options.afterResult?.(task, result);
+  await runner.stop();
 }
 
 export function reportDemoError(error: unknown) {
@@ -46,7 +80,7 @@ function printHeader(title: string) {
   console.log(`=== ${title} ===`);
 }
 
-function printInput(input: ServiceVendorInput<unknown, CliArguments>) {
+function printInput(input: VendorData) {
   console.log(
     formatJson({
       workspaceRoot: demoWorkspaceRuntime.workspaceRoot,
@@ -57,14 +91,13 @@ function printInput(input: ServiceVendorInput<unknown, CliArguments>) {
   );
 }
 
-function printEvent(type: ServiceVendorEventType, payload: ServiceVendorEventPayload, elapsedMs: number) {
-  console.log(`[+${elapsedMs}ms] event:${type} ${formatJson(payload)}`);
+function printMessage(message: VendorMessage, elapsedMs: number) {
+  console.log(`[+${elapsedMs}ms] message:${message.type} ${formatJson(message)}`);
 }
 
-function printResult<ResultData>(result: ServiceVendorResult<ResultData>) {
-  console.log(`result.status: ${result.status}`);
-  console.log(`result.text: ${result.toString(true)}`);
-  console.log(`result.json: ${formatJson(result.toJSON())}`);
+function printResult(result: JsonValue, status: string) {
+  console.log(`result.status: ${status}`);
+  console.log(`result.json: ${formatJson(result)}`);
 }
 
 function formatJson(value: unknown) {

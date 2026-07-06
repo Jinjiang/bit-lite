@@ -1,6 +1,18 @@
 import type { CliArguments, ComponentRef, WorkspaceRuntime } from "bit-lite-context";
+import type { ManagedTerminalItem, RawOutputBuffer } from "bit-lite-terminal";
+import type {
+  Runner,
+  RunnerExitCode,
+  RunnerHandle,
+  RunnerMode,
+  RunnerOutputStream,
+  RunnerRuntime,
+  RunnerTargetDefinition,
+} from "bit-lite-runner";
 
-// JSON types
+export type { RunnerExitCode, RunnerMode };
+
+export type OutputStream = RunnerOutputStream;
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
@@ -8,68 +20,62 @@ export type JsonObject = {
   [key: string]: JsonValue;
 };
 
-// event listeners
+export type VendorReadyMessage = {
+  type: "ready";
+};
 
-export type ServiceVendorEventType = "result" | "progress";
-
-export type ServiceVendorEventPayload = {
-  // for all types
+export type VendorStatusMessage = {
+  type: "status";
   status: string;
-  message?: string;
-  // for `status` type
-  total?: number;
-  current?: number;
-  label?: string;
-  // for `result` type
-  data?: unknown;
 };
 
-export type ServiceVendorEventListener = (
-  type: ServiceVendorEventType,
-  payload: ServiceVendorEventPayload
-) => void;
-
-// calls
-
-export type ServiceVendorCallType = "run" | "stop" | "stdin" | string;
-
-export type ServiceVendorCallPayload = {
-  // for `run` and `stop` types
-  reason?: string;
-  // for `stdin` type
-  chunk?: string | Uint8Array;
-  // for extended types
-  data?: unknown;
+export type VendorErrorMessage = {
+  type: "error";
+  message: string;
 };
 
-// input and output
+export type VendorResultMessage<Data extends JsonValue = JsonValue> = {
+  type: "result";
+  data: Data;
+};
 
-export type ServiceVendorInput<Config = unknown, Args = CliArguments> = {
+export type VendorMessage<Data extends JsonValue = JsonValue> =
+  | VendorReadyMessage
+  | VendorStatusMessage
+  | VendorErrorMessage
+  | VendorResultMessage<Data>;
+
+export type VendorConfig = Record<string, unknown>;
+
+export type VendorData<Config extends VendorConfig = VendorConfig> = {
   components: ComponentRef[];
   config: Config;
-  args: Args;
+  args: CliArguments;
+  context?: WorkspaceRuntime;
 };
 
-export type ServiceVendorResult<ResultData = unknown> = {
-  status: string;
-  data: ResultData;
-  toJSON(): ResultData;
-  toString(forTerminal?: boolean): string;
+export type VendorRuntime<Config extends VendorConfig = VendorConfig> = RunnerRuntime<
+  VendorData<Config>,
+  VendorMessage
+>;
+
+export type VendorHandle = RunnerHandle;
+
+export type VendorDefinition<Config extends VendorConfig = VendorConfig> = RunnerTargetDefinition & {
+  id: string;
+  label: string;
+  hint: string;
+  config?: Config;
 };
 
-// vendor and returned value
+export type VendorRunner<Config extends VendorConfig = VendorConfig> = Runner<VendorData<Config>, VendorMessage>;
 
-export type ServiceVendorTask<ResultData = unknown> = {
-  result: Promise<ServiceVendorResult<ResultData>>;
-  abort(): void;
-  call(type: ServiceVendorCallType, payload?: ServiceVendorCallPayload): void;
-};
-
-export type ServiceVendor<Config = unknown, Args = CliArguments, ResultData = unknown> = {
-  name: string;
-  run(
-    input: ServiceVendorInput<Config, Args>,
-    context?: WorkspaceRuntime,
-    listener?: ServiceVendorEventListener
-  ): ServiceVendorTask<ResultData>;
-};
+export type VendorRuntimeState<Config extends VendorConfig = VendorConfig> = VendorDefinition<Config> &
+  ManagedTerminalItem & {
+    status: string;
+    details: string[];
+    result: JsonValue | undefined;
+    rawOutput: RawOutputBuffer;
+    runner: VendorRunner<Config> | undefined;
+    exitPromise: Promise<RunnerExitCode> | undefined;
+  };

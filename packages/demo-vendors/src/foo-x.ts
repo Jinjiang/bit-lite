@@ -14,9 +14,6 @@ async function main() {
       args: ["--demo", "foo-x"],
       componentIds: ["components/demo/foo-alpha"],
     }),
-    beforeResult(task) {
-      task.call("stdin", { chunk: "hello from demo-vendors/foo-x" });
-    },
   });
 }
 

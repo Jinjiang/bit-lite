@@ -1,9 +1,5 @@
-import type {
-  ServiceVendor,
-  ServiceVendorCallPayload,
-  ServiceVendorEventPayload,
-  ServiceVendorResult,
-} from "./types/index.js";
+import type { VendorDefinition, VendorHandle, VendorRuntime } from "./types/index.js";
+import { isShutdownMessage } from "./vendor-utils.js";
 
 export type BarZResult = {
   service: "bar";
@@ -11,52 +7,50 @@ export type BarZResult = {
   statusText: string;
 };
 
-export const barZVendor: ServiceVendor<Record<string, unknown>, string[], BarZResult> = {
-  name: "z",
-  run(input, _context, listener) {
-    let resolveResult: (result: ServiceVendorResult<BarZResult>) => void;
-    let timer: NodeJS.Timeout | undefined;
-    let finished = false;
-    const result = new Promise<ServiceVendorResult<BarZResult>>((resolve) => {
-      resolveResult = resolve;
-    });
-
-    const emit = (type: "progress" | "result", payload: ServiceVendorEventPayload) => {
-      listener?.(type, payload);
-    };
-
-    const finish = (status: string) => {
-      if (finished) return;
-      finished = true;
-      if (timer) clearTimeout(timer);
-      const data = {
-        service: "bar" as const,
-        vendor: "z" as const,
-        statusText: `${status}:${input.components.length}`,
-      };
-      emit("result", { status, data });
-      resolveResult({
-        status,
-        toJSON: () => data,
-        toString: () => `bar/z:${data.statusText}`,
-      });
-    };
-
-    timer = setTimeout(() => {
-      emit("progress", { status: "running", total: 3, current: 1, label: "bar z" });
-      emit("progress", { status: "running", total: 3, current: 2, label: "bar z" });
-      emit("progress", { status: "running", total: 3, current: 3, label: "bar z" });
-      finish("success");
-    }, typeof input.config.delay === "number" ? input.config.delay : 0);
-
-    return {
-      result,
-      abort() {
-        finish("aborted");
-      },
-      call(type: string, _payload?: ServiceVendorCallPayload) {
-        if (type === "stop") finish("stopped");
-      },
-    };
-  },
+export const barZVendor: VendorDefinition<Record<string, unknown>> = {
+  id: "bar-z",
+  label: "Bar Z",
+  hint: "Demo vendor for bar service using vendor z",
+  moduleUrl: import.meta.url,
 };
+
+export default function startBarZVendor(runtime: VendorRuntime<Record<string, unknown>>): VendorHandle {
+  let finished = false;
+  let timer: NodeJS.Timeout | undefined;
+  let unsubscribe: (() => void) | undefined;
+
+  const finish = (status: string) => {
+    if (finished) return;
+    finished = true;
+    if (timer) clearTimeout(timer);
+
+    const data: BarZResult = {
+      service: "bar",
+      vendor: "z",
+      statusText: `${status}:${runtime.data.components.length}`,
+    };
+
+    runtime.postMessage({ type: "status", status });
+    runtime.postMessage({ type: "result", data });
+    unsubscribe?.();
+  };
+
+  unsubscribe = runtime.onMessage((message) => {
+    if (isShutdownMessage(message)) finish("stopped");
+  });
+
+  runtime.postMessage({ type: "ready" });
+
+  timer = setTimeout(() => {
+    runtime.postMessage({ type: "status", status: "running" });
+    runtime.postMessage({ type: "status", status: "running" });
+    runtime.postMessage({ type: "status", status: "running" });
+    finish("success");
+  }, typeof runtime.data.config.delay === "number" ? runtime.data.config.delay : 0);
+
+  return {
+    stop() {
+      finish("stopped");
+    },
+  };
+}

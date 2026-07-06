@@ -1,9 +1,5 @@
-import type {
-  ServiceVendor,
-  ServiceVendorEventPayload,
-  ServiceVendorCallPayload,
-  ServiceVendorResult,
-} from "./types/index.js";
+import type { VendorDefinition, VendorHandle, VendorRuntime } from "./types/index.js";
+import { isShutdownMessage, wait } from "./vendor-utils.js";
 
 export type FooXResult = {
   service: "foo";
@@ -12,71 +8,56 @@ export type FooXResult = {
   calls: string[];
 };
 
-export const fooXVendor: ServiceVendor<Record<string, unknown>, string[], FooXResult> = {
-  name: "x",
-  run(input, _context, listener) {
-    // input process
-    const compList = input.components.map((component) => component.id);
-
-    // demo calls
-    const calls: string[] = [];
-    const emit = (type: "progress" | "result", payload: ServiceVendorEventPayload) => {
-      listener?.(type, payload);
-    };
-
-    // done result and promise object
-    let done = false;
-    let resolveResult: (result: ServiceVendorResult<FooXResult>) => void;
-    const result = new Promise<ServiceVendorResult<FooXResult>>((resolve) => {
-      resolveResult = resolve;
-    });
-    const data: FooXResult = {
-      service: "foo",
-      vendor: "x",
-      compList,
-      calls,
-    };
-    const finish = (status: string) => {
-      if (done) return;
-      done = true;
-      emit("result", { status, data });
-      resolveResult({
-        status,
-        toJSON: () => data,
-        toString: () => `foo/x:${status}:${data.compList.join(",")}`,
-      });
-    };
-
-    queueMicrotask(async () => {
-      await wait(1000);
-      emit("progress", { status: "running", total: 3, current: 1, label: "foo x" });
-      await wait(1000);
-      emit("progress", { status: "running", total: 3, current: 2, label: "foo x" });
-      await wait(1000);
-      finish("success");
-    });
-
-    return {
-      result,
-      abort() {
-        finish("aborted");
-      },
-      call(type: string, payload?: ServiceVendorCallPayload) {
-        calls.push(`${type}:${readCallPayload(payload)}`);
-        if (type === "stop") finish("stopped");
-      },
-    };
-  },
+export const fooXVendor: VendorDefinition<Record<string, unknown>> = {
+  id: "foo-x",
+  label: "Foo X",
+  hint: "Demo vendor for foo service using vendor x",
+  moduleUrl: import.meta.url,
 };
 
-function readCallPayload(payload: ServiceVendorCallPayload | undefined) {
-  if (!payload) return "";
-  if (typeof payload.chunk === "string") return payload.chunk;
-  if (payload.chunk instanceof Uint8Array) return new TextDecoder().decode(payload.chunk);
-  if (payload.reason) return payload.reason;
-  return payload.data === undefined ? "" : JSON.stringify(payload.data);
-}
+export default function startFooXVendor(runtime: VendorRuntime<Record<string, unknown>>): VendorHandle {
+  const calls: string[] = [];
+  const data: FooXResult = {
+    service: "foo",
+    vendor: "x",
+    compList: runtime.data.components.map((component) => component.id),
+    calls,
+  };
 
-function wait(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+  let finished = false;
+  let unsubscribe: (() => void) | undefined;
+
+  const finish = (status: string) => {
+    if (finished) return;
+    finished = true;
+    runtime.postMessage({ type: "status", status });
+    runtime.postMessage({ type: "result", data });
+    unsubscribe?.();
+  };
+
+  unsubscribe = runtime.onMessage((message) => {
+    if (isShutdownMessage(message)) finish("stopped");
+  });
+
+  runtime.postMessage({ type: "ready" });
+
+  void runProgress();
+
+  return {
+    stop() {
+      finish("stopped");
+    },
+  };
+
+  async function runProgress() {
+    runtime.postMessage({ type: "status", status: "running" });
+    await wait(10);
+    if (finished) return;
+    runtime.postMessage({ type: "status", status: "running" });
+    await wait(10);
+    if (finished) return;
+    runtime.postMessage({ type: "status", status: "running" });
+    await wait(10);
+    finish("success");
+  }
 }
