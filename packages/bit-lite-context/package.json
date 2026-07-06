@@ -17,7 +17,11 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "@types/yargs-parser": "^21.0.3",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
+  },
+  "dependencies": {
+    "yargs-parser": "^22.0.0"
   }
 }

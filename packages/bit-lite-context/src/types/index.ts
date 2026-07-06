@@ -7,7 +7,16 @@ export type ComponentRef = {
 
 // CLI Arguments
 
-export type CliArguments = string[];
+export type CliOptionScalar = string | number | boolean;
+
+export type CliOptionValue = CliOptionScalar | CliOptionScalar[];
+
+export type CliArguments = {
+  raw: string[];
+  positional: string[];
+  options: Record<string, CliOptionValue>;
+  passthrough: string[];
+};
 
 export type ParsedCliArgs = {
   command: string | undefined;

@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseCliArguments } from "bit-lite-context";
 import type { CliArguments, ComponentRuntime, WorkspaceRuntime } from "bit-lite-context";
 import type { VendorData } from "bit-lite-vendors";
 
@@ -88,6 +89,6 @@ export function createDemoInput<Config extends Record<string, unknown> = Record<
   return {
     components: selectedComponents.map(({ id, rootDir }) => ({ id, rootDir })),
     config: options.config ?? ({} as Config),
-    args: options.args ?? [],
+    args: options.args ?? parseCliArguments([]),
   };
 }

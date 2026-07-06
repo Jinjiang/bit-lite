@@ -1,3 +1,4 @@
+import { parseCliArguments } from "bit-lite-context";
 import { describe, expect, it } from "vitest";
 import { barXVendor, barYVendor, barZVendor, bazXVendor, fooXVendor } from "./index.js";
 import startFooXVendor from "./foo-x.js";
@@ -25,7 +26,7 @@ describe("demo vendors", () => {
     const harness = createHarness({
       components: [{ id: "components/lib/math", rootDir: "/workspace/components/lib/math" }],
       config: {},
-      args: ["--demo"],
+      args: parseCliArguments(["--demo"]),
     });
 
     startFooXVendor(harness.runtime);
@@ -47,7 +48,7 @@ describe("demo vendors", () => {
     const harness = createHarness({
       components: [{ id: "components/vue/card", rootDir: "/workspace/components/vue/card" }],
       config: { delay: 10 },
-      args: [],
+      args: parseCliArguments([]),
     });
 
     const handle = startBarZVendor(harness.runtime);

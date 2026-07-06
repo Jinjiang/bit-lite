@@ -1,3 +1,4 @@
+import { parseCliArguments } from "bit-lite-context";
 import { fooXVendor } from "bit-lite-vendors";
 import { createDemoInput } from "./runtime.js";
 import { reportDemoError, runVendorDemo } from "./run-demo.js";
@@ -11,7 +12,7 @@ async function main() {
       config: {
         label: "foo x demo",
       },
-      args: ["--demo", "foo-x"],
+      args: parseCliArguments(["--demo", "foo-x"]),
       componentIds: ["components/demo/foo-alpha"],
     }),
   });

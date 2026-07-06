@@ -1,3 +1,4 @@
+import type { CliArguments } from "bit-lite-context";
 import type { VendorDefinition, VendorHandle, VendorRuntime } from "./types/index.js";
 import { isShutdownMessage } from "./vendor-utils.js";
 
@@ -5,7 +6,7 @@ export type BazXResult = {
   service: "baz";
   vendor: "x";
   componentIds: string[];
-  args: string[];
+  args: CliArguments;
   calls: string[];
 };
 

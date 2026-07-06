@@ -1,8 +1,10 @@
-export { parseArgs } from "./args.js";
+export { parseArgs, parseCliArguments } from "./args.js";
 export { loadConfig, resolveEnvs, validateConfig } from "./config.js";
 export { loadWorkspace } from "./workspace.js";
 export type {
   CliArguments,
+  CliOptionScalar,
+  CliOptionValue,
   ComponentRef,
   ComponentRuntime,
   EnvConfig,

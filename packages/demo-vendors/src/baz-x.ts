@@ -1,3 +1,4 @@
+import { parseCliArguments } from "bit-lite-context";
 import { bazXVendor } from "bit-lite-vendors";
 import { createDemoInput } from "./runtime.js";
 import { reportDemoError, runVendorDemo } from "./run-demo.js";
@@ -9,7 +10,7 @@ async function main() {
     input: createDemoInput({
       serviceName: "baz",
       config: {},
-      args: [],
+      args: parseCliArguments([]),
       componentIds: ["components/demo/baz-gamma"],
     }),
   });
