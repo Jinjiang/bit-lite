@@ -29,6 +29,14 @@
     "./sample/baz-x": {
       "types": "./src/sample/baz-x.ts",
       "default": "./dist/sample/baz-x.js"
+    },
+    "./sample/test-x": {
+      "types": "./src/sample/test-x.ts",
+      "default": "./dist/sample/test-x.js"
+    },
+    "./sample/test-y": {
+      "types": "./src/sample/test-y.ts",
+      "default": "./dist/sample/test-y.js"
     }
   },
   "scripts": {

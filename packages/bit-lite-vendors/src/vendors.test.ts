@@ -5,6 +5,8 @@ import { meta as barYVendor } from "./sample/bar-y.js";
 import { meta as barZVendor } from "./sample/bar-z.js";
 import { meta as bazXVendor } from "./sample/baz-x.js";
 import { meta as fooXVendor } from "./sample/foo-x.js";
+import { meta as testXVendor } from "./sample/test-x.js";
+import { meta as testYVendor } from "./sample/test-y.js";
 import startFooXVendor from "./sample/foo-x.js";
 import startBarZVendor from "./sample/bar-z.js";
 import type {
@@ -17,12 +19,14 @@ import type {
 } from "./index.js";
 
 describe("demo vendors", () => {
-  it("exports the five configured sample vendors", () => {
+  it("exports the configured sample vendors", () => {
     expect(fooXVendor.id).toBe("foo-x");
     expect(barXVendor.id).toBe("bar-x");
     expect(barYVendor.id).toBe("bar-y");
     expect(barZVendor.id).toBe("bar-z");
     expect(bazXVendor.id).toBe("baz-x");
+    expect(testXVendor.id).toBe("test-x");
+    expect(testYVendor.id).toBe("test-y");
     expect(fooXVendor.moduleUrl).toBeTruthy();
   });
 

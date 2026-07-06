@@ -9,7 +9,7 @@
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm --filter bit-lite-services build && tsc -p tsconfig.json",
     "dev": "tsx src/bin.ts"
   },
   "keywords": [],
@@ -17,7 +17,8 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "bit-lite-context": "workspace:*"
+    "bit-lite-context": "workspace:*",
+    "bit-lite-services": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

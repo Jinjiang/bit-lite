@@ -46,6 +46,15 @@ const demoNodeEnv = {
         label: "demo baz x",
       },
     },
+    test: {
+      vendor: "bit-lite-vendors/sample/test-x",
+      config: {
+        label: "demo test x",
+        shard: "demo",
+        retries: 1,
+        coverage: false,
+      },
+    },
   },
 };
 

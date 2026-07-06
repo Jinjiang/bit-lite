@@ -4,15 +4,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm run build:vendors && tsc -p tsconfig.json",
+    "build": "pnpm run build:services && tsc -p tsconfig.json",
+    "build:services": "pnpm --filter bit-lite-services build",
     "build:vendors": "pnpm --filter bit-lite-vendors build",
     "foo-x": "pnpm run build:vendors && tsx src/foo-x.ts",
     "bar-x": "pnpm run build:vendors && tsx src/bar-x.ts",
-    "baz-x": "pnpm run build:vendors && tsx src/baz-x.ts"
+    "baz-x": "pnpm run build:vendors && tsx src/baz-x.ts",
+    "test-service": "pnpm run build && node dist/test-service.js"
   },
   "dependencies": {
     "bit-lite-context": "workspace:*",
     "bit-lite-runner": "workspace:*",
+    "bit-lite-services": "workspace:*",
     "bit-lite-vendors": "workspace:*"
   },
   "devDependencies": {

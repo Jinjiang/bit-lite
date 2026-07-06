@@ -9,6 +9,15 @@
             "delay": 5
           }
         },
+        "test": {
+          "vendor": "bit-lite-vendors/sample/test-x",
+          "config": {
+            "label": "node test",
+            "shard": "unit",
+            "retries": 1,
+            "coverage": true
+          }
+        },
         "bar": {
           "vendor": "y",
           "config": {
@@ -32,6 +41,15 @@
           "config": {
             "label": "react baz"
           }
+        },
+        "test": {
+          "vendor": "bit-lite-vendors/sample/test-y",
+          "config": {
+            "label": "react test",
+            "shard": "browser",
+            "retries": 2,
+            "coverage": false
+          }
         }
       }
     },
@@ -43,6 +61,15 @@
           "config": {
             "label": "vue bar",
             "delay": 20
+          }
+        },
+        "test": {
+          "vendor": "bit-lite-vendors/sample/test-x",
+          "config": {
+            "label": "vue test",
+            "shard": "sfc",
+            "retries": 1,
+            "coverage": true
           }
         }
       }
