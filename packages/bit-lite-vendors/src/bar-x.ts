@@ -10,7 +10,7 @@ export type BarXResult = {
   calls: string[];
 };
 
-export const barXVendor: VendorDefinition<Record<string, unknown>> = {
+export const meta: VendorDefinition = {
   id: "bar-x",
   label: "Bar X",
   hint: "Demo vendor for bar service using vendor x",

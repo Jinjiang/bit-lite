@@ -7,7 +7,7 @@ export type BarYResult = {
   count: number;
 };
 
-export const barYVendor: VendorDefinition<Record<string, unknown>> = {
+export const meta: VendorDefinition = {
   id: "bar-y",
   label: "Bar Y",
   hint: "Demo vendor for bar service using vendor y",

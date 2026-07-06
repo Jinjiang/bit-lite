@@ -8,7 +8,7 @@ export type FooXResult = {
   calls: string[];
 };
 
-export const fooXVendor: VendorDefinition<Record<string, unknown>> = {
+export const meta: VendorDefinition = {
   id: "foo-x",
   label: "Foo X",
   hint: "Demo vendor for foo service using vendor x",

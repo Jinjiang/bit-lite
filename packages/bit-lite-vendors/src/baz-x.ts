@@ -10,7 +10,7 @@ export type BazXResult = {
   calls: string[];
 };
 
-export const bazXVendor: VendorDefinition<Record<string, unknown>> = {
+export const meta: VendorDefinition = {
   id: "baz-x",
   label: "Baz X",
   hint: "Demo vendor for baz service using vendor x",

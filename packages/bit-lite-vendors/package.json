@@ -9,6 +9,26 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./foo-x": {
+      "types": "./src/foo-x.ts",
+      "default": "./dist/foo-x.js"
+    },
+    "./bar-x": {
+      "types": "./src/bar-x.ts",
+      "default": "./dist/bar-x.js"
+    },
+    "./bar-y": {
+      "types": "./src/bar-y.ts",
+      "default": "./dist/bar-y.js"
+    },
+    "./bar-z": {
+      "types": "./src/bar-z.ts",
+      "default": "./dist/bar-z.js"
+    },
+    "./baz-x": {
+      "types": "./src/baz-x.ts",
+      "default": "./dist/baz-x.js"
     }
   },
   "scripts": {

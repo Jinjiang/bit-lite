@@ -1,5 +1,6 @@
 import { parseCliArguments } from "bit-lite-context";
 import { describe, expect, it } from "vitest";
+import { meta as fooXMeta } from "./foo-x.js";
 import { barXVendor, barYVendor, barZVendor, bazXVendor, fooXVendor } from "./index.js";
 import startFooXVendor from "./foo-x.js";
 import startBarZVendor from "./bar-z.js";
@@ -20,6 +21,7 @@ describe("demo vendors", () => {
     expect(barZVendor.id).toBe("bar-z");
     expect(bazXVendor.id).toBe("baz-x");
     expect(fooXVendor.moduleUrl).toBeTruthy();
+    expect(fooXMeta).toBe(fooXVendor);
   });
 
   it("posts lifecycle messages and result data", async () => {

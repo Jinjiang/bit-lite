@@ -7,7 +7,7 @@ export type BarZResult = {
   statusText: string;
 };
 
-export const barZVendor: VendorDefinition<Record<string, unknown>> = {
+export const meta: VendorDefinition = {
   id: "bar-z",
   label: "Bar Z",
   hint: "Demo vendor for bar service using vendor z",
