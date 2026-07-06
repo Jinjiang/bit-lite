@@ -1,5 +1,5 @@
-import type { VendorDefinition, VendorHandle, VendorRuntime } from "./types/index.js";
-import { isShutdownMessage } from "./vendor-utils.js";
+import type { VendorDefinition, VendorHandle, VendorRuntime } from "../types/index.js";
+import { isShutdownMessage } from "../vendor-utils.js";
 
 export type BarZResult = {
   service: "bar";

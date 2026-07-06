@@ -1,5 +1,5 @@
 import { parseCliArguments } from "bit-lite-context";
-import { barXVendor } from "bit-lite-vendors";
+import { meta as barXVendor } from "bit-lite-vendors/sample/bar-x";
 import { createDemoInput } from "./runtime.js";
 import { reportDemoError, runVendorDemo } from "./run-demo.js";
 

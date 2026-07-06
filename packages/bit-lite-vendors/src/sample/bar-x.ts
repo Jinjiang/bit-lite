@@ -1,9 +1,9 @@
 import type { CliArguments } from "bit-lite-context";
-import type { VendorDefinition, VendorHandle, VendorRuntime } from "./types/index.js";
-import { isShutdownMessage } from "./vendor-utils.js";
+import type { VendorDefinition, VendorHandle, VendorRuntime } from "../types/index.js";
+import { isShutdownMessage } from "../vendor-utils.js";
 
-export type BazXResult = {
-  service: "baz";
+export type BarXResult = {
+  service: "bar";
   vendor: "x";
   componentIds: string[];
   args: CliArguments;
@@ -11,16 +11,16 @@ export type BazXResult = {
 };
 
 export const meta: VendorDefinition = {
-  id: "baz-x",
-  label: "Baz X",
-  hint: "Demo vendor for baz service using vendor x",
+  id: "bar-x",
+  label: "Bar X",
+  hint: "Demo vendor for bar service using vendor x",
   moduleUrl: import.meta.url,
 };
 
-export default function startBazXVendor(runtime: VendorRuntime<Record<string, unknown>>): VendorHandle {
+export default function startBarXVendor(runtime: VendorRuntime<Record<string, unknown>>): VendorHandle {
   const calls: string[] = [];
-  const data: BazXResult = {
-    service: "baz",
+  const data: BarXResult = {
+    service: "bar",
     vendor: "x",
     componentIds: runtime.data.components.map((component) => component.id),
     args: runtime.data.args,

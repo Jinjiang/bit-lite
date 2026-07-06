@@ -10,25 +10,25 @@
       "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
-    "./foo-x": {
-      "types": "./src/foo-x.ts",
-      "default": "./dist/foo-x.js"
+    "./sample/foo-x": {
+      "types": "./src/sample/foo-x.ts",
+      "default": "./dist/sample/foo-x.js"
     },
-    "./bar-x": {
-      "types": "./src/bar-x.ts",
-      "default": "./dist/bar-x.js"
+    "./sample/bar-x": {
+      "types": "./src/sample/bar-x.ts",
+      "default": "./dist/sample/bar-x.js"
     },
-    "./bar-y": {
-      "types": "./src/bar-y.ts",
-      "default": "./dist/bar-y.js"
+    "./sample/bar-y": {
+      "types": "./src/sample/bar-y.ts",
+      "default": "./dist/sample/bar-y.js"
     },
-    "./bar-z": {
-      "types": "./src/bar-z.ts",
-      "default": "./dist/bar-z.js"
+    "./sample/bar-z": {
+      "types": "./src/sample/bar-z.ts",
+      "default": "./dist/sample/bar-z.js"
     },
-    "./baz-x": {
-      "types": "./src/baz-x.ts",
-      "default": "./dist/baz-x.js"
+    "./sample/baz-x": {
+      "types": "./src/sample/baz-x.ts",
+      "default": "./dist/sample/baz-x.js"
     }
   },
   "scripts": {

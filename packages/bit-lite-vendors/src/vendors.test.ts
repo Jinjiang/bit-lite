@@ -1,9 +1,12 @@
 import { parseCliArguments } from "bit-lite-context";
 import { describe, expect, it } from "vitest";
-import { meta as fooXMeta } from "./foo-x.js";
-import { barXVendor, barYVendor, barZVendor, bazXVendor, fooXVendor } from "./index.js";
-import startFooXVendor from "./foo-x.js";
-import startBarZVendor from "./bar-z.js";
+import { meta as barXVendor } from "./sample/bar-x.js";
+import { meta as barYVendor } from "./sample/bar-y.js";
+import { meta as barZVendor } from "./sample/bar-z.js";
+import { meta as bazXVendor } from "./sample/baz-x.js";
+import { meta as fooXVendor } from "./sample/foo-x.js";
+import startFooXVendor from "./sample/foo-x.js";
+import startBarZVendor from "./sample/bar-z.js";
 import type {
   JsonValue,
   VendorData,
@@ -14,14 +17,13 @@ import type {
 } from "./index.js";
 
 describe("demo vendors", () => {
-  it("exports the five configured demo vendors", () => {
+  it("exports the five configured sample vendors", () => {
     expect(fooXVendor.id).toBe("foo-x");
     expect(barXVendor.id).toBe("bar-x");
     expect(barYVendor.id).toBe("bar-y");
     expect(barZVendor.id).toBe("bar-z");
     expect(bazXVendor.id).toBe("baz-x");
     expect(fooXVendor.moduleUrl).toBeTruthy();
-    expect(fooXMeta).toBe(fooXVendor);
   });
 
   it("posts lifecycle messages and result data", async () => {

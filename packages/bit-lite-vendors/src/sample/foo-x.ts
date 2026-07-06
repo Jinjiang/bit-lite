@@ -1,5 +1,5 @@
-import type { VendorDefinition, VendorHandle, VendorRuntime } from "./types/index.js";
-import { isShutdownMessage, wait } from "./vendor-utils.js";
+import type { VendorDefinition, VendorHandle, VendorRuntime } from "../types/index.js";
+import { isShutdownMessage, wait } from "../vendor-utils.js";
 
 export type FooXResult = {
   service: "foo";
