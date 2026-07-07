@@ -64,6 +64,8 @@ export type EnvRuntime = {
   components: ComponentRef[];
 };
 
+export type SelectedEnvGroup = EnvRuntime;
+
 export type WorkspaceRuntime = {
   workspaceRoot: string;
   config: ResolvedWorkspaceConfig;

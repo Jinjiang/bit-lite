@@ -8,8 +8,8 @@
     "bit-lite": "bin/bit-lite.js"
   },
   "scripts": {
-    "test": "vitest run --passWithNoTests",
-    "build": "pnpm --filter bit-lite-context build && pnpm --filter bit-lite-services build && tsc -p tsconfig.json",
+    "test": "pnpm --filter demo-vendors build && vitest run --passWithNoTests",
+    "build": "pnpm --filter bit-lite-context build && pnpm --filter bit-lite-vendors build && tsc -p tsconfig.json",
     "dev": "tsx src/bin.ts"
   },
   "keywords": [],
@@ -18,10 +18,12 @@
   "type": "module",
   "dependencies": {
     "bit-lite-context": "workspace:*",
-    "bit-lite-services": "workspace:*"
+    "bit-lite-env": "workspace:*",
+    "bit-lite-vendors": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "demo-vendors": "workspace:*",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"

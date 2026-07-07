@@ -1,0 +1,64 @@
+{
+  "name": "demo-vendors",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./bar-x": {
+      "types": "./src/bar-x.ts",
+      "default": "./dist/bar-x.js"
+    },
+    "./bar-y": {
+      "types": "./src/bar-y.ts",
+      "default": "./dist/bar-y.js"
+    },
+    "./bar-z": {
+      "types": "./src/bar-z.ts",
+      "default": "./dist/bar-z.js"
+    },
+    "./baz-x": {
+      "types": "./src/baz-x.ts",
+      "default": "./dist/baz-x.js"
+    },
+    "./foo-x": {
+      "types": "./src/foo-x.ts",
+      "default": "./dist/foo-x.js"
+    },
+    "./mixed-results": {
+      "types": "./src/mixed-results.ts",
+      "default": "./dist/mixed-results.js"
+    },
+    "./test-x": {
+      "types": "./src/test-x.ts",
+      "default": "./dist/test-x.js"
+    },
+    "./test-y": {
+      "types": "./src/test-y.ts",
+      "default": "./dist/test-y.js"
+    },
+    "./test-result": {
+      "types": "./src/test-result.ts",
+      "default": "./dist/test-result.js"
+    }
+  },
+  "scripts": {
+    "test": "pnpm --filter bit-lite-vendors build && vitest run",
+    "build": "pnpm --filter bit-lite-vendors build && tsc -p tsconfig.json",
+    "typecheck": "pnpm --filter bit-lite-vendors build && tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "bit-lite-context": "workspace:*",
+    "bit-lite-vendors": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

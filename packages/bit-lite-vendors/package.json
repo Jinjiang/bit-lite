@@ -10,42 +10,22 @@
       "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
-    "./sample/foo-x": {
-      "types": "./src/sample/foo-x.ts",
-      "default": "./dist/sample/foo-x.js"
+    "./runner": {
+      "types": "./src/runner/index.ts",
+      "default": "./dist/runner/index.js"
     },
-    "./sample/bar-x": {
-      "types": "./src/sample/bar-x.ts",
-      "default": "./dist/sample/bar-x.js"
-    },
-    "./sample/bar-y": {
-      "types": "./src/sample/bar-y.ts",
-      "default": "./dist/sample/bar-y.js"
-    },
-    "./sample/bar-z": {
-      "types": "./src/sample/bar-z.ts",
-      "default": "./dist/sample/bar-z.js"
-    },
-    "./sample/baz-x": {
-      "types": "./src/sample/baz-x.ts",
-      "default": "./dist/sample/baz-x.js"
-    },
-    "./sample/test-x": {
-      "types": "./src/sample/test-x.ts",
-      "default": "./dist/sample/test-x.js"
-    },
-    "./sample/test-y": {
-      "types": "./src/sample/test-y.ts",
-      "default": "./dist/sample/test-y.js"
+    "./vendor-task": {
+      "types": "./src/vendor-task.ts",
+      "default": "./dist/vendor-task.js"
     }
   },
   "scripts": {
-    "test": "vitest run",
-    "build": "pnpm --filter bit-lite-runner build && tsc -p tsconfig.json"
+    "test": "pnpm --filter bit-lite-vendors build && vitest run",
+    "build": "pnpm --filter bit-lite-terminal build && tsc -p tsconfig.json",
+    "typecheck": "pnpm --filter bit-lite-terminal build && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "bit-lite-context": "workspace:*",
-    "bit-lite-runner": "workspace:*",
     "bit-lite-terminal": "workspace:*"
   },
   "devDependencies": {

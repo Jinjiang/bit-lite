@@ -3,12 +3,13 @@ import type { ManagedTerminalItem, RawOutputBuffer } from "bit-lite-terminal";
 import type {
   Runner,
   RunnerExitCode,
+  RunnerParentMessage,
   RunnerStartResult,
   RunnerMode,
   RunnerOutputStream,
   RunnerRuntime,
   RunnerTargetDefinition,
-} from "bit-lite-runner";
+} from "../runner/index.js";
 
 export type { RunnerExitCode, RunnerMode };
 
@@ -45,59 +46,57 @@ export type VendorMessage<Data extends JsonValue = JsonValue> =
   | VendorErrorMessage
   | VendorResultMessage<Data>;
 
-export type TestServiceResult = {
-  service: "test";
-  vendor: string;
-  mode: "run" | "watch";
-  run: number;
-  componentIds: string[];
-  args: CliArguments;
-  config: JsonObject;
-  total: number;
-  passed: number;
-  failed: number;
-  summary: string;
-};
+export type VendorParentMessage<Message extends JsonValue = JsonValue> = RunnerParentMessage<Message>;
 
 export type VendorConfig = Record<string, unknown>;
 
 export type VendorData<Config extends VendorConfig = VendorConfig> = {
+  envName: string;
   components: ComponentRef[];
   config: Config;
   args: CliArguments;
   context?: WorkspaceRuntime;
 };
 
-export type VendorRuntime<Config extends VendorConfig = VendorConfig> = RunnerRuntime<
+export type VendorRuntime<
+  Config extends VendorConfig = VendorConfig,
+  EventResult extends JsonValue = JsonValue,
+  InputMessage extends JsonValue = JsonValue,
+> = RunnerRuntime<
   VendorData<Config>,
-  VendorMessage
+  VendorMessage<EventResult>,
+  InputMessage
 >;
 
 export type VendorStartResult<Data = unknown> = RunnerStartResult<Data>;
 
-export type VendorDefinition<Config extends VendorConfig = VendorConfig> = RunnerTargetDefinition & {
+export type VendorDefinition = RunnerTargetDefinition & {
   id: string;
   label: string;
   hint: string;
-  config?: Config;
 };
 
-export type VendorRunner<Config extends VendorConfig = VendorConfig, ResultData = unknown> = Runner<
+export type VendorRunner<
+  Config extends VendorConfig = VendorConfig,
+  RunResult = unknown,
+  EventResult extends JsonValue = JsonValue,
+  InputMessage extends JsonValue = JsonValue,
+> = Runner<
   VendorData<Config>,
-  VendorMessage,
-  never,
-  ResultData
+  VendorMessage<EventResult>,
+  InputMessage,
+  RunResult
 >;
 
 export type VendorRuntimeState<
   Config extends VendorConfig = VendorConfig,
   ResultData extends JsonValue = JsonValue,
-> = VendorDefinition<Config> &
+> = VendorDefinition &
   ManagedTerminalItem & {
     status: string;
     details: string[];
     result: ResultData | undefined;
     rawOutput: RawOutputBuffer;
-    runner: VendorRunner<Config, ResultData> | undefined;
+    runner: VendorRunner<Config, ResultData, ResultData> | undefined;
     exitPromise: Promise<RunnerExitCode> | undefined;
   };

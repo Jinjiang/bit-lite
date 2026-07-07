@@ -5,7 +5,7 @@
 Bit-lite 当前把每个 component 使用的 env 定义写在 workspace 配置文件里。随着 env 变复杂，`bit.json` 或 `bit-lite.json` 很容易变成一个巨大配置文件：
 
 - 每个 env 需要声明 services。
-- 每个 service 需要声明 runner、vendor、targets、config。
+- 每个 service 需要声明 vendor、targets、config。
 - lint、test、typecheck、preview、compile 等工具都有自己的默认配置。
 - React、Vue、Node 等常规 env 会重复出现大量相似配置。
 
@@ -20,7 +20,7 @@ Bit-lite 当前把每个 component 使用的 env 定义写在 workspace 配置�
 env package 负责具体环境能力：
 
 - 默认 services。
-- 默认 service runner。
+- 默认 service vendor。
 - 默认 target patterns。
 - 默认工具配置。
 - 需要的 npm dependencies。
@@ -145,10 +145,10 @@ env package 必须能被当前 workspace 的 package manager resolve。它可以
     "./configs/tsconfig": "./dist/configs/tsconfig.json"
   },
   "dependencies": {
-    "@bit-services/eslint": "^1.0.0",
-    "@bit-services/typescript": "^1.0.0",
-    "@bit-services/vite-preview": "^1.0.0",
-    "@bit-services/vitest": "^1.0.0",
+    "@bit-vendors/eslint": "^1.0.0",
+    "@bit-vendors/typescript": "^1.0.0",
+    "@bit-vendors/vite-preview": "^1.0.0",
+    "@bit-vendors/vitest": "^1.0.0",
     "eslint": "^10.0.0",
     "typescript": "^6.0.0",
     "vite": "^8.0.0",
@@ -161,7 +161,7 @@ env package 可以导出 object，也可以导出 factory。建议优先支持 f
 
 例如长期可能需要：
 
-- env A 基于 env B，只替换 test runner。
+- env A 基于 env B，只替换 test vendor。
 - env A 基于 env B，只换一个 config file。
 - env A 复用 env B 的大部分 services，只增加 preview 能力。
 
@@ -173,7 +173,7 @@ export default function createEnv(context) {
     name: "@acme/bit-env-react",
     services: {
       lint: {
-        runner: "@bit-services/eslint",
+        vendor: "@bit-vendors/eslint",
         config: {
           configFile: "./configs/eslint"
         },
@@ -187,7 +187,7 @@ export default function createEnv(context) {
         }
       },
       test: {
-        runner: "@bit-services/vitest",
+        vendor: "@bit-vendors/vitest",
         config: {
           configFile: "./configs/vitest"
         },
@@ -200,13 +200,13 @@ export default function createEnv(context) {
         }
       },
       typecheck: {
-        runner: "@bit-services/typescript",
+        vendor: "@bit-vendors/typescript",
         config: {
           tsconfig: "./configs/tsconfig"
         }
       },
       preview: {
-        runner: "@bit-services/vite-preview",
+        vendor: "@bit-vendors/vite-preview",
         config: {
           configFile: "./configs/vite"
         }
@@ -238,12 +238,12 @@ env package 返回标准 env definition。
 ```ts
 type EnvDefinition = {
   name: string;
-  services: Record<string, EnvServiceDefinition>;
+  services: Record<string, EnvServiceConfig>;
   config?: Record<string, unknown>;
 };
 
-type EnvServiceDefinition = {
-  runner: string;
+type EnvServiceConfig = {
+  vendor: string;
   config?: unknown;
   targets?: ServiceTargetInput;
 };
@@ -251,44 +251,45 @@ type EnvServiceDefinition = {
 
 `name` 必须等于 env package name，或者在加载时被 Bit-lite 归一化成 env package name。这样可以避免 alias 和 package identity 不一致。
 
-`EnvServiceDefinition` 不包含 `mode`。run once、watch、serve 等运行模式由 service 语义和运行时 args 决定，而不是 env package 静态声明决定。
+`EnvServiceConfig` 不包含 `mode`。run once、watch、serve 等运行模式由 command 语义和运行时 args 决定，而不是 env package 静态声明决定。
 
-## Service Runner 协议
+## Vendor 协议
 
-env package 不直接实现所有工具逻辑，而是组合 service runner package。
+env package 不直接实现所有工具逻辑，而是为 command 提供 vendor package 和 config。
 
 例如：
 
-- `@bit-services/eslint`
-- `@bit-services/oxlint`
-- `@bit-services/vitest`
-- `@bit-services/typescript`
-- `@bit-services/vite-preview`
-- `@bit-services/webpack-preview`
+- `@bit-vendors/eslint`
+- `@bit-vendors/oxlint`
+- `@bit-vendors/vitest`
+- `@bit-vendors/typescript`
+- `@bit-vendors/vite-preview`
+- `@bit-vendors/webpack-preview`
 
-runner 应该导出带 `run` 的对象，而不是单独函数。
+vendor module 应该导出 `meta: VendorDefinition` 和默认启动函数，command 通过通用 vendor task helper 创建 runner。
 
 概念类型：
 
 ```ts
-type ServiceRunner = {
-  service: "lint" | "test" | "typecheck" | "preview" | "compile" | string;
-  vendor: string;
-  run(input: ServiceInput, host?: ServiceHost): ServiceTask | Promise<ServiceResult>;
+type VendorDefinition = {
+  id: string;
+  label: string;
+  hint: string;
+  moduleUrl: string | URL;
 };
 ```
 
-runner 输入和输出应该是结构化 JSON，而不是依赖命令行字符串。
+vendor 输入和输出应该是结构化 JSON，而不是依赖命令行字符串。
 
 ## 路径解析规则
 
-路径解析必须在早期明确，否则 env package、runner package 和 workspace 文件会很容易混乱。
+路径解析必须在早期明确，否则 env package、vendor package 和 workspace 文件会很容易混乱。
 
 建议规则：
 
 - env package 内声明的相对路径，相对 env package root 解析。
 - component source 永远来自 workspace。
-- runner package 优先从 env package 解析，失败后再从 workspace root 解析。
+- vendor package 优先从 env package 解析，失败后再从 workspace root 解析。
 - config package subpath 通过 Node package exports 解析。
 - 运行时 CLI args 中的 workspace 文件路径，相对 workspace root 解析。
 
@@ -314,7 +315,7 @@ component 选择由 Bit-lite 运行时决定，例如：
 bit-lite test --filter @acme/ui.button
 ```
 
-因此 service targets 里不需要 `components` 字段。Bit-lite 会根据 `--filter`、component package registry 和当前命令上下文选出 component set，再把解析后的文件列表或 component context 传给 runner。
+因此 service targets 里不需要 `components` 字段。Bit-lite 会根据 `--filter`、component package registry 和当前命令上下文选出 component set，再把解析后的文件列表或 component context 传给 vendor。
 
 `rootDir` 也不建议放进 targets。多个 component 共享的 root 通常就是 workspace root；每个 component 的 rootDir 已经存在于 component registry，不需要 env package 重复配置。
 
@@ -327,7 +328,6 @@ type ServiceTargetInput = {
 };
 
 type ServiceTargetPattern = {
-  kind?: string;
   include?: string[];
   exclude?: string[];
 };
@@ -346,9 +346,9 @@ type ServiceTargetPattern = {
 
 例如 React env package 依赖：
 
-- `@bit-services/vite-preview`
-- `@bit-services/vitest`
-- `@bit-services/typescript`
+- `@bit-vendors/vite-preview`
+- `@bit-vendors/vitest`
+- `@bit-vendors/typescript`
 - `vite`
 - `vitest`
 - `typescript`
@@ -392,7 +392,7 @@ type ServiceTargetPattern = {
 - env package 支持 default export factory。
 - env definition 返回 services。
 - service targets 只描述 files/patterns，不描述 components/rootDir。
-- service runner 使用结构化 input/event/result。
+- service vendor 使用结构化 input/event/result。
 - 先支持 lint、test、typecheck、preview、compile 五类常用 service。
 - 不支持 alias。
 - 不支持 component pattern env mapping。

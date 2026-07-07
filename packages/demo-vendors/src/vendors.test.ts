@@ -1,14 +1,15 @@
 import { parseCliArguments } from "bit-lite-context";
 import { describe, expect, it } from "vitest";
-import { meta as barXVendor } from "./sample/bar-x.js";
-import { meta as barYVendor } from "./sample/bar-y.js";
-import { meta as barZVendor } from "./sample/bar-z.js";
-import { meta as bazXVendor } from "./sample/baz-x.js";
-import { meta as fooXVendor } from "./sample/foo-x.js";
-import { meta as testXVendor } from "./sample/test-x.js";
-import { meta as testYVendor } from "./sample/test-y.js";
-import startFooXVendor from "./sample/foo-x.js";
-import startBarZVendor from "./sample/bar-z.js";
+import { meta as barXVendor } from "./bar-x.js";
+import { meta as barYVendor } from "./bar-y.js";
+import { meta as barZVendor } from "./bar-z.js";
+import { meta as bazXVendor } from "./baz-x.js";
+import { meta as fooXVendor } from "./foo-x.js";
+import { meta as mixedResultsVendor } from "./mixed-results.js";
+import { meta as testXVendor } from "./test-x.js";
+import { meta as testYVendor } from "./test-y.js";
+import startFooXVendor from "./foo-x.js";
+import startBarZVendor from "./bar-z.js";
 import type {
   JsonValue,
   VendorData,
@@ -16,7 +17,7 @@ import type {
   VendorMessage,
   VendorResultMessage,
   VendorRuntime,
-} from "./index.js";
+} from "bit-lite-vendors";
 
 describe("demo vendors", () => {
   it("exports the configured sample vendors", () => {
@@ -27,11 +28,13 @@ describe("demo vendors", () => {
     expect(bazXVendor.id).toBe("baz-x");
     expect(testXVendor.id).toBe("test-x");
     expect(testYVendor.id).toBe("test-y");
+    expect(mixedResultsVendor.id).toBe("mixed-results");
     expect(fooXVendor.moduleUrl).toBeTruthy();
   });
 
   it("posts lifecycle messages and result data", async () => {
     const harness = createHarness({
+      envName: "demo",
       components: [{ id: "components/lib/math", rootDir: "/workspace/components/lib/math" }],
       config: {},
       args: parseCliArguments(["--demo"]),
@@ -54,6 +57,7 @@ describe("demo vendors", () => {
 
   it("supports handle stop", async () => {
     const harness = createHarness({
+      envName: "vue",
       components: [{ id: "components/vue/card", rootDir: "/workspace/components/vue/card" }],
       config: { delay: 10 },
       args: parseCliArguments([]),

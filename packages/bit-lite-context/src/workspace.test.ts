@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadWorkspace } from "./workspace.js";
+import { groupSelectedComponentsByEnv, loadWorkspace, selectComponentRefs } from "./workspace.js";
 
 describe("workspace runtime", () => {
   it("discovers components and assigns envs", async () => {
@@ -68,5 +68,22 @@ describe("workspace runtime", () => {
       ["react", ["components/ui/button"]],
       ["vue", ["components/vue/card"]],
     ]);
+
+    expect(
+      groupSelectedComponentsByEnv(workspace, [
+        { id: "components/vue/card", rootDir: path.join(workspaceRoot, "components/vue/card") },
+        { id: "components/lib/math", rootDir: path.join(workspaceRoot, "components/lib/math") },
+      ]).map((group) => [group.envName, group.components.map((component) => component.id)])
+    ).toEqual([
+      ["node", ["components/lib/math"]],
+      ["vue", ["components/vue/card"]],
+    ]);
+
+    expect(selectComponentRefs(workspace.components, ["components/ui/*"]).map((component) => component.id)).toEqual([
+      "components/ui/button",
+    ]);
+    expect(() => selectComponentRefs(workspace.components, ["missing/**"])).toThrow(
+      "--filter did not match any components: missing/**"
+    );
   });
 });

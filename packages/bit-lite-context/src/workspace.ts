@@ -2,7 +2,7 @@ import path from "node:path";
 import { loadConfig, resolveEnvs } from "./config.js";
 import { BitLiteError } from "./utils/errors.js";
 import { componentIdFromDir, discoverComponentDirs, matchPattern } from "./utils/patterns.js";
-import type { ComponentRuntime, WorkspaceRuntime } from "./types/index.js";
+import type { ComponentRef, ComponentRuntime, SelectedEnvGroup, WorkspaceRuntime } from "./types/index.js";
 import { toPosixPath } from "./utils/path-utils.js";
 
 export async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceRuntime> {
@@ -56,6 +56,56 @@ export async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceRun
     components: components.sort((left, right) => left.id.localeCompare(right.id)),
     groups,
   };
+}
+
+export function groupSelectedComponentsByEnv(
+  workspace: WorkspaceRuntime,
+  selectedComponents: ComponentRef[]
+): SelectedEnvGroup[] {
+  const selectedIds = new Set(selectedComponents.map((component) => component.id));
+  const selectedById = new Map(selectedComponents.map((component) => [component.id, component]));
+
+  if (selectedIds.size !== selectedComponents.length) {
+    throw new BitLiteError("selected components must not contain duplicate ids");
+  }
+
+  for (const component of selectedComponents) {
+    if (!workspace.components.some((candidate) => candidate.id === component.id)) {
+      throw new BitLiteError(`selected component "${component.id}" does not exist in workspace`);
+    }
+  }
+
+  const groups: SelectedEnvGroup[] = [];
+  for (const group of workspace.groups) {
+    const components = group.components
+      .filter((component) => selectedIds.has(component.id))
+      .map((component) => {
+        const selected = selectedById.get(component.id);
+        return selected ?? component;
+      });
+
+    if (components.length === 0) continue;
+    groups.push({
+      envName: group.envName,
+      env: group.env,
+      components,
+    });
+  }
+
+  return groups;
+}
+
+export function selectComponentRefs(components: ComponentRuntime[], filters: string[]): ComponentRef[] {
+  const selected =
+    filters.length === 0
+      ? components
+      : components.filter((component) => filters.some((filter) => matchPattern(component.id, filter)));
+
+  if (filters.length > 0 && selected.length === 0) {
+    throw new BitLiteError(`--filter did not match any components: ${filters.join(", ")}`);
+  }
+
+  return selected.map(({ id, rootDir }) => ({ id, rootDir }));
 }
 
 function resolveComponentEnv(patternPath: string, patternEntries: Array<[string, string]>, envNames: string[]) {

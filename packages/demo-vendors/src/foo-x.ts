@@ -1,5 +1,5 @@
-import type { VendorDefinition, VendorStartResult, VendorRuntime } from "../types/index.js";
-import { isShutdownMessage, wait } from "../vendor-utils.js";
+import type { VendorDefinition, VendorStartResult, VendorRuntime } from "bit-lite-vendors";
+import { isShutdownMessage, wait } from "./vendor-utils.js";
 
 export type FooXResult = {
   service: "foo";

@@ -1,12 +1,12 @@
 import type {
   JsonObject,
   JsonValue,
-  TestServiceResult,
   VendorDefinition,
   VendorStartResult,
   VendorRuntime,
-} from "../types/index.js";
-import { isShutdownMessage, wait } from "../vendor-utils.js";
+} from "bit-lite-vendors";
+import type { TestServiceResult } from "./test-result.js";
+import { isShutdownMessage, wait } from "./vendor-utils.js";
 
 export const meta: VendorDefinition = {
   id: "test-x",
@@ -16,7 +16,7 @@ export const meta: VendorDefinition = {
 };
 
 export default async function startTestXVendor(
-  runtime: VendorRuntime<Record<string, unknown>>
+  runtime: VendorRuntime<Record<string, unknown>, TestServiceResult>
 ): Promise<VendorStartResult<TestServiceResult>> {
   const watch = runtime.data.args.options.watch === true;
   const mode = watch ? "watch" : "run";
@@ -42,6 +42,7 @@ export default async function startTestXVendor(
 
     return {
       service: "test",
+      envName: runtime.data.envName,
       vendor: "x",
       mode,
       run,

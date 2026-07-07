@@ -211,6 +211,13 @@ export class ManagedTerminal<Item extends ManagedTerminalItem = ManagedTerminalI
 
     item.rawOutput.append(stream, chunk);
 
+    this.writeOutput(item, stream, chunk);
+  }
+
+  writeOutput(itemOrId: Item | string, stream: TerminalOutputStream, chunk: Buffer | string) {
+    const item = this.#resolveItem(itemOrId);
+    if (!item) return;
+
     if (this.#screen === "terminal" && this.#activeItemId === item.id) {
       this.#writeOutput(stream, chunk);
     }

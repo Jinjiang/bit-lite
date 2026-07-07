@@ -85,6 +85,7 @@ export type Runner<Data = unknown, ChildMessage = unknown, ParentMessage = never
   exitPromise: Promise<RunnerExitCode>;
   onMessage(listener: RunnerMessageListener<ChildMessage>): Unsubscribe;
   onOutput(listener: RunnerOutputListener): Unsubscribe;
+  postMessage(message: ParentMessage): void;
   send(message: RunnerParentMessage<ParentMessage>): void;
   writeInput(chunk: Buffer | string): void;
   start(): ResultData | undefined | Promise<ResultData | undefined>;
@@ -140,6 +141,9 @@ export function createInlineRunner<Data, ChildMessage = unknown, ParentMessage =
     },
     onOutput(_listener) {
       return () => {};
+    },
+    postMessage(message) {
+      sendToChild(message);
     },
     send(message) {
       sendToChild(message);
@@ -207,6 +211,9 @@ export function createWorkerRunner<Data, ChildMessage = unknown, ParentMessage =
     onOutput(listener) {
       outputListeners.add(listener);
       return () => outputListeners.delete(listener);
+    },
+    postMessage(message) {
+      worker?.postMessage(message);
     },
     send(message) {
       worker?.postMessage(message);
