@@ -3,7 +3,7 @@ import { createRunner } from "bit-lite-runner";
 import type { RunnerExitCode, RunnerMode } from "bit-lite-runner";
 import { ManagedTerminal, RawOutputBuffer } from "bit-lite-terminal";
 import type { TerminalOutputStream } from "bit-lite-terminal";
-import type { TestServiceResult, VendorRunner } from "bit-lite-vendors";
+import type { TestServiceResult, VendorRunner, VendorRuntimeState } from "bit-lite-vendors";
 import type {
   ServiceDefinition,
   ServiceRunInput,
@@ -22,14 +22,7 @@ type ConfiguredVendorRun<Config extends VendorConfig = VendorConfig> = {
   data: VendorData<Config>;
 };
 
-type VendorRunState<Config extends VendorConfig = VendorConfig> = {
-  id: string;
-  label: string;
-  hint: string;
-  status: string;
-  details: string[];
-  result: TestServiceResult | undefined;
-  rawOutput: RawOutputBuffer;
+type TestVendorRunState<Config extends VendorConfig = VendorConfig> = VendorRuntimeState<Config, TestServiceResult> & {
   writeInput(chunk: Buffer | string): void;
   canAttach: boolean;
   runner: VendorRunner<Config, TestServiceResult>;
@@ -158,7 +151,7 @@ async function runWatchVendors(vendorRuns: ConfiguredVendorRun[]) {
       );
 
   const terminal = interactive
-    ? new ManagedTerminal<VendorRunState>({
+    ? new ManagedTerminal<TestVendorRunState>({
         title: "bit-lite test --watch",
         items: states,
         canAttach: (item) => item.canAttach === true,
@@ -221,7 +214,7 @@ async function runWatchVendors(vendorRuns: ConfiguredVendorRun[]) {
 function createVendorRunState<Config extends VendorConfig>(
   vendorRun: ConfiguredVendorRun<Config>,
   mode: RunnerMode
-): VendorRunState<Config> {
+): TestVendorRunState<Config> {
   const runner = createRunner<VendorData<Config>, VendorMessage, never, TestServiceResult>({
     mode,
     target: vendorRun.vendor,
@@ -229,6 +222,7 @@ function createVendorRunState<Config extends VendorConfig>(
   });
 
   return {
+    ...vendorRun.vendor,
     id: vendorRun.id,
     label: vendorRun.label,
     hint: vendorRun.vendor.hint,
@@ -246,7 +240,7 @@ function createVendorRunState<Config extends VendorConfig>(
   };
 }
 
-function wireRunOnceVendorRun<Config extends VendorConfig>(state: VendorRunState<Config>) {
+function wireRunOnceVendorRun<Config extends VendorConfig>(state: TestVendorRunState<Config>) {
   state.exitPromise = state.runner.exitPromise.then((code) => {
     if (code !== 0 && !state.completed) {
       state.rejectCompletion?.(new Error(`${state.label} exited with code ${formatExitCode(code)}`));
@@ -260,10 +254,10 @@ function wireRunOnceVendorRun<Config extends VendorConfig>(state: VendorRunState
 }
 
 function wireWatchVendorRun<Config extends VendorConfig>(
-  state: VendorRunState<Config>,
+  state: TestVendorRunState<Config>,
   options: {
     completeOnResult: boolean;
-    terminal: ManagedTerminal<VendorRunState> | undefined;
+    terminal: ManagedTerminal<TestVendorRunState> | undefined;
     isShuttingDown(): boolean;
   }
 ) {
@@ -287,7 +281,10 @@ function wireWatchVendorRun<Config extends VendorConfig>(
   });
 }
 
-function handleRunOnceVendorMessage<Config extends VendorConfig>(state: VendorRunState<Config>, message: VendorMessage) {
+function handleRunOnceVendorMessage<Config extends VendorConfig>(
+  state: TestVendorRunState<Config>,
+  message: VendorMessage
+) {
   if (message.type === "ready" || message.type === "status") return;
 
   if (message.type === "error") {
@@ -300,9 +297,9 @@ function handleRunOnceVendorMessage<Config extends VendorConfig>(state: VendorRu
 }
 
 function handleWatchVendorMessage<Config extends VendorConfig>(
-  state: VendorRunState<Config>,
+  state: TestVendorRunState<Config>,
   message: VendorMessage,
-  terminal: ManagedTerminal<VendorRunState> | undefined,
+  terminal: ManagedTerminal<TestVendorRunState> | undefined,
   completeOnResult: boolean
 ) {
   if (message.type === "ready") {
@@ -330,24 +327,24 @@ function handleWatchVendorMessage<Config extends VendorConfig>(
   if (completeOnResult) completeVendorRun(state);
 }
 
-function recordVendorResult<Config extends VendorConfig>(state: VendorRunState<Config>, result: unknown) {
+function recordVendorResult<Config extends VendorConfig>(state: TestVendorRunState<Config>, result: unknown) {
   if (!isTestServiceResult(result)) return;
 
   state.result = result;
   state.details = formatTestResultDetails(result);
 }
 
-function completeVendorRun<Config extends VendorConfig>(state: VendorRunState<Config>) {
+function completeVendorRun<Config extends VendorConfig>(state: TestVendorRunState<Config>) {
   if (state.completed) return;
   state.completed = true;
   state.resolveCompletion?.();
 }
 
-function rejectVendorRun<Config extends VendorConfig>(state: VendorRunState<Config>, error: unknown) {
+function rejectVendorRun<Config extends VendorConfig>(state: TestVendorRunState<Config>, error: unknown) {
   state.rejectCompletion?.(error instanceof Error ? error : new Error(formatError(error)));
 }
 
-async function stopVendorRuns(states: Array<VendorRunState>) {
+async function stopVendorRuns(states: Array<TestVendorRunState>) {
   for (const state of states) {
     await state.runner.stop();
   }
@@ -361,10 +358,10 @@ async function stopVendorRuns(states: Array<VendorRunState>) {
 }
 
 function appendOutput<Config extends VendorConfig>(
-  state: VendorRunState<Config>,
+  state: TestVendorRunState<Config>,
   stream: TerminalOutputStream,
   chunk: Buffer,
-  terminal: ManagedTerminal<VendorRunState> | undefined
+  terminal: ManagedTerminal<TestVendorRunState> | undefined
 ) {
   if (terminal) {
     terminal.appendOutput(state, stream, chunk);
@@ -374,7 +371,7 @@ function appendOutput<Config extends VendorConfig>(
   state.rawOutput.append(stream, chunk);
 }
 
-function printTestResults(states: Array<VendorRunState>) {
+function printTestResults(states: Array<TestVendorRunState>) {
   if (states.length === 0) return;
 
   console.log("Test results:");

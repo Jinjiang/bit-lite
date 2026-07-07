@@ -89,12 +89,15 @@ export type VendorRunner<Config extends VendorConfig = VendorConfig, ResultData 
   ResultData
 >;
 
-export type VendorRuntimeState<Config extends VendorConfig = VendorConfig> = VendorDefinition<Config> &
+export type VendorRuntimeState<
+  Config extends VendorConfig = VendorConfig,
+  ResultData extends JsonValue = JsonValue,
+> = VendorDefinition<Config> &
   ManagedTerminalItem & {
     status: string;
     details: string[];
-    result: JsonValue | undefined;
+    result: ResultData | undefined;
     rawOutput: RawOutputBuffer;
-    runner: VendorRunner<Config> | undefined;
+    runner: VendorRunner<Config, ResultData> | undefined;
     exitPromise: Promise<RunnerExitCode> | undefined;
   };
