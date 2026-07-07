@@ -1,20 +1,12 @@
-import type { CliArguments } from "bit-lite-context";
-import type { JsonObject, JsonValue, VendorDefinition, VendorHandle, VendorRuntime } from "../types/index.js";
+import type {
+  JsonObject,
+  JsonValue,
+  TestServiceResult,
+  VendorDefinition,
+  VendorStartResult,
+  VendorRuntime,
+} from "../types/index.js";
 import { isShutdownMessage, wait } from "../vendor-utils.js";
-
-export type TestYResult = {
-  service: "test";
-  vendor: "y";
-  mode: "run" | "watch";
-  run: number;
-  componentIds: string[];
-  args: CliArguments;
-  config: JsonObject;
-  total: number;
-  passed: number;
-  failed: number;
-  summary: string;
-};
 
 export const meta: VendorDefinition = {
   id: "test-y",
@@ -23,7 +15,9 @@ export const meta: VendorDefinition = {
   moduleUrl: import.meta.url,
 };
 
-export default function startTestYVendor(runtime: VendorRuntime<Record<string, unknown>>): VendorHandle {
+export default async function startTestYVendor(
+  runtime: VendorRuntime<Record<string, unknown>>
+): Promise<VendorStartResult<TestServiceResult>> {
   const watch = runtime.data.args.options.watch === true;
   const mode = watch ? "watch" : "run";
   const componentIds = runtime.data.components.map((component) => component.id);
@@ -40,12 +34,13 @@ export default function startTestYVendor(runtime: VendorRuntime<Record<string, u
     unsubscribe?.();
   };
 
-  const emitResult = () => {
+  const createResult = () => {
     run += 1;
     const total = componentIds.length * 3;
     const failed = run % 4 === 0 ? 1 : 0;
     const passed = total - failed;
-    const data: TestYResult = {
+
+    return {
       service: "test",
       vendor: "y",
       mode,
@@ -57,9 +52,12 @@ export default function startTestYVendor(runtime: VendorRuntime<Record<string, u
       passed,
       failed,
       summary: failed === 0 ? `${passed}/${total} passed` : `${failed}/${total} failed`,
-    };
+    } satisfies TestServiceResult;
+  };
 
-    const stream = failed === 0 ? console.log : console.error;
+  const emitResult = () => {
+    const data = createResult();
+    const stream = data.failed === 0 ? console.log : console.error;
     stream(`[test-y] ${mode} #${run}: ${data.summary}`);
     runtime.postMessage({ type: "result", data });
   };
@@ -81,20 +79,16 @@ export default function startTestYVendor(runtime: VendorRuntime<Record<string, u
     };
   }
 
-  void runOnce();
+  const data = await runOnce();
+  return data === undefined ? {} : { data };
 
-  return {
-    stop() {
-      finish("stopped");
-    },
-  };
-
-  async function runOnce() {
+  async function runOnce(): Promise<TestServiceResult | undefined> {
     runtime.postMessage({ type: "status", status: "running" });
     await wait(20);
-    if (finished) return;
-    emitResult();
+    if (finished) return undefined;
+    const data = createResult();
     finish("success");
+    return data;
   }
 }
 

@@ -12,7 +12,7 @@ import startBarZVendor from "./sample/bar-z.js";
 import type {
   JsonValue,
   VendorData,
-  VendorHandle,
+  VendorStartResult,
   VendorMessage,
   VendorResultMessage,
   VendorRuntime,

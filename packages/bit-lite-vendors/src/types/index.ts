@@ -3,7 +3,7 @@ import type { ManagedTerminalItem, RawOutputBuffer } from "bit-lite-terminal";
 import type {
   Runner,
   RunnerExitCode,
-  RunnerHandle,
+  RunnerStartResult,
   RunnerMode,
   RunnerOutputStream,
   RunnerRuntime,
@@ -45,6 +45,20 @@ export type VendorMessage<Data extends JsonValue = JsonValue> =
   | VendorErrorMessage
   | VendorResultMessage<Data>;
 
+export type TestServiceResult = {
+  service: "test";
+  vendor: string;
+  mode: "run" | "watch";
+  run: number;
+  componentIds: string[];
+  args: CliArguments;
+  config: JsonObject;
+  total: number;
+  passed: number;
+  failed: number;
+  summary: string;
+};
+
 export type VendorConfig = Record<string, unknown>;
 
 export type VendorData<Config extends VendorConfig = VendorConfig> = {
@@ -59,7 +73,7 @@ export type VendorRuntime<Config extends VendorConfig = VendorConfig> = RunnerRu
   VendorMessage
 >;
 
-export type VendorHandle = RunnerHandle;
+export type VendorStartResult<Data = unknown> = RunnerStartResult<Data>;
 
 export type VendorDefinition<Config extends VendorConfig = VendorConfig> = RunnerTargetDefinition & {
   id: string;
@@ -68,7 +82,12 @@ export type VendorDefinition<Config extends VendorConfig = VendorConfig> = Runne
   config?: Config;
 };
 
-export type VendorRunner<Config extends VendorConfig = VendorConfig> = Runner<VendorData<Config>, VendorMessage>;
+export type VendorRunner<Config extends VendorConfig = VendorConfig, ResultData = unknown> = Runner<
+  VendorData<Config>,
+  VendorMessage,
+  never,
+  ResultData
+>;
 
 export type VendorRuntimeState<Config extends VendorConfig = VendorConfig> = VendorDefinition<Config> &
   ManagedTerminalItem & {

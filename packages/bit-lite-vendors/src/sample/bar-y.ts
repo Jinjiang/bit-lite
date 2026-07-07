@@ -1,4 +1,4 @@
-import type { VendorDefinition, VendorHandle, VendorRuntime } from "../types/index.js";
+import type { VendorDefinition, VendorStartResult, VendorRuntime } from "../types/index.js";
 import { isShutdownMessage } from "../vendor-utils.js";
 
 export type BarYResult = {
@@ -14,7 +14,7 @@ export const meta: VendorDefinition = {
   moduleUrl: import.meta.url,
 };
 
-export default function startBarYVendor(runtime: VendorRuntime<Record<string, unknown>>): VendorHandle {
+export default function startBarYVendor(runtime: VendorRuntime<Record<string, unknown>>): VendorStartResult {
   let completed = false;
   let timer: NodeJS.Timeout | undefined;
   let unsubscribe: (() => void) | undefined;

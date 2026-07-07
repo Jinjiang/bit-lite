@@ -28,7 +28,24 @@ describe("CLI args", () => {
         passthrough: [],
       },
       workspaceRoot: path.resolve("demo-workspace"),
+      componentFilters: [],
       help: false,
+    });
+  });
+
+  it("parses global component filters outside command options", () => {
+    const parsed = parseArgs([
+      "test",
+      "--filter",
+      "components/ui/**",
+      "--filter",
+      "components/lib/math",
+      "--watch",
+    ]);
+
+    expect(parsed.componentFilters).toEqual(["components/ui/**", "components/lib/math"]);
+    expect(parsed.args.options).toEqual({
+      watch: true,
     });
   });
 
@@ -39,5 +56,9 @@ describe("CLI args", () => {
 
   it("rejects workspace flags without a path", () => {
     expect(() => parseArgs(["--workspace"])).toThrow("--workspace requires a path");
+  });
+
+  it("rejects filter flags without a pattern", () => {
+    expect(() => parseArgs(["test", "--filter"])).toThrow("--filter requires a component pattern");
   });
 });

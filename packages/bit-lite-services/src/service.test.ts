@@ -1,6 +1,6 @@
 import { parseCliArguments } from "bit-lite-context";
-import { describe, expect, it } from "vitest";
-import { runService, testService } from "./index.js";
+import { describe, expect, it, vi } from "vitest";
+import { testService } from "./index.js";
 import type { ComponentRuntime, WorkspaceRuntime } from "bit-lite-context";
 
 const components: ComponentRuntime[] = [
@@ -125,75 +125,89 @@ const workspaceRuntime: WorkspaceRuntime = {
   ],
 };
 
-describe("runService", () => {
+describe("testService", () => {
   it("runs the test service once by default", async () => {
-    const result = await runService({
-      service: testService,
-      input: createInput([]),
-      runnerMode: "inline",
-    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    expect(result.mode).toBe("run");
-    expect(result.status).toBe("success");
-    expect(result.results).toHaveLength(2);
-    expect(result.results[0]?.vendorId).toBe("test-x");
-    expect(result.results[0]?.data).toMatchObject({
-      service: "test",
-      vendor: "x",
-      mode: "run",
-      passed: 2,
-      failed: 0,
-      config: {
-        label: "demo test",
-        shard: "unit",
-        retries: 1,
-        coverage: true,
-      },
-    });
-    expect(result.results[1]?.vendorId).toBe("test-y");
-    expect(result.results[1]?.data).toMatchObject({
-      service: "test",
-      vendor: "y",
-      mode: "run",
-      passed: 3,
-      failed: 0,
-      config: {
-        label: "react test",
-        shard: "browser",
-        retries: 2,
-        coverage: false,
-      },
-    });
+    try {
+      await expect(testService.run(createInput([]))).resolves.toBeUndefined();
+
+      expect(log.mock.calls.map(([message]) => message)).toEqual([
+        "Test results:",
+        "- Test X (demo): 2/2 passed",
+        "- Test Y (react): 3/3 passed",
+      ]);
+    } finally {
+      log.mockRestore();
+    }
   });
 
-  it("switches to watch mode from cli args", async () => {
-    const result = await runService({
-      service: testService,
-      input: createInput(["--watch"]),
-      runnerMode: "inline",
-      terminal: {
-        enabled: false,
-        autoStopMs: 20,
-      },
-    });
+  it("passes watch args through to the test service vendors", async () => {
+    await expect(testService.run(createInput(["--watch"]))).resolves.toBeUndefined();
+  });
 
-    expect(result.mode).toBe("watch");
-    expect(result.status).toBe("stopped");
-    expect(result.results[0]?.data).toMatchObject({
-      service: "test",
-      vendor: "x",
-      mode: "watch",
-      config: {
-        label: "demo test",
-      },
-    });
+  it("skips component groups without a configured test vendor", async () => {
+    const plainComponent = {
+      id: "components/plain/card",
+      rootDir: "/workspace/components/plain/card",
+    };
+    const noVendorComponent = {
+      id: "components/no-vendor/card",
+      rootDir: "/workspace/components/no-vendor/card",
+    };
+    const context: WorkspaceRuntime = {
+      ...workspaceRuntime,
+      components: [
+        ...workspaceRuntime.components,
+        { ...plainComponent, envName: "plain" },
+        { ...noVendorComponent, envName: "no-vendor" },
+      ],
+      groups: [
+        workspaceRuntime.groups[0]!,
+        {
+          envName: "plain",
+          env: {
+            name: "plain",
+            services: {},
+          },
+          components: [plainComponent],
+        },
+        {
+          envName: "no-vendor",
+          env: {
+            name: "no-vendor",
+            services: {
+              test: {
+                config: {
+                  label: "missing vendor",
+                },
+              },
+            },
+          },
+          components: [noVendorComponent],
+        },
+      ],
+    };
+
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      await testService.run({
+        components: context.components.map(({ id, rootDir }) => ({ id, rootDir })),
+        args: parseCliArguments([]),
+        context,
+      });
+
+      expect(log.mock.calls.map(([message]) => message)).toEqual(["Test results:", "- Test X (demo): 2/2 passed"]);
+    } finally {
+      log.mockRestore();
+    }
   });
 });
 
 function createInput(rawArgs: string[]) {
   return {
     components: components.map(({ id, rootDir }) => ({ id, rootDir })),
-    config: {},
     args: parseCliArguments(rawArgs),
     context: workspaceRuntime,
   };

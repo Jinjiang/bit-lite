@@ -9,7 +9,7 @@
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",
-    "build": "pnpm --filter bit-lite-services build && tsc -p tsconfig.json",
+    "build": "pnpm --filter bit-lite-context build && pnpm --filter bit-lite-services build && tsc -p tsconfig.json",
     "dev": "tsx src/bin.ts"
   },
   "keywords": [],

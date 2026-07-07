@@ -1,4 +1,4 @@
-import type { VendorDefinition, VendorHandle, VendorRuntime } from "../types/index.js";
+import type { VendorDefinition, VendorStartResult, VendorRuntime } from "../types/index.js";
 import { isShutdownMessage, wait } from "../vendor-utils.js";
 
 export type FooXResult = {
@@ -15,7 +15,7 @@ export const meta: VendorDefinition = {
   moduleUrl: import.meta.url,
 };
 
-export default function startFooXVendor(runtime: VendorRuntime<Record<string, unknown>>): VendorHandle {
+export default function startFooXVendor(runtime: VendorRuntime<Record<string, unknown>>): VendorStartResult {
   const calls: string[] = [];
   const data: FooXResult = {
     service: "foo",

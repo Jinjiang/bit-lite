@@ -1,7 +1,12 @@
-import { loadWorkspace, parseArgs } from "bit-lite-context";
-import { runService, testService } from "bit-lite-services";
-import type { JsonValue, ServiceResult } from "bit-lite-services";
+import { loadWorkspace, matchPattern, parseArgs } from "bit-lite-context";
+import { testService } from "bit-lite-services";
+import type { ComponentRef, ComponentRuntime, ParsedCliArgs } from "bit-lite-context";
+import type { ServiceDefinition } from "bit-lite-services";
 import { BitLiteError } from "./utils/errors.js";
+
+const services: Record<string, ServiceDefinition> = {
+  test: testService,
+};
 
 export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   const parsed = parseArgs(argv);
@@ -11,26 +16,10 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   }
 
   try {
-    if (parsed.command === "test") {
-      const workspace = await loadWorkspace(parsed.workspaceRoot);
-      const result = await runService({
-        service: testService,
-        input: {
-          components: workspace.components.map(({ id, rootDir }) => ({ id, rootDir })),
-          config: {},
-          args: parsed.args,
-          context: workspace,
-        },
-        terminal: {
-          // Watch mode normally runs until the user quits. This env-only
-          // escape hatch lets non-interactive checks exercise watch mode
-          // without hanging forever.
-          autoStopMs: readAutoStopMs(),
-        },
-      });
-
-      printServiceResult(result);
-      return hasFailedTestResult(result) ? 1 : 0;
+    const service = services[parsed.command];
+    if (service) {
+      await runConfiguredService(service, parsed);
+      return 0;
     }
 
     throw new BitLiteError(`command "${parsed.command}" is not registered in this clean-slate build`);
@@ -41,36 +30,38 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   }
 }
 
+async function runConfiguredService(service: ServiceDefinition, parsed: ParsedCliArgs) {
+  const workspace = await loadWorkspace(parsed.workspaceRoot);
+  const components = selectServiceComponents(workspace.components, parsed.componentFilters);
+
+  return service.run({
+    components,
+    args: parsed.args,
+    context: workspace,
+  });
+}
+
 function printUsage() {
   console.log(`bit-lite
 
 Usage:
   bit-lite --help
-  bit-lite <command> [--workspace <dir>] [...args]
+  bit-lite <command> [--workspace <dir>] [--filter <component-pattern>] [...args]
 
 Commands:
   test    run the configured test service
 `);
 }
 
-function printServiceResult(result: ServiceResult) {
-  console.log(JSON.stringify(result, null, 2));
-}
+function selectServiceComponents(components: ComponentRuntime[], filters: string[]): ComponentRef[] {
+  const selected =
+    filters.length === 0
+      ? components
+      : components.filter((component) => filters.some((filter) => matchPattern(component.id, filter)));
 
-function hasFailedTestResult(result: ServiceResult) {
-  return result.results.some((taskResult) => {
-    const data = taskResult.data;
-    return isJsonObject(data) && typeof data.failed === "number" && data.failed > 0;
-  });
-}
+  if (filters.length > 0 && selected.length === 0) {
+    throw new BitLiteError(`--filter did not match any components: ${filters.join(", ")}`);
+  }
 
-function isJsonObject(value: JsonValue | undefined): value is Record<string, JsonValue> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-// This is intentionally not workspace service config. It is only for tests and
-// local verification that need watch-mode services to stop on their own.
-function readAutoStopMs() {
-  const value = Number.parseInt(process.env.BIT_LITE_SERVICE_AUTO_STOP_MS ?? "", 10);
-  return Number.isFinite(value) && value > 0 ? value : undefined;
+  return selected.map(({ id, rootDir }) => ({ id, rootDir }));
 }

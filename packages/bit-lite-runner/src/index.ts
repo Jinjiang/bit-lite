@@ -1,6 +1,7 @@
 import { Worker } from "node:worker_threads";
 import { bindTerminalResize, readTerminalSize } from "bit-lite-terminal";
 import type { TerminalOutputStream, TerminalSize } from "bit-lite-terminal";
+import { WORKER_RUNNER_START_RESULT_MESSAGE_TYPE } from "./worker-protocol.js";
 
 export type RunnerMode = "worker" | "inline";
 
@@ -32,16 +33,27 @@ export type RunnerRuntime<Data = unknown, ChildMessage = unknown, ParentMessage 
   onMessage(listener: RunnerParentMessageListener<ParentMessage>): Unsubscribe;
 };
 
-export type RunnerHandle = {
+export type RunnerStartResult<Data = unknown> = {
+  data?: Data;
   stop?(): void | Promise<void>;
 };
 
-export type StartRunnerTarget<Data = unknown, ChildMessage = unknown, ParentMessage = never> = (
+export type StartRunnerTarget<
+  Data = unknown,
+  ChildMessage = unknown,
+  ParentMessage = never,
+  ResultData = unknown,
+> = (
   runtime: RunnerRuntime<Data, ChildMessage, ParentMessage>
-) => void | RunnerHandle | Promise<void | RunnerHandle>;
+) => void | RunnerStartResult<ResultData> | Promise<void | RunnerStartResult<ResultData>>;
 
-export type RunnerTargetModule<Data = unknown, ChildMessage = unknown, ParentMessage = never> = {
-  default: StartRunnerTarget<Data, ChildMessage, ParentMessage>;
+export type RunnerTargetModule<
+  Data = unknown,
+  ChildMessage = unknown,
+  ParentMessage = never,
+  ResultData = unknown,
+> = {
+  default: StartRunnerTarget<Data, ChildMessage, ParentMessage, ResultData>;
 };
 
 export type RunnerTargetDefinition = {
@@ -68,33 +80,33 @@ export type CreateRunnerOptions<Data = unknown> = {
   worker?: WorkerRunnerOptions | undefined;
 };
 
-export type Runner<Data = unknown, ChildMessage = unknown, ParentMessage = never> = {
+export type Runner<Data = unknown, ChildMessage = unknown, ParentMessage = never, ResultData = unknown> = {
   kind: RunnerKind;
   exitPromise: Promise<RunnerExitCode>;
   onMessage(listener: RunnerMessageListener<ChildMessage>): Unsubscribe;
   onOutput(listener: RunnerOutputListener): Unsubscribe;
   send(message: RunnerParentMessage<ParentMessage>): void;
   writeInput(chunk: Buffer | string): void;
-  start(): void | Promise<void>;
+  start(): ResultData | undefined | Promise<ResultData | undefined>;
   stop(): void | Promise<void>;
   terminate(): void | Promise<void>;
 };
 
-export function createRunner<Data, ChildMessage = unknown, ParentMessage = never>(
+export function createRunner<Data, ChildMessage = unknown, ParentMessage = never, ResultData = unknown>(
   options: CreateRunnerOptions<Data>
-): Runner<Data, ChildMessage, ParentMessage> {
+): Runner<Data, ChildMessage, ParentMessage, ResultData> {
   return options.mode === "worker"
-    ? createWorkerRunner<Data, ChildMessage, ParentMessage>(options.target, options.data, options.worker)
-    : createInlineRunner<Data, ChildMessage, ParentMessage>(options.target, options.data);
+    ? createWorkerRunner<Data, ChildMessage, ParentMessage, ResultData>(options.target, options.data, options.worker)
+    : createInlineRunner<Data, ChildMessage, ParentMessage, ResultData>(options.target, options.data);
 }
 
-export function createInlineRunner<Data, ChildMessage = unknown, ParentMessage = never>(
+export function createInlineRunner<Data, ChildMessage = unknown, ParentMessage = never, ResultData = unknown>(
   target: RunnerTargetDefinition,
   data: Data
-): Runner<Data, ChildMessage, ParentMessage> {
+): Runner<Data, ChildMessage, ParentMessage, ResultData> {
   const parentMessageListeners = new Set<RunnerMessageListener<ChildMessage>>();
   const childMessageListeners = new Set<RunnerParentMessageListener<ParentMessage>>();
-  let runnerHandle: RunnerHandle | void;
+  let runnerStartResult: RunnerStartResult<ResultData> | void;
   let stopped = false;
   let resolveExit!: (code: RunnerExitCode) => void;
 
@@ -138,7 +150,8 @@ export function createInlineRunner<Data, ChildMessage = unknown, ParentMessage =
         const runnerModule = (await import(toModuleUrl(target.moduleUrl))) as RunnerTargetModule<
           Data,
           ChildMessage,
-          ParentMessage
+          ParentMessage,
+          ResultData
         >;
         const startRunnerTarget = runnerModule.default;
 
@@ -146,11 +159,13 @@ export function createInlineRunner<Data, ChildMessage = unknown, ParentMessage =
           throw new Error("Runner target module must default export a StartRunnerTarget function.");
         }
 
-        runnerHandle = await startRunnerTarget(runtime);
+        runnerStartResult = await startRunnerTarget(runtime);
+        return runnerStartResult?.data;
       } catch (error) {
         runtime.postMessage({ type: "error", message: formatError(error) } as ChildMessage);
         console.error(error);
         resolveExit(1);
+        return undefined;
       }
     },
     async stop() {
@@ -158,7 +173,7 @@ export function createInlineRunner<Data, ChildMessage = unknown, ParentMessage =
       stopped = true;
 
       sendToChild({ type: "shutdown" });
-      await runnerHandle?.stop?.();
+      await runnerStartResult?.stop?.();
       resolveExit(0);
     },
     async terminate() {
@@ -167,11 +182,11 @@ export function createInlineRunner<Data, ChildMessage = unknown, ParentMessage =
   };
 }
 
-export function createWorkerRunner<Data, ChildMessage = unknown, ParentMessage = never>(
+export function createWorkerRunner<Data, ChildMessage = unknown, ParentMessage = never, ResultData = unknown>(
   target: RunnerTargetDefinition,
   data: Data,
   options: WorkerRunnerOptions = {}
-): Runner<Data, ChildMessage, ParentMessage> {
+): Runner<Data, ChildMessage, ParentMessage, ResultData> {
   const outputListeners = new Set<RunnerOutputListener>();
   const messageListeners = new Set<RunnerMessageListener<ChildMessage>>();
   let worker: Worker | undefined;
@@ -200,6 +215,13 @@ export function createWorkerRunner<Data, ChildMessage = unknown, ParentMessage =
       worker?.stdin?.write(chunk);
     },
     start() {
+      let startSettled = false;
+      let resolveStart!: (data: ResultData | undefined) => void;
+      let rejectStart!: (error: unknown) => void;
+      const startPromise = new Promise<ResultData | undefined>((resolve, reject) => {
+        resolveStart = resolve;
+        rejectStart = reject;
+      });
       const workerData: WorkerRunnerData<Data> = {
         data,
         moduleUrl: toModuleUrl(target.moduleUrl),
@@ -221,10 +243,21 @@ export function createWorkerRunner<Data, ChildMessage = unknown, ParentMessage =
         unbindTerminalResize = bindTerminalResize(worker);
       }
 
-      worker.on("message", (message: ChildMessage) => {
+      worker.on("message", (message: ChildMessage | WorkerRunnerStartResultMessage<ResultData>) => {
+        if (isWorkerRunnerStartResultMessage(message)) {
+          startSettled = true;
+          resolveStart(message.data);
+          return;
+        }
+
         for (const listener of messageListeners) listener(message);
       });
       worker.on("error", (error: Error) => {
+        if (!startSettled) {
+          startSettled = true;
+          rejectStart(error);
+        }
+
         for (const listener of messageListeners) {
           listener({ type: "error", message: error.stack ?? error.message } as ChildMessage);
         }
@@ -232,8 +265,14 @@ export function createWorkerRunner<Data, ChildMessage = unknown, ParentMessage =
       worker.once("exit", (code) => {
         unbindTerminalResize?.();
         unbindTerminalResize = undefined;
+        if (!startSettled) {
+          startSettled = true;
+          rejectStart(new Error(`Runner worker exited before start completed with code ${formatExitCode(code)}`));
+        }
         resolveExit(code);
       });
+
+      return startPromise;
     },
     async stop() {
       this.send({ type: "shutdown" });
@@ -250,12 +289,29 @@ export function createWorkerRunner<Data, ChildMessage = unknown, ParentMessage =
   }
 }
 
+type WorkerRunnerStartResultMessage<Data = unknown> = {
+  type: typeof WORKER_RUNNER_START_RESULT_MESSAGE_TYPE;
+  data?: Data;
+};
+
+function isWorkerRunnerStartResultMessage<Data>(message: unknown): message is WorkerRunnerStartResultMessage<Data> {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    (message as { type?: unknown }).type === WORKER_RUNNER_START_RESULT_MESSAGE_TYPE
+  );
+}
+
 function createWorkerEntryUrl() {
   return new URL("./worker-entry.js", import.meta.url);
 }
 
 function toModuleUrl(moduleUrl: URL | string) {
   return moduleUrl instanceof URL ? moduleUrl.href : moduleUrl;
+}
+
+function formatExitCode(code: RunnerExitCode) {
+  return typeof code === "number" ? String(code) : "unknown";
 }
 
 function formatError(error: unknown) {

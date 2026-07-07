@@ -11,7 +11,7 @@ const parserOptions = {
     workspace: ["w"],
   },
   boolean: ["help"],
-  string: ["workspace"],
+  string: ["workspace", "filter"],
   configuration: {
     "camel-case-expansion": false,
     "dot-notation": false,
@@ -21,7 +21,7 @@ const parserOptions = {
   },
 } satisfies Parameters<typeof yargsParser>[1];
 
-const globalOptionNames = new Set(["help", "workspace"]);
+const globalOptionNames = new Set(["help", "workspace", "filter"]);
 
 export function parseCliArguments(argv: string[]): CliArguments {
   const parsed = yargsParser(argv, parserOptions);
@@ -37,6 +37,7 @@ export function parseCliArguments(argv: string[]): CliArguments {
 export function parseArgs(argv: string[]): ParsedCliArgs {
   const parsed = parseCliArguments(argv);
   const workspaceRoot = readWorkspaceRoot(parsed.options.workspace);
+  const componentFilters = readComponentFilters(parsed.options.filter);
   const command = parsed.positional[0];
 
   return {
@@ -48,6 +49,7 @@ export function parseArgs(argv: string[]): ParsedCliArgs {
       passthrough: parsed.passthrough,
     },
     workspaceRoot,
+    componentFilters,
     help: parsed.options.help === true,
   };
 }
@@ -58,6 +60,15 @@ function readWorkspaceRoot(value: CliOptionValue | undefined): string {
     throw new BitLiteError("--workspace requires a path");
   }
   return path.resolve(value);
+}
+
+function readComponentFilters(value: CliOptionValue | undefined): string[] {
+  if (value === undefined) return [];
+  const filters = Array.isArray(value) ? value : [value];
+  if (!filters.every((filter): filter is string => typeof filter === "string" && filter.length > 0)) {
+    throw new BitLiteError("--filter requires a component pattern");
+  }
+  return filters;
 }
 
 function readCommandOptions(options: CliArguments["options"]): CliArguments["options"] {

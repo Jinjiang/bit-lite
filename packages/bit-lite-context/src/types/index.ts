@@ -22,6 +22,7 @@ export type ParsedCliArgs = {
   command: string | undefined;
   args: CliArguments;
   workspaceRoot: string;
+  componentFilters: string[];
   help: boolean;
 };
 

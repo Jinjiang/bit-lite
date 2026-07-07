@@ -1,11 +1,11 @@
 import path from "node:path";
 import { createServer } from "vite";
 import { findOpenPort } from "../utils/ports.js";
-import type { DevServerVendorConfig, VendorHandle, VendorRuntime } from "../types.js";
+import type { DevServerVendorConfig, VendorStartResult, VendorRuntime } from "../types.js";
 
 // Create and start Vite Dev Server using Vite's JavaScript API. This function
 // is shared by the inline runner and the Worker Thread runner.
-export default async function startViteDevServer(runtime: VendorRuntime<DevServerVendorConfig>): Promise<VendorHandle> {
+export default async function startViteDevServer(runtime: VendorRuntime<DevServerVendorConfig>): Promise<VendorStartResult> {
   const fixtureRoot = path.join(runtime.data.packageRoot, "fixtures/vite");
   let server: Awaited<ReturnType<typeof createServer>> | undefined;
 

@@ -1,7 +1,8 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { installWorkerTtyShim, isTerminalResizeMessage, setTerminalSize } from "bit-lite-terminal";
+import { WORKER_RUNNER_START_RESULT_MESSAGE_TYPE } from "./worker-protocol.js";
 import type {
-  RunnerHandle,
+  RunnerStartResult,
   RunnerParentMessageListener,
   RunnerRuntime,
   RunnerTargetModule,
@@ -10,7 +11,7 @@ import type {
 
 const data = workerData as WorkerRunnerData;
 const parentMessageListeners = new Set<RunnerParentMessageListener>();
-let runnerHandle: RunnerHandle | void;
+let runnerStartResult: RunnerStartResult | void;
 
 if (data.emulateTty) {
   installWorkerTtyShim({ terminal: data.terminal });
@@ -36,7 +37,7 @@ parentPort?.on("message", async (message) => {
   for (const listener of parentMessageListeners) await listener(message);
 
   if (isShutdownMessage(message)) {
-    await runnerHandle?.stop?.();
+    await runnerStartResult?.stop?.();
     process.exit(0);
   }
 });
@@ -49,7 +50,11 @@ try {
     throw new Error("Runner target module must default export a StartRunnerTarget function.");
   }
 
-  runnerHandle = await startRunnerTarget(runtime);
+  runnerStartResult = await startRunnerTarget(runtime);
+  parentPort?.postMessage({
+    type: WORKER_RUNNER_START_RESULT_MESSAGE_TYPE,
+    data: runnerStartResult?.data,
+  });
 } catch (error) {
   runtime.postMessage({ type: "error", message: formatError(error) });
   console.error(error);

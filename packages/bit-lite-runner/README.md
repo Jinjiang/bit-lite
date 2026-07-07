@@ -12,6 +12,7 @@ The package defines a small runtime contract:
 - the parent passes serializable `data` to the target module
 - the target sends structured messages with `runtime.postMessage()`
 - the parent sends control messages with `runner.send()`
+- the target can return immediate data through `RunnerStartResult.data`
 - `runner.stop()` sends the standard `{ type: "shutdown" }` message
 - worker mode proxies stdout/stderr and can forward stdin to the worker
 
@@ -50,13 +51,16 @@ runner.onOutput((stream, chunk) => {
   target.write(chunk);
 });
 
-await runner.start();
+const data = await runner.start();
+if (data !== undefined) {
+  console.log("tool returned data", data);
+}
 ```
 
 The target module default-exports a `StartRunnerTarget` function:
 
 ```ts
-import type { RunnerHandle, RunnerRuntime } from "bit-lite-runner";
+import type { RunnerStartResult, RunnerRuntime } from "bit-lite-runner";
 
 type Data = {
   label: string;
@@ -66,7 +70,7 @@ type ChildMessage = {
   type: "ready";
 };
 
-export default async function startTool(runtime: RunnerRuntime<Data, ChildMessage>): Promise<RunnerHandle> {
+export default async function startTool(runtime: RunnerRuntime<Data, ChildMessage>): Promise<RunnerStartResult> {
   console.log(`Starting ${runtime.data.label}`);
   runtime.postMessage({ type: "ready" });
 
@@ -74,6 +78,16 @@ export default async function startTool(runtime: RunnerRuntime<Data, ChildMessag
     async stop() {
       console.log("Stopping tool");
     },
+  };
+}
+```
+
+One-shot targets can return data directly instead of sending a result message:
+
+```ts
+export default async function runTool(runtime: RunnerRuntime<Data>): Promise<RunnerStartResult<{ ok: true }>> {
+  return {
+    data: { ok: true },
   };
 }
 ```
