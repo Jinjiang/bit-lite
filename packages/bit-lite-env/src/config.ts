@@ -1,8 +1,8 @@
 import { supportedEnvServiceNames } from "./types/index.js";
 import type {
   EnvConfig,
-  EnvServiceDefinitionMap,
-  EnvServicesDefinition,
+  EnvServiceConfigMap,
+  EnvServicesConfig,
   JsonObject,
   ServiceTargetInput,
   SupportedEnvServiceName,
@@ -36,10 +36,10 @@ export function validateEnvConfig(value: unknown): EnvConfig {
   };
 }
 
-export function validateEnvServicesConfig(value: unknown): EnvServicesDefinition {
+export function validateEnvServicesConfig(value: unknown): EnvServicesConfig {
   if (!isRecord(value)) throw new BitLiteEnvConfigError('env config field "services" must be an object');
 
-  const services: EnvServicesDefinition = {};
+  const services: EnvServicesConfig = {};
   for (const [serviceName, serviceConfig] of Object.entries(value)) {
     if (!isSupportedEnvServiceName(serviceName)) {
       throw new BitLiteEnvConfigError(
@@ -50,7 +50,7 @@ export function validateEnvServicesConfig(value: unknown): EnvServicesDefinition
     services[serviceName] = validateEnvServiceConfig(
       serviceName,
       serviceConfig
-    ) as EnvServiceDefinitionMap[typeof serviceName];
+    ) as EnvServiceConfigMap[typeof serviceName];
   }
 
   return services;
@@ -59,7 +59,7 @@ export function validateEnvServicesConfig(value: unknown): EnvServicesDefinition
 export function validateEnvServiceConfig<ServiceName extends SupportedEnvServiceName>(
   serviceName: ServiceName,
   value: unknown
-): EnvServiceDefinitionMap[ServiceName] {
+): EnvServiceConfigMap[ServiceName] {
   if (!isRecord(value)) {
     throw new BitLiteEnvConfigError(`env service "${serviceName}" config must be an object`);
   }
@@ -75,7 +75,7 @@ export function validateEnvServiceConfig<ServiceName extends SupportedEnvService
     vendor: value.vendor,
     ...(config ? { config } : {}),
     ...(targets ? { targets } : {}),
-  } as EnvServiceDefinitionMap[ServiceName];
+  } as EnvServiceConfigMap[ServiceName];
 }
 
 function validateServiceOptions(

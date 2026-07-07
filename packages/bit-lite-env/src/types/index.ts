@@ -20,7 +20,7 @@ export type ServiceTargetInput = {
   patterns?: ServiceTargetPattern[];
 };
 
-export type EnvServiceDefinition<Config extends JsonObject = JsonObject> = {
+export type EnvServiceConfig<Config extends JsonObject = JsonObject> = {
   vendor: string;
   config?: Config;
   targets?: ServiceTargetInput;
@@ -33,20 +33,20 @@ export type TestServiceConfig = JsonObject & {
   coverage?: boolean;
 };
 
-export type EnvServiceDefinitionMap = {
-  test: EnvServiceDefinition<TestServiceConfig>;
+export type EnvServiceConfigMap = {
+  test: EnvServiceConfig<TestServiceConfig>;
 };
 
-export type EnvServicesDefinition = Partial<EnvServiceDefinitionMap>;
+export type EnvServicesConfig = Partial<EnvServiceConfigMap>;
 
 export type EnvConfig = {
   extends?: string;
-  services?: EnvServicesDefinition;
+  services?: EnvServicesConfig;
 };
 
 export type ResolvedEnvConfig = {
   name: string;
-  services: EnvServicesDefinition;
+  services: EnvServicesConfig;
 };
 
 export type EnvFactoryContext = {
@@ -58,7 +58,7 @@ export type EnvFactoryContext = {
 
 export type EnvDefinition = {
   name: string;
-  services: EnvServicesDefinition;
+  services: EnvServicesConfig;
   config?: JsonObject;
 };
 

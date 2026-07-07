@@ -1,11 +1,12 @@
-import { loadWorkspace, matchPattern, parseArgs } from "bit-lite-context";
-import { testService } from "bit-lite-services";
-import type { ComponentRef, ComponentRuntime, ParsedCliArgs } from "bit-lite-context";
-import type { ServiceDefinition } from "bit-lite-services";
+import { parseArgs } from "bit-lite-context";
+import { runTestCommand } from "./commands/test.js";
+import type { ParsedCliArgs } from "bit-lite-context";
 import { BitLiteError } from "./utils/errors.js";
 
-const services: Record<string, ServiceDefinition> = {
-  test: testService,
+type CommandHandler = (parsed: ParsedCliArgs) => void | Promise<void>;
+
+const commands: Record<string, CommandHandler> = {
+  test: runTestCommand,
 };
 
 export async function runCli(argv = process.argv.slice(2)): Promise<number> {
@@ -16,9 +17,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   }
 
   try {
-    const service = services[parsed.command];
-    if (service) {
-      await runConfiguredService(service, parsed);
+    const command = commands[parsed.command];
+    if (command) {
+      await command(parsed);
       return 0;
     }
 
@@ -28,17 +29,6 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
     console.error(message);
     return 1;
   }
-}
-
-async function runConfiguredService(service: ServiceDefinition, parsed: ParsedCliArgs) {
-  const workspace = await loadWorkspace(parsed.workspaceRoot);
-  const components = selectServiceComponents(workspace.components, parsed.componentFilters);
-
-  return service.run({
-    components,
-    args: parsed.args,
-    context: workspace,
-  });
 }
 
 function printUsage() {
@@ -51,17 +41,4 @@ Usage:
 Commands:
   test    run the configured test service
 `);
-}
-
-function selectServiceComponents(components: ComponentRuntime[], filters: string[]): ComponentRef[] {
-  const selected =
-    filters.length === 0
-      ? components
-      : components.filter((component) => filters.some((filter) => matchPattern(component.id, filter)));
-
-  if (filters.length > 0 && selected.length === 0) {
-    throw new BitLiteError(`--filter did not match any components: ${filters.join(", ")}`);
-  }
-
-  return selected.map(({ id, rootDir }) => ({ id, rootDir }));
 }

@@ -56,7 +56,7 @@ describe("bit-lite-env config", () => {
     ).toThrow('env service "storybook" is not supported');
   });
 
-  it("requires each service config to name a runner", () => {
+  it("requires each service config to name a vendor", () => {
     expect(() => validateEnvServiceConfig("test", { config: {} })).toThrow(
       'env service "test" config must define a non-empty vendor'
     );
@@ -85,7 +85,7 @@ describe("bit-lite-env config", () => {
   it("rejects unsupported target pattern fields", () => {
     expect(() =>
       validateEnvServiceConfig("test", {
-        runner: "@bit-services/vitest",
+        vendor: "@bit-vendors/vitest",
         targets: {
           patterns: [
             {
