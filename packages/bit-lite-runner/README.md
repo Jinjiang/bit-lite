@@ -127,11 +127,6 @@ createWorkerRunner(target, data, {
 });
 ```
 
-## Examples in this repository
-
-- `packages/demo-integrations` uses `bit-lite-runner` to switch each integration
-  between inline and worker execution.
-
 Build and type check the package with:
 
 ```sh

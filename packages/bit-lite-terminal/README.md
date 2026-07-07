@@ -402,14 +402,6 @@ terminal.start();
 These are read-only convenience getters. Navigation, attach, and detach are
 driven by keyboard input.
 
-## Examples in this repository
-
-- `packages/demo-vite-worker` uses the shim to compare direct Vite output with
-  worker-proxied output.
-- `packages/demo-integrations` uses the helpers to run multiple integrations in
-  worker mode, buffer their raw output, and attach the terminal to one selected
-  integration at a time.
-
 Build and type check the package with:
 
 ```sh
