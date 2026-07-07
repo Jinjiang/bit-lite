@@ -1,0 +1,73 @@
+export type JsonPrimitive = string | number | boolean | null;
+
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+
+export type JsonObject = {
+  [key: string]: JsonValue;
+};
+
+export const supportedEnvServiceNames = ["test"] as const;
+
+export type SupportedEnvServiceName = (typeof supportedEnvServiceNames)[number];
+
+export type ServiceTargetPattern = {
+  include?: string[];
+  exclude?: string[];
+};
+
+export type ServiceTargetInput = {
+  files?: string[];
+  patterns?: ServiceTargetPattern[];
+};
+
+export type EnvServiceDefinition<Config extends JsonObject = JsonObject> = {
+  vendor: string;
+  config?: Config;
+  targets?: ServiceTargetInput;
+};
+
+export type TestServiceConfig = JsonObject & {
+  configFile?: string;
+  shard?: string;
+  retries?: number;
+  coverage?: boolean;
+};
+
+export type EnvServiceDefinitionMap = {
+  test: EnvServiceDefinition<TestServiceConfig>;
+};
+
+export type EnvServicesDefinition = Partial<EnvServiceDefinitionMap>;
+
+export type EnvConfig = {
+  extends?: string;
+  services?: EnvServicesDefinition;
+};
+
+export type ResolvedEnvConfig = {
+  name: string;
+  services: EnvServicesDefinition;
+};
+
+export type EnvFactoryContext = {
+  packageName: string;
+  version: string;
+  envPackageRoot: string;
+  workspaceRoot: string;
+};
+
+export type EnvDefinition = {
+  name: string;
+  services: EnvServicesDefinition;
+  config?: JsonObject;
+};
+
+export type EnvFactory = (context: EnvFactoryContext) => EnvDefinition | Promise<EnvDefinition>;
+
+export function defineEnv(definition: EnvDefinition): EnvDefinition {
+  return definition;
+}
+
+export function defineEnvFactory(factory: EnvFactory): EnvFactory {
+  return factory;
+}
