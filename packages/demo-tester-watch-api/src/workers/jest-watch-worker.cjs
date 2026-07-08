@@ -9,12 +9,7 @@ let terminalModule;
 parentPort?.on("message", (message) => {
   if (terminalModule?.isTerminalResizeMessage(message)) {
     terminalModule.setTerminalSize(message);
-    return;
   }
-
-  if (message?.type !== "shutdown") return;
-  parentPort?.postMessage({ type: "status", vendor: "jest", status: "stopped" });
-  process.exit(0);
 });
 
 run().catch((error) => {

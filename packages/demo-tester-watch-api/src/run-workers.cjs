@@ -18,7 +18,6 @@ async function main() {
   const resultStore = createResultStore(["jest", "vitest"]);
   const server = await startResultServer(resultStore, defaultPort, defaultHost);
   const serverUrl = `http://${defaultHost}:${server.address().port}`;
-  const workers = new Map();
   const items = [
     createItem(RawOutputBuffer, "jest", "Jest"),
     createItem(RawOutputBuffer, "vitest", "Vitest"),
@@ -29,14 +28,13 @@ async function main() {
     instructions:
       "Use Up/Down + Enter for native worker output. Press q or Ctrl+C to stop. Results: /jest/results.json, /jest/results.txt, /vitest/results.json, /vitest/results.txt",
     items,
-    onQuit: async () => {
-      await stopWorkers(workers, terminal, items, server);
+    onQuit: () => {
+      process.kill(process.pid, "SIGINT");
     },
   });
 
   for (const item of items) {
-    const worker = startWorker(item.id, item);
-    workers.set(item.id, worker);
+    startWorker(item.id, item);
   }
 
   terminal.start();
@@ -114,40 +112,6 @@ function handleWorkerMessage(message, item, terminal, resultStore) {
   terminal.scheduleRender();
 }
 
-async function stopWorkers(workers, terminal, items, server) {
-  for (const item of items) {
-    item.status = "stopping";
-    item.details = [];
-  }
-  terminal.scheduleRender();
-
-  for (const worker of workers.values()) {
-    worker.postMessage({ type: "shutdown" });
-    worker.stdin.write("q");
-  }
-
-  await Promise.race([
-    Promise.allSettled([...workers.values()].map((worker) => onceExit(worker))),
-    delay(3000),
-  ]);
-
-  for (const worker of workers.values()) {
-    worker.stdin.destroy();
-    worker.stdout.destroy();
-    worker.stderr.destroy();
-    worker.unref();
-    worker.terminate().catch(() => undefined);
-  }
-
-  terminal.stop({ clearScreen: true });
-  server.close();
-  exitProcess(0);
-}
-
-function onceExit(worker) {
-  return new Promise((resolve) => worker.once("exit", resolve));
-}
-
 function readFailedCount(json) {
   return json.numFailedTests ?? json.stats?.failed ?? 0;
 }
@@ -157,10 +121,6 @@ function formatStats(json) {
     return `${json.stats.passed}/${json.stats.total} passed`;
   }
   return `${json.numPassedTests}/${json.numTotalTests} passed`;
-}
-
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function pathToFileUrl(filePath) {
@@ -238,8 +198,4 @@ function startResultServer(resultStore, port, host) {
 function writeJson(response, statusCode, body) {
   response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
   response.end(`${JSON.stringify(body, null, 2)}\n`);
-}
-
-function exitProcess(code) {
-  process.exit(code);
 }

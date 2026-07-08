@@ -6,17 +6,12 @@ const { createVitestResult, formatVitestTextResult } = require("../vitest-result
 
 const packageRoot = workerData.packageRoot;
 let terminalModule;
-let activeVitest;
 let runCount = 0;
 
 parentPort?.on("message", (message) => {
   if (terminalModule?.isTerminalResizeMessage(message)) {
     terminalModule.setTerminalSize(message);
-    return;
   }
-
-  if (message?.type !== "shutdown") return;
-  void stop();
 });
 
 run().catch((error) => {
@@ -45,7 +40,7 @@ async function run() {
     },
   };
 
-  activeVitest = await startVitest(
+  await startVitest(
     "test",
     [],
     {
@@ -64,14 +59,6 @@ async function run() {
 async function installTerminalShim() {
   terminalModule = await import(pathToFileURL(path.join(packageRoot, "../bit-lite-terminal/dist/index.js")).href);
   terminalModule.installWorkerTtyShim({ terminal: workerData.terminal });
-}
-
-async function stop() {
-  const vitest = activeVitest;
-  activeVitest = undefined;
-  await vitest?.close();
-  parentPort?.postMessage({ type: "status", vendor: "vitest", status: "stopped" });
-  process.exit(0);
 }
 
 function resolveFromDemoVendors(specifier) {
