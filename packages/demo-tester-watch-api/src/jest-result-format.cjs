@@ -1,13 +1,22 @@
-const fs = require("node:fs");
 const path = require("node:path");
 
-function appendTextResult(outputFile, results) {
-  const resolvedOutputFile = path.resolve(outputFile);
-  fs.mkdirSync(path.dirname(resolvedOutputFile), { recursive: true });
-  fs.appendFileSync(resolvedOutputFile, `${formatTextResult(results)}\n---\n`);
+function createJestResult(run, results) {
+  return {
+    vendor: "jest",
+    run,
+    success: results.success,
+    computedSuccess: computeSuccess(results),
+    numFailedTests: results.numFailedTests,
+    numPassedTests: results.numPassedTests,
+    numRuntimeErrorTestSuites: results.numRuntimeErrorTestSuites,
+    numTotalTests: results.numTotalTests,
+    numTotalTestSuites: results.numTotalTestSuites,
+    wasInterrupted: results.wasInterrupted,
+    testFiles: results.testResults.map((result) => result.testFilePath),
+  };
 }
 
-function formatTextResult(results) {
+function formatJestTextResult(results) {
   return [
     ...formatTestFiles(results),
     formatTestSuitesSummary(results),
@@ -17,6 +26,15 @@ function formatTextResult(results) {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function computeSuccess(results) {
+  return (
+    results.numFailedTests === 0 &&
+    results.numRuntimeErrorTestSuites === 0 &&
+    results.snapshot?.failure !== true &&
+    results.wasInterrupted !== true
+  );
 }
 
 function formatTestFiles(results) {
@@ -69,6 +87,6 @@ function relativePath(filePath) {
 }
 
 module.exports = {
-  appendTextResult,
-  formatTextResult,
+  createJestResult,
+  formatJestTextResult,
 };

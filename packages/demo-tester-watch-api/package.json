@@ -1,0 +1,9 @@
+{
+  "name": "demo-tester-watch-api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "demo": "node src/run-workers.cjs"
+  }
+}

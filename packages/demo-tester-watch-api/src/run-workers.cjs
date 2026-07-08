@@ -5,7 +5,7 @@ const { Worker } = require("node:worker_threads");
 
 const packageRoot = path.resolve(__dirname, "..");
 const defaultHost = "127.0.0.1";
-const defaultPort = Number(process.env.DEMO_JEST_WATCH_API_PORT ?? 3000);
+const defaultPort = Number(process.env.DEMO_TESTER_WATCH_API_PORT ?? 3000);
 
 main().catch((error) => {
   console.error(error);
@@ -25,7 +25,7 @@ async function main() {
   ];
 
   const terminal = new ManagedTerminal({
-    title: () => `demo-jest-watch-api workers  ${serverUrl}`,
+    title: () => `demo-tester-watch-api  ${serverUrl}`,
     instructions:
       "Use Up/Down + Enter for native worker output. Press q or Ctrl+C to stop. Results: /jest/results.json, /jest/results.txt, /vitest/results.json, /vitest/results.txt",
     items,
@@ -241,6 +241,5 @@ function writeJson(response, statusCode, body) {
 }
 
 function exitProcess(code) {
-  process.exitCode = code;
-  process.kill(process.pid, "SIGTERM");
+  process.exit(code);
 }

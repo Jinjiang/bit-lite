@@ -1,6 +1,5 @@
 const { parentPort } = require("node:worker_threads");
-const { summarizeAggregatedResult } = require("../result-summary.cjs");
-const { formatTextResult } = require("../write-text-result.cjs");
+const { createJestResult, formatJestTextResult } = require("../jest-result-format.cjs");
 
 let run = 0;
 
@@ -12,12 +11,8 @@ class JestEventWatchPlugin {
         type: "result",
         vendor: "jest",
         run,
-        json: {
-          vendor: "jest",
-          run,
-          ...summarizeAggregatedResult(results),
-        },
-        text: formatTextResult(results),
+        json: createJestResult(run, results),
+        text: formatJestTextResult(results),
       });
     });
   }

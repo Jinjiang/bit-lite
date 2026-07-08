@@ -28,7 +28,7 @@ async function run() {
   const config = {
     rootDir: packageRoot,
     testMatch: ["<rootDir>/fixtures/**/*.test.cjs"],
-    watchPathIgnorePatterns: [path.join("/private/tmp", "demo-jest-watch-api"), "<rootDir>/results/"],
+    watchPathIgnorePatterns: [path.join("/private/tmp", "demo-tester-watch-api"), "<rootDir>/results/"],
   };
 
   parentPort?.postMessage({ type: "status", vendor: "jest", status: "watching" });
@@ -36,7 +36,7 @@ async function run() {
   await runCLI(
     {
       _: [],
-      $0: "demo-jest-watch-api jest-worker",
+      $0: "demo-tester-watch-api jest-worker",
       colors: false,
       config: JSON.stringify(config),
       passWithNoTests: true,
