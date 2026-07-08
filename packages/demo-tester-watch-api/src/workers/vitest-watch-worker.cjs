@@ -26,7 +26,7 @@ run().catch((error) => {
 
 async function run() {
   await installTerminalShim();
-  const { createVitest } = await import(pathToFileURL(resolveFromDemoVendors("vitest/node")).href);
+  const { startVitest } = await import(pathToFileURL(resolveFromDemoVendors("vitest/node")).href);
   const reporter = {
     onTestRunStart() {
       parentPort?.postMessage({ type: "status", vendor: "vitest", status: "running" });
@@ -45,8 +45,9 @@ async function run() {
     },
   };
 
-  activeVitest = await createVitest(
+  activeVitest = await startVitest(
     "test",
+    [],
     {
       root: packageRoot,
       include: ["fixtures/vitest/**/*.test.mjs"],
@@ -58,7 +59,6 @@ async function run() {
   );
 
   parentPort?.postMessage({ type: "status", vendor: "vitest", status: "watching" });
-  await activeVitest.start();
 }
 
 async function installTerminalShim() {
