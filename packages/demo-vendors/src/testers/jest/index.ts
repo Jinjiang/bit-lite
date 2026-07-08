@@ -129,27 +129,25 @@ export default async function startJestVendor(
     const { runCLI } = (await import("jest")) as unknown as { runCLI: JestRunCLI };
     const config = await importJestConfig(configFile);
     const realWorkspaceRoot = await safeRealpath(workspaceRoot);
-    return withMutedStdout(async () => {
-      const { results } = await runCLI(
-        {
-          _: files,
-          $0: "bit-lite",
-          config: JSON.stringify({
-            ...config,
-            rootDir: realWorkspaceRoot,
-          }),
-          runInBand: true,
-          runTestsByPath: true,
-          watch: false,
-          watchAll: false,
-          silent: true,
-          colors: false,
-          passWithNoTests: true,
-        },
-        [realWorkspaceRoot]
-      );
-      return results;
-    });
+    const { results } = await runCLI(
+      {
+        _: files,
+        $0: "bit-lite",
+        config: JSON.stringify({
+          ...config,
+          rootDir: realWorkspaceRoot,
+        }),
+        runInBand: true,
+        runTestsByPath: true,
+        watch: false,
+        watchAll: false,
+        silent: true,
+        colors: false,
+        passWithNoTests: true,
+      },
+      [realWorkspaceRoot]
+    );
+    return results;
   }
 }
 
@@ -243,18 +241,5 @@ async function safeRealpath(filePath: string) {
     return await realpath(filePath);
   } catch {
     return filePath;
-  }
-}
-
-async function withMutedStdout<T>(callback: () => Promise<T>) {
-  const stdoutWrite = process.stdout.write;
-  const stderrWrite = process.stderr.write;
-  process.stdout.write = (() => true) as typeof process.stdout.write;
-  process.stderr.write = (() => true) as typeof process.stderr.write;
-  try {
-    return await callback();
-  } finally {
-    process.stdout.write = stdoutWrite;
-    process.stderr.write = stderrWrite;
   }
 }

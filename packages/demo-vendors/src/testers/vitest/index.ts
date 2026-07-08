@@ -108,11 +108,6 @@ export default async function startVitestVendor(
         reporters: [],
         passWithNoTests: true,
       },
-      {},
-      {
-        stdout: createNullWritable(),
-        stderr: createNullWritable(),
-      }
     );
 
     try {

@@ -51,6 +51,11 @@ export async function runTestCommand(parsed: ParsedCliArgs) {
     .map((group) => createTestVendorTaskOptions(workspace, group, parsed))
     .filter((task): task is VendorTaskStartOptions => task !== undefined);
 
+  if (tasks.length === 0) {
+    printNoTestTasks(groups);
+    return;
+  }
+
   if (parsed.args.options.watch === true) {
     await watchVendorTasks(tasks, {
       serviceId,
@@ -85,6 +90,18 @@ function createTestVendorTaskOptions(
     context: workspace,
     serviceConfig,
   };
+}
+
+function printNoTestTasks(groups: SelectedEnvGroup[]) {
+  console.log("No test tasks found.");
+  if (groups.length === 0) {
+    console.log("No components were selected from this workspace.");
+    return;
+  }
+
+  const envNames = groups.map((group) => group.envName).join(", ");
+  console.log(`Selected envs: ${envNames}`);
+  console.log('Make sure each selected env defines services.test in the workspace config.');
 }
 
 function printTestResults(

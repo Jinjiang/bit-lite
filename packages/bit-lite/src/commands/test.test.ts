@@ -27,7 +27,7 @@ describe("test command", () => {
     const workspaceRoot = await createWorkspace();
     const code = await runCli(["test", "--workspace", workspaceRoot]);
 
-    expect(code).toBe(0);
+    expect(code, JSON.stringify({ errors, logs }, null, 2)).toBe(0);
     expect(errors).toEqual([]);
     expect(logs).toEqual([
       "Test results:",
@@ -42,7 +42,7 @@ describe("test command", () => {
     const workspaceRoot = await createWorkspace();
     const code = await runCli(["test", "--workspace", workspaceRoot, "--filter", "components/vitest/*"]);
 
-    expect(code).toBe(0);
+    expect(code, JSON.stringify({ errors, logs }, null, 2)).toBe(0);
     expect(logs).toEqual([
       "Test results:",
       "- Vitest (vitest): 2/2 passed",
@@ -54,7 +54,7 @@ describe("test command", () => {
     const workspaceRoot = await createWorkspace();
     const code = await runCli(["test", "--workspace", workspaceRoot, "--watch"]);
 
-    expect(code).toBe(0);
+    expect(code, JSON.stringify({ errors, logs }, null, 2)).toBe(0);
     expect(errors).toEqual([]);
   });
 });
