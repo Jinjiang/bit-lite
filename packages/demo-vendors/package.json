@@ -3,48 +3,48 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "dist/index.js",
-  "types": "src/index.ts",
+  "main": "dist/samples/index.js",
+  "types": "src/samples/index.ts",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "default": "./dist/index.js"
+      "types": "./src/samples/index.ts",
+      "default": "./dist/samples/index.js"
     },
     "./bar-x": {
-      "types": "./src/bar-x.ts",
-      "default": "./dist/bar-x.js"
+      "types": "./src/samples/bar-x.ts",
+      "default": "./dist/samples/bar-x.js"
     },
     "./bar-y": {
-      "types": "./src/bar-y.ts",
-      "default": "./dist/bar-y.js"
+      "types": "./src/samples/bar-y.ts",
+      "default": "./dist/samples/bar-y.js"
     },
     "./bar-z": {
-      "types": "./src/bar-z.ts",
-      "default": "./dist/bar-z.js"
+      "types": "./src/samples/bar-z.ts",
+      "default": "./dist/samples/bar-z.js"
     },
     "./baz-x": {
-      "types": "./src/baz-x.ts",
-      "default": "./dist/baz-x.js"
+      "types": "./src/samples/baz-x.ts",
+      "default": "./dist/samples/baz-x.js"
     },
     "./foo-x": {
-      "types": "./src/foo-x.ts",
-      "default": "./dist/foo-x.js"
+      "types": "./src/samples/foo-x.ts",
+      "default": "./dist/samples/foo-x.js"
     },
     "./mixed-results": {
-      "types": "./src/mixed-results.ts",
-      "default": "./dist/mixed-results.js"
+      "types": "./src/samples/mixed-results.ts",
+      "default": "./dist/samples/mixed-results.js"
     },
     "./test-x": {
-      "types": "./src/test-x.ts",
-      "default": "./dist/test-x.js"
+      "types": "./src/samples/test-x.ts",
+      "default": "./dist/samples/test-x.js"
     },
     "./test-y": {
-      "types": "./src/test-y.ts",
-      "default": "./dist/test-y.js"
+      "types": "./src/samples/test-y.ts",
+      "default": "./dist/samples/test-y.js"
     },
     "./test-result": {
-      "types": "./src/test-result.ts",
-      "default": "./dist/test-result.js"
+      "types": "./src/samples/test-result.ts",
+      "default": "./dist/samples/test-result.js"
     }
   },
   "scripts": {
