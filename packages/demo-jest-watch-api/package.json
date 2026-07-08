@@ -1,0 +1,15 @@
+{
+  "name": "demo-jest-watch-api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "demo": "node src/run-demo.cjs all",
+    "demo:results": "node src/run-demo.cjs results",
+    "demo:reporter": "node src/run-demo.cjs reporter",
+    "demo:watch-plugin": "node src/run-demo.cjs watch-plugin",
+    "demo:native-watch": "node src/run-demo.cjs native-watch",
+    "demo:workers": "node src/run-workers.cjs",
+    "demo:exit": "node src/run-demo.cjs exit"
+  }
+}
