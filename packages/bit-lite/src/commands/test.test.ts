@@ -31,20 +31,22 @@ describe("test command", () => {
     expect(errors).toEqual([]);
     expect(logs).toEqual([
       "Test results:",
-      "- Test X (node): 2/2 passed",
-      "- Test Y (react): 3/3 passed",
-      "- Test X (vue): 2/2 passed",
+      "- Jest (jest): 2/2 passed",
+      "  - components/jest/math: 2/2 passed (2 files)",
+      "- Vitest (vitest): 2/2 passed",
+      "  - components/vitest/math: 2/2 passed (2 files)",
     ]);
   });
 
   it("filters selected components before env grouping", async () => {
     const workspaceRoot = await createWorkspace();
-    const code = await runCli(["test", "--workspace", workspaceRoot, "--filter", "components/ui/*"]);
+    const code = await runCli(["test", "--workspace", workspaceRoot, "--filter", "components/vitest/*"]);
 
     expect(code).toBe(0);
     expect(logs).toEqual([
       "Test results:",
-      "- Test Y (react): 3/3 passed",
+      "- Vitest (vitest): 2/2 passed",
+      "  - components/vitest/math: 2/2 passed (2 files)",
     ]);
   });
 
@@ -64,49 +66,30 @@ async function createWorkspace() {
     JSON.stringify(
       {
         envs: {
-          node: {
+          jest: {
             services: {
               test: {
-                vendor: "demo-vendors/test-x",
+                vendor: "demo-vendors/testers/jest",
                 config: {
-                  shard: "unit",
-                  retries: 1,
-                  coverage: true,
+                  configFile: "demo-config/testers/jest/react",
                 },
               },
             },
           },
-          react: {
-            extends: "node",
+          vitest: {
             services: {
               test: {
-                vendor: "demo-vendors/test-y",
+                vendor: "demo-vendors/testers/vitest",
                 config: {
-                  shard: "browser",
-                  retries: 2,
-                  coverage: false,
-                },
-              },
-            },
-          },
-          vue: {
-            extends: "node",
-            services: {
-              test: {
-                vendor: "demo-vendors/test-x",
-                config: {
-                  shard: "sfc",
-                  retries: 1,
-                  coverage: true,
+                  configFile: "demo-config/testers/vitest/node",
                 },
               },
             },
           },
         },
         components: {
-          "components/lib/**": "node",
-          "components/ui/**": "react",
-          "components/vue/**": "vue",
+          "components/jest/**": "jest",
+          "components/vitest/**": "vitest",
         },
       },
       null,
@@ -114,16 +97,42 @@ async function createWorkspace() {
     )
   );
 
-  await writeComponent(workspaceRoot, "components/lib/math", "export const add = () => 1;\n");
-  await writeComponent(workspaceRoot, "components/ui/button", "export const Button = {};\n");
-  await writeComponent(workspaceRoot, "components/vue/card", "<template><div>Card</div></template>\n");
+  await writeMathComponent(workspaceRoot, "components/jest/math");
+  await writeMathComponent(workspaceRoot, "components/vitest/math");
 
   return workspaceRoot;
 }
 
-async function writeComponent(workspaceRoot: string, componentDir: string, contents: string) {
+async function writeMathComponent(workspaceRoot: string, componentDir: string) {
   const absoluteDir = path.join(workspaceRoot, componentDir);
   await mkdir(absoluteDir, { recursive: true });
-  const fileName = componentDir.endsWith("/card") ? "index.vue" : "index.ts";
-  await writeFile(path.join(absoluteDir, fileName), contents);
+  await writeFile(path.join(absoluteDir, "index.ts"), "export const add = (left: number, right: number) => left + right;\n");
+  await writeFile(
+    path.join(absoluteDir, "index.test.ts"),
+    [
+      'import assert from "node:assert/strict";',
+      'import { add } from "./index.js";',
+      "",
+      'describe("add", () => {',
+      '  it("adds two numbers", () => {',
+      "    assert.equal(add(2, 3), 5);",
+      "  });",
+      "});",
+      "",
+    ].join("\n")
+  );
+  await writeFile(
+    path.join(absoluteDir, "arithmetic.spec.ts"),
+    [
+      'import assert from "node:assert/strict";',
+      'import { add } from "./index.js";',
+      "",
+      'describe("arithmetic", () => {',
+      '  it("adds negative numbers", () => {',
+      "    assert.equal(add(-2, -3), -5);",
+      "  });",
+      "});",
+      "",
+    ].join("\n")
+  );
 }

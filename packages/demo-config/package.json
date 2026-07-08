@@ -3,6 +3,40 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./testers/jest/react": {
+      "types": "./src/testers/jest/react/jest.config.ts",
+      "default": "./dist/testers/jest/react/jest.config.js"
+    },
+    "./testers/vitest/node": {
+      "types": "./src/testers/vitest/node/vitest.config.ts",
+      "default": "./dist/testers/vitest/node/vitest.config.js"
+    },
+    "./testers/vitest/vue": {
+      "types": "./src/testers/vitest/vue/vitest.config.ts",
+      "default": "./dist/testers/vitest/vue/vitest.config.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@vitejs/plugin-vue": "^6.0.7",
+    "@swc/core": "^1.15.43",
+    "@swc/jest": "^0.2.39",
+    "jest-environment-jsdom": "^30.4.1"
+  },
   "devDependencies": {
+    "@types/node": "^25.9.1",
+    "jest": "^30.4.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
   }
 }

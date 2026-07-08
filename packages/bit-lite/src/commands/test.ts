@@ -9,17 +9,35 @@ import type { VendorTask, VendorTaskRunResult, VendorTaskStartOptions } from "bi
 
 export type TestServiceResult = {
   service: "test";
-  envName: string;
   vendor: string;
   mode: "run" | "watch";
   run: number;
+  context: TestResultContext;
+  stats: TestStats;
+  componentResults: TestComponentResult[];
+};
+
+export type TestResultContext = {
+  envName: string;
   componentIds: string[];
   args: CliArguments;
   config: JsonObject;
+};
+
+export type TestStats = {
   total: number;
   passed: number;
   failed: number;
+  skipped: number;
   summary: string;
+};
+
+export type TestComponentResult = {
+  componentId: string;
+  files: string[];
+  stats: TestStats;
+  durationMs: number;
+  errors: string[];
 };
 
 const serviceId = "test";
@@ -78,7 +96,10 @@ function printTestResults(
   console.log("Test results:");
   for (const [index, result] of results.entries()) {
     const task = tasks[index];
-    console.log(`- ${task?.label ?? result.vendor}: ${result.data.summary}`);
+    console.log(`- ${task?.label ?? result.vendor}: ${result.data.stats.summary}`);
+    for (const componentResult of result.data.componentResults) {
+      console.log(`  - ${componentResult.componentId}: ${formatComponentResult(componentResult)}`);
+    }
   }
 }
 
@@ -94,26 +115,66 @@ function formatTestWatchResult(result: unknown) {
 }
 
 function formatTestDetails(result: TestServiceResult) {
-  return [result.summary];
+  return [
+    result.stats.summary,
+    ...result.componentResults.map((componentResult) => {
+      return `${componentResult.componentId}: ${formatComponentResult(componentResult)}`;
+    }),
+  ];
 }
 
 export function isTestServiceResult(value: unknown): value is TestServiceResult {
   return (
     isRecord(value) &&
     value.service === "test" &&
-    typeof value.envName === "string" &&
     typeof value.vendor === "string" &&
     (value.mode === "run" || value.mode === "watch") &&
     typeof value.run === "number" &&
+    isTestResultContext(value.context) &&
+    isTestStats(value.stats) &&
+    Array.isArray(value.componentResults) &&
+    value.componentResults.every(isTestComponentResult)
+  );
+}
+
+function isTestResultContext(value: unknown): value is TestResultContext {
+  return (
+    isRecord(value) &&
+    typeof value.envName === "string" &&
     Array.isArray(value.componentIds) &&
     value.componentIds.every((componentId) => typeof componentId === "string") &&
     isRecord(value.args) &&
-    isJsonObject(value.config) &&
+    isJsonObject(value.config)
+  );
+}
+
+function isTestStats(value: unknown): value is TestStats {
+  return (
+    isRecord(value) &&
     typeof value.total === "number" &&
     typeof value.passed === "number" &&
     typeof value.failed === "number" &&
+    typeof value.skipped === "number" &&
     typeof value.summary === "string"
   );
+}
+
+function isTestComponentResult(value: unknown): value is TestComponentResult {
+  return (
+    isRecord(value) &&
+    typeof value.componentId === "string" &&
+    Array.isArray(value.files) &&
+    value.files.every((file) => typeof file === "string") &&
+    isTestStats(value.stats) &&
+    typeof value.durationMs === "number" &&
+    Array.isArray(value.errors) &&
+    value.errors.every((error) => typeof error === "string")
+  );
+}
+
+function formatComponentResult(result: TestComponentResult) {
+  const fileLabel = result.files.length === 1 ? "1 file" : `${result.files.length} files`;
+  return `${result.stats.summary} (${fileLabel})`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

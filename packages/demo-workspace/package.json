@@ -9,10 +9,15 @@
     "vue": "^3.5.38"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.0.0",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/vue": "^8.1.0",
     "@types/node": "^25.9.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "bit-lite": "workspace:*",
-    "demo-vendors": "workspace:*"
+    "demo-config": "workspace:*",
+    "demo-vendors": "workspace:*",
+    "jsdom": "^27.4.0"
   }
 }

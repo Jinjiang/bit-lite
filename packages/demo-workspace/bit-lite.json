@@ -10,12 +10,9 @@
           }
         },
         "test": {
-          "vendor": "demo-vendors/test-x",
+          "vendor": "demo-vendors/testers/vitest",
           "config": {
-            "label": "node test",
-            "shard": "unit",
-            "retries": 1,
-            "coverage": true
+            "configFile": "demo-config/testers/vitest/node"
           }
         },
         "bar": {
@@ -43,12 +40,9 @@
           }
         },
         "test": {
-          "vendor": "demo-vendors/test-y",
+          "vendor": "demo-vendors/testers/jest",
           "config": {
-            "label": "react test",
-            "shard": "browser",
-            "retries": 2,
-            "coverage": false
+            "configFile": "demo-config/testers/jest/react"
           }
         }
       }
@@ -64,12 +58,9 @@
           }
         },
         "test": {
-          "vendor": "demo-vendors/test-x",
+          "vendor": "demo-vendors/testers/vitest",
           "config": {
-            "label": "vue test",
-            "shard": "sfc",
-            "retries": 1,
-            "coverage": true
+            "configFile": "demo-config/testers/vitest/vue"
           }
         }
       }

@@ -8,7 +8,7 @@
     "bit-lite": "bin/bit-lite.js"
   },
   "scripts": {
-    "test": "pnpm --filter demo-vendors build && vitest run --passWithNoTests",
+    "test": "pnpm --filter demo-config build && pnpm --filter demo-vendors build && vitest run --passWithNoTests",
     "build": "pnpm --filter bit-lite-context build && pnpm --filter bit-lite-vendors build && tsc -p tsconfig.json",
     "dev": "tsx src/bin.ts"
   },
@@ -23,6 +23,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "demo-config": "workspace:*",
     "demo-vendors": "workspace:*",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",

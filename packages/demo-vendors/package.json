@@ -42,6 +42,14 @@
       "types": "./src/samples/test-y.ts",
       "default": "./dist/samples/test-y.js"
     },
+    "./testers/jest": {
+      "types": "./src/testers/jest/index.ts",
+      "default": "./dist/testers/jest/index.js"
+    },
+    "./testers/vitest": {
+      "types": "./src/testers/vitest/index.ts",
+      "default": "./dist/testers/vitest/index.js"
+    },
     "./test-result": {
       "types": "./src/samples/test-result.ts",
       "default": "./dist/samples/test-result.js"
@@ -54,11 +62,12 @@
   },
   "dependencies": {
     "bit-lite-context": "workspace:*",
-    "bit-lite-vendors": "workspace:*"
+    "bit-lite-vendors": "workspace:*",
+    "jest": "^30.4.2",
+    "vitest": "^4.1.8"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "typescript": "^6.0.3"
   }
 }
