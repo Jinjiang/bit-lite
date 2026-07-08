@@ -332,9 +332,9 @@ menu redraws.
 `renderNow()` redraws the menu immediately. Most callers should prefer
 `scheduleRender()` after changing item state.
 
-`stop()` removes the keypress listener, leaves raw mode when supported, and shows
-the cursor. Pass `{ clearScreen: true }` during shutdown if the parent process
-should leave a clean terminal behind.
+`stop()` removes the keypress listener, leaves raw mode when supported, pauses
+stdin, and shows the cursor. Pass `{ clearScreen: true }` during shutdown if the
+parent process should leave a clean terminal behind.
 
 #### Output
 

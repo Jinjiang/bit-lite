@@ -8,6 +8,5 @@ export default defineConfig({
     globals: true,
     include: ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
     passWithNoTests: true,
-    reporters: [],
   },
 });

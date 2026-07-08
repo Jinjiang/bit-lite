@@ -1,6 +1,7 @@
 import { parseCliArguments } from "bit-lite-context";
-import { describe, expect, it } from "vitest";
-import { runVendorTasks, watchVendorTasks } from "bit-lite-vendors";
+import { RawOutputBuffer } from "bit-lite-terminal";
+import { describe, expect, it, vi } from "vitest";
+import { runVendorTasks, stopVendorTasks, watchVendorTasks } from "bit-lite-vendors";
 import type { CliArguments, ComponentRuntime, WorkspaceRuntime } from "bit-lite-context";
 import type { JsonObject } from "./types/index.js";
 import type { VendorTask, VendorTaskRunResult, VendorTaskStartOptions } from "bit-lite-vendors";
@@ -278,6 +279,34 @@ describe("vendor task helpers", () => {
     expect(tasks).toHaveLength(1);
     expect(tasks[0]?.details).toEqual(["event: event saw 1 component(s)"]);
     expect(tasks[0]?.canAttach).toBe(true);
+  });
+
+  it("does not wait forever for hung task termination", async () => {
+    const stop = vi.fn();
+    const terminate = vi.fn(() => new Promise<void>(() => undefined));
+    const task = {
+      id: "hung:test",
+      label: "Hung Test",
+      status: "running",
+      rawOutput: new RawOutputBuffer(),
+      envName: "hung",
+      vendor: {
+        id: "hung",
+        label: "Hung",
+        hint: "Hung fixture",
+        moduleUrl: "data:text/javascript,export default function start() {}",
+      },
+      result: new Promise(() => undefined),
+      exitPromise: new Promise(() => undefined),
+      postMessage() {},
+      stop,
+      terminate,
+    } as VendorTask;
+
+    await stopVendorTasks([task], { exitTimeoutMs: 1, terminateTimeoutMs: 1 });
+
+    expect(stop).toHaveBeenCalledOnce();
+    expect(terminate).toHaveBeenCalledOnce();
   });
 
   it("rejects an env service config without a vendor", async () => {

@@ -263,6 +263,7 @@ export class ManagedTerminal<Item extends ManagedTerminalItem = ManagedTerminalI
     }
 
     this.#stdin.setRawMode?.(false);
+    this.#stdin.pause();
     this.#stdout.write(options.clearScreen ? "\x1b[?25h\x1b[2J\x1b[H" : "\x1b[?25h");
   }
 
