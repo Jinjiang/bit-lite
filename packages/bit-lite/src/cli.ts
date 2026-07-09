@@ -1,4 +1,6 @@
 import { parseArgs } from "bit-lite-context";
+import { runCompileCommand } from "./commands/compile.js";
+import { runInstallCommand } from "./commands/install.js";
 import { runTestCommand } from "./commands/test.js";
 import type { ParsedCliArgs } from "bit-lite-context";
 import { BitLiteError } from "./utils/errors.js";
@@ -6,6 +8,8 @@ import { BitLiteError } from "./utils/errors.js";
 type CommandHandler = (parsed: ParsedCliArgs) => void | Promise<void>;
 
 const commands: Record<string, CommandHandler> = {
+  compile: runCompileCommand,
+  install: runInstallCommand,
   test: runTestCommand,
 };
 
@@ -39,6 +43,8 @@ Usage:
   bit-lite <command> [--workspace <dir>] [--filter <component-pattern>] [...args]
 
 Commands:
+  compile noop placeholder for package compilation experiments
+  install noop placeholder for package installation experiments
   test    run the configured test service
 `);
 }
