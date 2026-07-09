@@ -20,9 +20,9 @@
     }
   },
   "scripts": {
-    "test": "pnpm --filter bit-lite-vendors build && vitest run",
-    "build": "pnpm --filter bit-lite-terminal build && tsc -p tsconfig.json",
-    "typecheck": "pnpm --filter bit-lite-terminal build && tsc -p tsconfig.json --noEmit"
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "bit-lite-context": "workspace:*",
