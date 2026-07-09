@@ -1,7 +1,6 @@
-import { Writable } from "node:stream";
 import path from "node:path";
 import { createVitest } from "vitest/node";
-import type { TestModule, TestRunResult, Vitest } from "vitest/node";
+import type { Reporter, TestModule, TestRunResult, Vitest } from "vitest/node";
 import type { VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
 import { readTestVendorConfig } from "../config.js";
 import { findComponentTestTargets } from "../files.js";
@@ -27,16 +26,15 @@ export default async function startVitestVendor(
   runtime: VendorRuntime<Record<string, unknown>, TestServiceResult>
 ): Promise<VendorStartResult<TestServiceResult>> {
   const workspaceRoot = runtime.data.context?.workspaceRoot ?? process.cwd();
-  const mode = runtime.data.args.options.watch === true ? "watch" : "run";
+  const watch = runtime.data.args.options.watch === true && isInteractiveTerminal();
+  const mode = watch ? "watch" : "run";
   let run = 0;
   let stopped = false;
-  let keepAlive: NodeJS.Timeout | undefined;
   let activeVitest: Vitest | undefined;
 
   const finish = (status: string) => {
     if (stopped) return;
     stopped = true;
-    if (keepAlive) clearInterval(keepAlive);
     runtime.postMessage({ type: "status", status });
   };
 
@@ -50,10 +48,9 @@ export default async function startVitestVendor(
 
   runtime.postMessage({ type: "ready" });
 
-  if (mode === "watch") {
+  if (watch) {
     runtime.postMessage({ type: "status", status: "watching" });
-    keepAlive = setInterval(() => undefined, 2 ** 30);
-    void runSnapshot().catch((error) => {
+    void runWatch().catch((error) => {
       runtime.postMessage({ type: "error", message: formatError(error) });
       finish("error");
     });
@@ -97,6 +94,29 @@ export default async function startVitestVendor(
     return data;
   }
 
+  async function runWatch() {
+    const vendorConfig = readTestVendorConfig(runtime.data.config, workspaceRoot);
+    const targets = await findComponentTestTargets(runtime.data.components);
+    const allFiles = targets.flatMap((target) => target.files);
+
+    if (allFiles.length === 0) {
+      run += 1;
+      const data = createTestServiceResult({
+        envName: runtime.data.envName,
+        vendor: meta.id,
+        mode,
+        run,
+        componentResults: finishComponentResults(createEmptyComponentResults(targets)),
+        args: runtime.data.args,
+        config: runtime.data.config,
+      });
+      runtime.postMessage({ type: "result", data });
+      return;
+    }
+
+    await runVitestWatch(vendorConfig.configFile, allFiles, targets);
+  }
+
   async function runVitestFiles(configFile: string, files: string[]) {
     activeVitest = await createVitest(
       "test",
@@ -112,6 +132,58 @@ export default async function startVitestVendor(
 
     try {
       return await activeVitest.start(files);
+    } finally {
+      await activeVitest.close();
+      activeVitest = undefined;
+    }
+  }
+
+  async function runVitestWatch(
+    configFile: string,
+    files: string[],
+    targets: Awaited<ReturnType<typeof findComponentTestTargets>>
+  ) {
+    const reporter: Reporter = {
+      onTestRunStart() {
+        runtime.postMessage({ type: "status", status: "running" });
+      },
+      onTestRunEnd(testModules, unhandledErrors) {
+        run += 1;
+        const componentResults = createEmptyComponentResults(targets);
+        applyVitestResults(targets, componentResults, {
+          testModules: Array.from(testModules),
+          unhandledErrors: Array.from(unhandledErrors),
+        } as TestRunResult);
+        const data = createTestServiceResult({
+          envName: runtime.data.envName,
+          vendor: meta.id,
+          mode,
+          run,
+          componentResults: finishComponentResults(componentResults),
+          args: runtime.data.args,
+          config: runtime.data.config,
+        });
+
+        runtime.postMessage({ type: "result", data });
+        runtime.postMessage({ type: "status", status: "watching" });
+      },
+    };
+
+    activeVitest = await createVitest(
+      "test",
+      {
+        root: workspaceRoot,
+        config: configFile,
+        include: files,
+        run: false,
+        watch: true,
+        reporters: ["default", reporter],
+        passWithNoTests: true,
+      },
+    );
+
+    try {
+      await activeVitest.start(files);
     } finally {
       await activeVitest.close();
       activeVitest = undefined;
@@ -181,10 +253,6 @@ function normalizeFilePath(filePath: string) {
   return path.resolve(filePath);
 }
 
-function createNullWritable() {
-  return new Writable({
-    write(_chunk, _encoding, callback) {
-      callback();
-    },
-  });
+function isInteractiveTerminal() {
+  return process.stdin.isTTY === true && process.stdout.isTTY === true;
 }

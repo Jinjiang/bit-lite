@@ -1,9 +1,10 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
 import { readTestVendorConfig } from "../config.js";
 import { findComponentTestTargets } from "../files.js";
+import type { ComponentTestTarget } from "../files.js";
 import {
   addFileLoadFailure,
   createEmptyComponentResults,
@@ -13,6 +14,7 @@ import {
   type MutableComponentResult,
   type TestServiceResult,
 } from "../result.js";
+import { registerJestWatchReporter, unregisterJestWatchReporter } from "./reporter.js";
 import { isShutdownMessage } from "../vendor-utils.js";
 
 export const meta: VendorDefinition = {
@@ -57,38 +59,37 @@ export default async function startJestVendor(
   runtime: VendorRuntime<Record<string, unknown>, TestServiceResult>
 ): Promise<VendorStartResult<TestServiceResult>> {
   const workspaceRoot = runtime.data.context?.workspaceRoot ?? process.cwd();
-  const mode = runtime.data.args.options.watch === true ? "watch" : "run";
+  const watch = runtime.data.args.options.watch === true && isInteractiveTerminal();
+  const mode = watch ? "watch" : "run";
   let run = 0;
   let stopped = false;
-  let keepAlive: NodeJS.Timeout | undefined;
+  let watchPromise: Promise<void> | undefined;
+  let stopJestWatch: (() => void) | undefined;
+  let stoppingWatch: Promise<void> | undefined;
 
   const finish = (status: string) => {
     if (stopped) return;
     stopped = true;
-    if (keepAlive) clearInterval(keepAlive);
     runtime.postMessage({ type: "status", status });
   };
 
-  const unsubscribe = runtime.onMessage((message) => {
+  const unsubscribe = runtime.onMessage(async (message) => {
     if (isShutdownMessage(message)) {
-      finish("stopped");
-      unsubscribe();
+      await stopWatch();
     }
   });
 
   runtime.postMessage({ type: "ready" });
 
-  if (mode === "watch") {
+  if (watch) {
     runtime.postMessage({ type: "status", status: "watching" });
-    keepAlive = setInterval(() => undefined, 2 ** 30);
-    void runSnapshot().catch((error) => {
+    watchPromise = runWatch().catch((error) => {
       runtime.postMessage({ type: "error", message: formatError(error) });
       finish("error");
     });
     return {
-      stop() {
-        finish("stopped");
-        unsubscribe();
+      async stop() {
+        await stopWatch();
       },
     };
   }
@@ -125,6 +126,30 @@ export default async function startJestVendor(
     return data;
   }
 
+  async function runWatch() {
+    const vendorConfig = readTestVendorConfig(runtime.data.config, workspaceRoot);
+    const targets = await findComponentTestTargets(runtime.data.components);
+    const runTargets = await realpathTargets(targets);
+    const allFiles = runTargets.flatMap((target) => target.files);
+
+    if (allFiles.length === 0) {
+      run += 1;
+      const data = createTestServiceResult({
+        envName: runtime.data.envName,
+        vendor: meta.id,
+        mode,
+        run,
+        componentResults: finishComponentResults(createEmptyComponentResults(targets)),
+        args: runtime.data.args,
+        config: runtime.data.config,
+      });
+      runtime.postMessage({ type: "result", data });
+      return;
+    }
+
+    await runJestWatch(vendorConfig.configFile, allFiles, targets, runTargets);
+  }
+
   async function runJestFiles(configFile: string, files: string[]) {
     const { runCLI } = (await import("jest")) as unknown as { runCLI: JestRunCLI };
     const config = await importJestConfig(configFile);
@@ -149,6 +174,85 @@ export default async function startJestVendor(
     );
     return results;
   }
+
+  async function runJestWatch(
+    configFile: string,
+    files: string[],
+    targets: readonly ComponentTestTarget[],
+    runTargets: readonly ComponentTestTarget[]
+  ) {
+    const { runCLI } = (await import("jest")) as unknown as { runCLI: JestRunCLI };
+    const config = await importJestConfig(configFile);
+    const realWorkspaceRoot = await safeRealpath(workspaceRoot);
+    stopJestWatch = requestJestWatchQuit;
+    const reporterId = registerJestWatchReporter({
+      onRunStart() {
+        runtime.postMessage({ type: "status", status: "running" });
+      },
+      onRunComplete(results) {
+        run += 1;
+        const componentResults = createEmptyComponentResults(targets);
+        applyJestResults(runTargets, componentResults, results as JestAggregatedResult);
+        const data = createTestServiceResult({
+          envName: runtime.data.envName,
+          vendor: meta.id,
+          mode,
+          run,
+          componentResults: finishComponentResults(componentResults),
+          args: runtime.data.args,
+          config: runtime.data.config,
+        });
+
+        runtime.postMessage({ type: "result", data });
+        runtime.postMessage({ type: "status", status: "watching" });
+      },
+    });
+
+    try {
+      await runCLI(
+        {
+          _: [],
+          $0: "bit-lite jest-watch",
+          config: JSON.stringify({
+            ...config,
+            rootDir: realWorkspaceRoot,
+            testMatch: files.map((file) => toRootDirPattern(realWorkspaceRoot, file)),
+            reporters: ["default", [resolveJestReporterPath(), { reporterId }]],
+          }),
+          runInBand: true,
+          watch: false,
+          watchAll: true,
+          colors: true,
+          passWithNoTests: true,
+        },
+        [realWorkspaceRoot]
+      );
+    } finally {
+      stopJestWatch = undefined;
+      unregisterJestWatchReporter(reporterId);
+    }
+  }
+
+  async function stopWatch() {
+    if (stoppingWatch) return stoppingWatch;
+
+    stoppingWatch = (async () => {
+      stopJestWatch?.();
+      await Promise.race([watchPromise ?? Promise.resolve(), wait(1000)]);
+      finish("stopped");
+      unsubscribe();
+    })();
+
+    return stoppingWatch;
+  }
+}
+
+function resolveJestReporterPath() {
+  return fileURLToPath(new URL("./reporter.js", import.meta.url));
+}
+
+function toRootDirPattern(rootDir: string, filePath: string) {
+  return `<rootDir>/${toPosixPath(path.relative(rootDir, filePath))}`;
 }
 
 async function realpathTargets<Target extends { files: string[] }>(targets: readonly Target[]) {
@@ -232,6 +336,10 @@ function normalizeFilePath(filePath: string) {
   return path.resolve(filePath);
 }
 
+function toPosixPath(filePath: string) {
+  return filePath.split(path.sep).join("/");
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -242,4 +350,16 @@ async function safeRealpath(filePath: string) {
   } catch {
     return filePath;
   }
+}
+
+function requestJestWatchQuit() {
+  process.stdin.emit("data", Buffer.from("q"));
+}
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function isInteractiveTerminal() {
+  return process.stdin.isTTY === true && process.stdout.isTTY === true;
 }

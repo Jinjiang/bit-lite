@@ -18,7 +18,7 @@ export const meta: VendorDefinition = {
 export default async function startTestXVendor(
   runtime: VendorRuntime<Record<string, unknown>, TestServiceResult>
 ): Promise<VendorStartResult<TestServiceResult>> {
-  const watch = runtime.data.args.options.watch === true;
+  const watch = runtime.data.args.options.watch === true && isInteractiveTerminal();
   const mode = watch ? "watch" : "run";
   const componentIds = runtime.data.components.map((component) => component.id);
   let finished = false;
@@ -106,4 +106,8 @@ function isJsonValue(value: unknown): value is JsonValue {
   if (Array.isArray(value)) return value.every(isJsonValue);
   if (typeof value === "object") return Object.values(value).every(isJsonValue);
   return false;
+}
+
+function isInteractiveTerminal() {
+  return process.stdin.isTTY === true && process.stdout.isTTY === true;
 }

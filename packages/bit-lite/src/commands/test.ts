@@ -40,6 +40,22 @@ export type TestComponentResult = {
   errors: string[];
 };
 
+export type TestWatchResultEntry = {
+  observedAt: string;
+  taskId: string;
+  envName: string;
+  vendor: string;
+  json: TestServiceResult;
+  text: string;
+};
+
+export type TestWatchResultStore = {
+  add(task: VendorTask<unknown, TestServiceResult>, result: TestServiceResult): void;
+  entries(): TestWatchResultEntry[];
+  json(vendor?: string): TestServiceResult[];
+  text(vendor?: string): string;
+};
+
 const serviceId = "test";
 const label = "Test";
 
@@ -56,12 +72,17 @@ export async function runTestCommand(parsed: ParsedCliArgs) {
     return;
   }
 
-  if (parsed.args.options.watch === true) {
-    await watchVendorTasks(tasks, {
+  if (parsed.args.options.watch === true && isInteractiveTerminal()) {
+    const resultStore = createTestWatchResultStore();
+
+    await watchVendorTasks<TestServiceResult>(tasks, {
       serviceId,
       label,
       title: "bit-lite test --watch",
       formatResult: formatTestWatchResult,
+      onResult(result, task) {
+        resultStore.add(task, result);
+      },
       formatStoppingMessage: (reason) => `Stopping bit-lite test (${reason})...\n`,
     });
     return;
@@ -73,6 +94,10 @@ export async function runTestCommand(parsed: ParsedCliArgs) {
     formatResult: formatTestRunResult,
     printResults: printTestResults,
   });
+}
+
+function isInteractiveTerminal() {
+  return process.stdin.isTTY === true && process.stdout.isTTY === true;
 }
 
 function createTestVendorTaskOptions(
@@ -118,6 +143,37 @@ function printTestResults(
       console.log(`  - ${componentResult.componentId}: ${formatComponentResult(componentResult)}`);
     }
   }
+}
+
+export function createTestWatchResultStore(): TestWatchResultStore {
+  const entries: TestWatchResultEntry[] = [];
+
+  return {
+    add(task, result) {
+      entries.push({
+        observedAt: new Date().toISOString(),
+        taskId: task.id,
+        envName: task.envName,
+        vendor: result.vendor,
+        json: result,
+        text: formatTestResultText(result),
+      });
+    },
+    entries() {
+      return [...entries];
+    },
+    json(vendor) {
+      return entries
+        .filter((entry) => vendor === undefined || entry.vendor === vendor)
+        .map((entry) => entry.json);
+    },
+    text(vendor) {
+      return entries
+        .filter((entry) => vendor === undefined || entry.vendor === vendor)
+        .map((entry) => `# ${entry.vendor} run ${entry.json.run} @ ${entry.observedAt}\n${entry.text}`)
+        .join("\n---\n");
+    },
+  };
 }
 
 function formatTestRunResult(result: unknown) {
@@ -192,6 +248,15 @@ function isTestComponentResult(value: unknown): value is TestComponentResult {
 function formatComponentResult(result: TestComponentResult) {
   const fileLabel = result.files.length === 1 ? "1 file" : `${result.files.length} files`;
   return `${result.stats.summary} (${fileLabel})`;
+}
+
+function formatTestResultText(result: TestServiceResult) {
+  return [
+    `${result.vendor}: ${result.stats.summary}`,
+    ...result.componentResults.map((componentResult) => {
+      return `${componentResult.componentId}: ${formatComponentResult(componentResult)}`;
+    }),
+  ].join("\n");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
