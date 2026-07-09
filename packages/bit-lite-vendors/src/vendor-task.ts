@@ -272,7 +272,7 @@ export async function stopVendorTasks<
 
   await Promise.race([
     Promise.allSettled(exitPromises),
-    new Promise((resolve) => setTimeout(resolve, options.exitTimeoutMs ?? 3000)),
+    new Promise((resolve) => setTimeout(resolve, options.exitTimeoutMs ?? 300)),
   ]);
 
   if (pendingTasks.size === 0) return;
@@ -280,7 +280,7 @@ export async function stopVendorTasks<
   const terminatePromises = Array.from(pendingTasks).map((task) => task.terminate?.());
   await Promise.race([
     Promise.allSettled(terminatePromises),
-    new Promise((resolve) => setTimeout(resolve, options.terminateTimeoutMs ?? 1000)),
+    new Promise((resolve) => setTimeout(resolve, options.terminateTimeoutMs ?? 300)),
   ]);
 }
 
