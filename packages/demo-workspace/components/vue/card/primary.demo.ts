@@ -1,9 +1,11 @@
-import { createApp } from "vue";
 import Card from "./index.vue";
 
-export default function mount(root: HTMLElement) {
-  createApp(Card, {
+export const title = "Primary";
+
+export default {
+  component: Card,
+  props: {
     title: "Vue card preview",
     body: "This card is mounted from the real Vue single-file component.",
-  }).mount(root);
-}
+  },
+};

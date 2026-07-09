@@ -16,6 +16,7 @@ export type {
   JsonObject,
   JsonPrimitive,
   JsonValue,
+  PreviewServiceConfig,
   ResolvedEnvConfig,
   ServiceTargetInput,
   ServiceTargetPattern,

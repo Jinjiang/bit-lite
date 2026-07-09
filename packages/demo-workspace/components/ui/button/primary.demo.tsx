@@ -1,14 +1,11 @@
 import { createElement, useState } from "react";
-import { createRoot } from "react-dom/client";
 import { Button } from "./index.js";
 
-export default function mount(root: HTMLElement) {
-  const app = createRoot(root);
-  app.render(createElement(ButtonDemo));
-}
+export const title = "Primary";
 
-function ButtonDemo() {
+export default function ButtonDemo() {
   const [count, setCount] = useState(0);
+
   return createElement(
     "section",
     {

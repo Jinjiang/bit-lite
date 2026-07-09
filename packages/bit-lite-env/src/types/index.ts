@@ -6,7 +6,7 @@ export type JsonObject = {
   [key: string]: JsonValue;
 };
 
-export const supportedEnvServiceNames = ["test"] as const;
+export const supportedEnvServiceNames = ["test", "preview"] as const;
 
 export type SupportedEnvServiceName = (typeof supportedEnvServiceNames)[number];
 
@@ -33,8 +33,15 @@ export type TestServiceConfig = JsonObject & {
   coverage?: boolean;
 };
 
+export type PreviewServiceConfig = JsonObject & {
+  configFile: string;
+  mounter?: string;
+  docsTemplate?: string;
+};
+
 export type EnvServiceConfigMap = {
   test: EnvServiceConfig<TestServiceConfig>;
+  preview: EnvServiceConfig<PreviewServiceConfig>;
 };
 
 export type EnvServicesConfig = Partial<EnvServiceConfigMap>;

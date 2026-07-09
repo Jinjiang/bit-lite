@@ -11,7 +11,9 @@ import type {
   TerminalOutputStream,
 } from "bit-lite-terminal";
 import type { RunnerExitCode, RunnerMode } from "./runner/index.js";
+import type { WorkerRunnerOptions } from "./runner/index.js";
 import type {
+  JsonObject,
   JsonValue,
   VendorConfig,
   VendorData,
@@ -31,6 +33,7 @@ export type VendorTaskStartOptions = {
   args: CliArguments;
   context: WorkspaceRuntime;
   serviceConfig: unknown;
+  runtime?: JsonObject | undefined;
 };
 
 export type VendorTaskRunResult<RunResult = unknown> = {
@@ -81,6 +84,11 @@ export type WatchVendorTasksOptions<
   onResult?(result: EventResult, task: VendorTask<unknown, EventResult, InputMessage>): void;
   formatStoppingMessage?(reason: string): string | undefined;
   isInteractiveTerminal?(): boolean;
+  nonInteractiveMode?: "snapshot-and-exit" | "keep-alive" | undefined;
+  onTasksStarted?(
+    tasks: VendorTask<unknown, EventResult, InputMessage>[]
+  ): void | (() => void | Promise<void>) | Promise<void | (() => void | Promise<void>)>;
+  worker?: WorkerRunnerOptions | undefined;
 };
 
 type WatchVendorTasksShutdownReason = ManagedTerminalQuitReason | "sigint" | "sigterm" | "completed";
@@ -92,6 +100,7 @@ export type StopVendorTasksOptions = {
 
 type CreateVendorTaskOptions = VendorTaskStartOptions & {
   mode: RunnerMode;
+  worker?: WorkerRunnerOptions | undefined;
 };
 
 type CreateVendorTaskResultOptions<
@@ -161,6 +170,7 @@ export async function watchVendorTasks<
   options: WatchVendorTasksOptions<EventResult, InputMessage>
 ) {
   const interactive = options.isInteractiveTerminal?.() ?? isInteractiveTerminal();
+  const nonInteractiveMode = options.nonInteractiveMode ?? "snapshot-and-exit";
   const tasks = await createVendorTasks<unknown, EventResult, InputMessage>(
     taskOptions,
     "worker",
@@ -171,6 +181,9 @@ export async function watchVendorTasks<
         formatResult: options.formatResult,
         ...(options.onResult ? { onResult: options.onResult } : {}),
       },
+    },
+    {
+      worker: options.worker,
     }
   );
 
@@ -178,6 +191,8 @@ export async function watchVendorTasks<
 
   let shuttingDown = false;
   let cleanedUp = false;
+  let tasksStartedCleanedUp = false;
+  let cleanupTasksStarted: (() => void | Promise<void>) | undefined;
   let resolveShutdown!: () => void;
   const shutdownPromise = new Promise<void>((resolve) => {
     resolveShutdown = resolve;
@@ -215,10 +230,14 @@ export async function watchVendorTasks<
 
   process.once("SIGINT", handleSigint);
   process.once("SIGTERM", handleSigterm);
-  terminal?.start();
 
   try {
-    if (interactive) {
+    const cleanup = await options.onTasksStarted?.(tasks);
+    if (typeof cleanup === "function") cleanupTasksStarted = cleanup;
+
+    terminal?.start();
+
+    if (interactive || nonInteractiveMode === "keep-alive") {
       await shutdownPromise;
     } else {
       await Promise.all(tasks.map((task) => waitForWatchTaskSnapshot(task)));
@@ -241,6 +260,7 @@ export async function watchVendorTasks<
       if (message) process.stdout.write(message);
     }
 
+    await cleanupTasksStartedHook();
     await stopVendorTasks(tasks);
     resolveShutdown();
     cleanupWatchListeners();
@@ -253,6 +273,12 @@ export async function watchVendorTasks<
     process.off("SIGINT", handleSigint);
     process.off("SIGTERM", handleSigterm);
     for (const unsubscribe of unsubscribers) unsubscribe?.();
+  }
+
+  async function cleanupTasksStartedHook() {
+    if (tasksStartedCleanedUp) return;
+    tasksStartedCleanedUp = true;
+    await cleanupTasksStarted?.();
   }
 }
 
@@ -316,7 +342,8 @@ async function createVendorTasks<
 >(
   taskOptions: VendorTaskStartOptions[],
   mode: RunnerMode,
-  resultOptions: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>
+  resultOptions: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>,
+  runnerOptions: { worker?: WorkerRunnerOptions | undefined } = {}
 ): Promise<VendorTask<RunResult, EventResult, InputMessage>[]> {
   const tasks: VendorTask<RunResult, EventResult, InputMessage>[] = [];
 
@@ -325,6 +352,7 @@ async function createVendorTasks<
       tasks.push(
         await createVendorTask<RunResult, EventResult, InputMessage>(
           { ...taskOption, mode },
+          runnerOptions,
           resultOptions
         )
       );
@@ -342,6 +370,7 @@ async function createVendorTask<
   InputMessage extends JsonValue = JsonValue,
 >(
   options: CreateVendorTaskOptions,
+  runnerOptions: { worker?: WorkerRunnerOptions | undefined },
   resultOptions: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>
 ): Promise<VendorTask<RunResult, EventResult, InputMessage>> {
   const serviceConfig = readVendorServiceConfig(options.serviceConfig, resultOptions.serviceId, options.envName);
@@ -353,7 +382,7 @@ async function createVendorTask<
   );
 
   return createStartedVendorTask<RunResult, EventResult, InputMessage>(
-    options,
+    { ...options, worker: runnerOptions.worker },
     resultOptions,
     vendor,
     serviceConfig.config
@@ -376,11 +405,13 @@ function createStartedVendorTask<
     config,
     args: options.args,
     context: options.context,
+    ...(options.runtime === undefined ? {} : { runtime: options.runtime }),
   };
   const runner = createRunner<VendorData<VendorConfig>, VendorMessage<EventResult>, InputMessage, RunResult>({
     mode: options.mode,
     target: vendor,
     data,
+    worker: options.worker,
   });
   const messageListeners = new Set<(message: VendorMessage<EventResult>) => void>();
   const outputListeners = new Set<(stream: TerminalOutputStream, chunk: Buffer) => void>();

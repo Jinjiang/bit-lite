@@ -4,6 +4,7 @@ import type {
   EnvServiceConfigMap,
   EnvServicesConfig,
   JsonObject,
+  PreviewServiceConfig,
   ServiceTargetInput,
   SupportedEnvServiceName,
   TestServiceConfig,
@@ -47,10 +48,14 @@ export function validateEnvServicesConfig(value: unknown): EnvServicesConfig {
       );
     }
 
-    services[serviceName] = validateEnvServiceConfig(
-      serviceName,
-      serviceConfig
-    ) as EnvServiceConfigMap[typeof serviceName];
+    switch (serviceName) {
+      case "test":
+        services.test = validateEnvServiceConfig(serviceName, serviceConfig);
+        break;
+      case "preview":
+        services.preview = validateEnvServiceConfig(serviceName, serviceConfig);
+        break;
+    }
   }
 
   return services;
@@ -68,6 +73,10 @@ export function validateEnvServiceConfig<ServiceName extends SupportedEnvService
     throw new BitLiteEnvConfigError(`env service "${serviceName}" config must define a non-empty vendor`);
   }
 
+  if (serviceName === "preview" && value.config === undefined) {
+    throw new BitLiteEnvConfigError(`env service "${serviceName}" config must define field "config"`);
+  }
+
   const config = value.config === undefined ? undefined : validateServiceOptions(serviceName, value.config);
   const targets = value.targets === undefined ? undefined : validateServiceTargets(serviceName, value.targets);
 
@@ -81,16 +90,24 @@ export function validateEnvServiceConfig<ServiceName extends SupportedEnvService
 function validateServiceOptions(
   serviceName: SupportedEnvServiceName,
   value: unknown
-): TestServiceConfig {
+): TestServiceConfig | PreviewServiceConfig {
   if (!isJsonObject(value)) {
     throw new BitLiteEnvConfigError(`env service "${serviceName}" field "config" must be a JSON object`);
   }
 
-  requireOptionalString(value, serviceName, "configFile");
-  requireOptionalString(value, serviceName, "shard");
-  requireOptionalInteger(value, serviceName, "retries");
-  requireOptionalBoolean(value, serviceName, "coverage");
-  return value as TestServiceConfig;
+  switch (serviceName) {
+    case "test":
+      requireOptionalString(value, serviceName, "configFile");
+      requireOptionalString(value, serviceName, "shard");
+      requireOptionalInteger(value, serviceName, "retries");
+      requireOptionalBoolean(value, serviceName, "coverage");
+      return value as TestServiceConfig;
+    case "preview":
+      requireString(value, serviceName, "configFile");
+      requireOptionalString(value, serviceName, "mounter");
+      requireOptionalString(value, serviceName, "docsTemplate");
+      return value as PreviewServiceConfig;
+  }
 }
 
 function validateServiceTargets(serviceName: SupportedEnvServiceName, value: unknown): ServiceTargetInput {
@@ -131,6 +148,13 @@ function requireOptionalString(value: JsonObject, serviceName: SupportedEnvServi
   const item = value[field];
   if (item !== undefined && typeof item !== "string") {
     throw new BitLiteEnvConfigError(`env service "${serviceName}" field "config.${field}" must be a string`);
+  }
+}
+
+function requireString(value: JsonObject, serviceName: SupportedEnvServiceName, field: string) {
+  const item = value[field];
+  if (typeof item !== "string" || item.length === 0) {
+    throw new BitLiteEnvConfigError(`env service "${serviceName}" field "config.${field}" must be a non-empty string`);
   }
 }
 

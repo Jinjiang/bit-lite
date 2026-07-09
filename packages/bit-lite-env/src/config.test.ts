@@ -9,8 +9,9 @@ import {
 
 describe("bit-lite-env config", () => {
   it("defines the first supported service set", () => {
-    expect(supportedEnvServiceNames).toEqual(["test"]);
+    expect(supportedEnvServiceNames).toEqual(["test", "preview"]);
     expect(isSupportedEnvServiceName("test")).toBe(true);
+    expect(isSupportedEnvServiceName("preview")).toBe(true);
     expect(isSupportedEnvServiceName("storybook")).toBe(false);
   });
 
@@ -54,6 +55,42 @@ describe("bit-lite-env config", () => {
         },
       })
     ).toThrow('env service "storybook" is not supported');
+  });
+
+  it("accepts preview service config with preview-specific fields", () => {
+    const config = validateEnvServiceConfig("preview", {
+      vendor: "@bit-vendors/vite-react-preview",
+      config: {
+        configFile: "./configs/vite",
+        mounter: "./configs/react-mounter",
+        docsTemplate: "./configs/docs-template",
+        customTheme: "demo",
+      },
+    });
+
+    expect(config.config).toEqual({
+      configFile: "./configs/vite",
+      mounter: "./configs/react-mounter",
+      docsTemplate: "./configs/docs-template",
+      customTheme: "demo",
+    });
+  });
+
+  it("requires preview service config to name a config file", () => {
+    expect(() =>
+      validateEnvServiceConfig("preview", {
+        vendor: "@bit-vendors/vite-react-preview",
+      })
+    ).toThrow('env service "preview" config must define field "config"');
+
+    expect(() =>
+      validateEnvServiceConfig("preview", {
+        vendor: "@bit-vendors/vite-react-preview",
+        config: {
+          mounter: "./configs/react-mounter",
+        },
+      })
+    ).toThrow('env service "preview" field "config.configFile" must be a non-empty string');
   });
 
   it("requires each service config to name a vendor", () => {

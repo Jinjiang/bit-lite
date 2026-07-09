@@ -3,23 +3,17 @@
   "envs": {
     "node": {
       "services": {
-        "foo": {
-          "vendor": "x",
-          "config": {
-            "label": "node foo",
-            "delay": 5
-          }
-        },
         "test": {
           "vendor": "demo-vendors/testers/vitest",
           "config": {
             "configFile": "demo-config/testers/vitest/node"
           }
         },
-        "bar": {
-          "vendor": "y",
+        "preview": {
+          "vendor": "demo-vendors/previewers/vite-static",
           "config": {
-            "label": "node bar"
+            "configFile": "demo-config/previewers/vite-static",
+            "mounter": "demo-config/previewers/static-mounter"
           }
         }
       }
@@ -27,23 +21,17 @@
     "react": {
       "extends": "node",
       "services": {
-        "bar": {
-          "vendor": "x",
-          "config": {
-            "label": "react bar",
-            "delay": 15
-          }
-        },
-        "baz": {
-          "vendor": "x",
-          "config": {
-            "label": "react baz"
-          }
-        },
         "test": {
           "vendor": "demo-vendors/testers/jest",
           "config": {
             "configFile": "demo-config/testers/jest/react"
+          }
+        },
+        "preview": {
+          "vendor": "demo-vendors/previewers/vite-react",
+          "config": {
+            "configFile": "demo-config/previewers/vite-react",
+            "mounter": "demo-config/previewers/react-mounter"
           }
         }
       }
@@ -51,17 +39,17 @@
     "vue": {
       "extends": "node",
       "services": {
-        "bar": {
-          "vendor": "z",
-          "config": {
-            "label": "vue bar",
-            "delay": 20
-          }
-        },
         "test": {
           "vendor": "demo-vendors/testers/vitest",
           "config": {
             "configFile": "demo-config/testers/vitest/vue"
+          }
+        },
+        "preview": {
+          "vendor": "demo-vendors/previewers/vite-vue",
+          "config": {
+            "configFile": "demo-config/previewers/vite-vue",
+            "mounter": "demo-config/previewers/vue-mounter"
           }
         }
       }

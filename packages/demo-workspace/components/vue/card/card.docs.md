@@ -1,5 +1,5 @@
 # Vue card
 
-The Vue card component is configured with placeholder demo services in the demo workspace.
+The Vue card component is rendered through the Vue preview env.
 
-It exists to exercise component-to-env mapping and service configuration shape.
+Its composition passes props to the real single-file component and keeps the click counter state inside Vue.

@@ -46,6 +46,18 @@
       "types": "./src/testers/jest/index.ts",
       "default": "./dist/testers/jest/index.js"
     },
+    "./previewers/vite-react": {
+      "types": "./src/previewers/vite-react/index.ts",
+      "default": "./dist/previewers/vite-react/index.js"
+    },
+    "./previewers/vite-static": {
+      "types": "./src/previewers/vite-static/index.ts",
+      "default": "./dist/previewers/vite-static/index.js"
+    },
+    "./previewers/vite-vue": {
+      "types": "./src/previewers/vite-vue/index.ts",
+      "default": "./dist/previewers/vite-vue/index.js"
+    },
     "./testers/vitest": {
       "types": "./src/testers/vitest/index.ts",
       "default": "./dist/testers/vitest/index.js"
@@ -68,6 +80,7 @@
     "bit-lite-context": "workspace:*",
     "bit-lite-vendors": "workspace:*",
     "jest": "^30.4.2",
+    "vite": "^8.1.2",
     "vitest": "^4.1.8"
   },
   "devDependencies": {

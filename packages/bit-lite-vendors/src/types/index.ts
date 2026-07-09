@@ -50,20 +50,25 @@ export type VendorParentMessage<Message extends JsonValue = JsonValue> = RunnerP
 
 export type VendorConfig = Record<string, unknown>;
 
-export type VendorData<Config extends VendorConfig = VendorConfig> = {
+export type VendorData<
+  Config extends VendorConfig = VendorConfig,
+  Runtime extends JsonObject = JsonObject,
+> = {
   envName: string;
   components: ComponentRef[];
   config: Config;
   args: CliArguments;
   context?: WorkspaceRuntime;
+  runtime?: Runtime;
 };
 
 export type VendorRuntime<
   Config extends VendorConfig = VendorConfig,
   EventResult extends JsonValue = JsonValue,
   InputMessage extends JsonValue = JsonValue,
+  Runtime extends JsonObject = JsonObject,
 > = RunnerRuntime<
-  VendorData<Config>,
+  VendorData<Config, Runtime>,
   VendorMessage<EventResult>,
   InputMessage
 >;
