@@ -6,6 +6,7 @@ import {
 import type { CliArguments, ParsedCliArgs, SelectedEnvGroup, WorkspaceRuntime } from "bit-lite-context";
 import type { JsonObject } from "bit-lite-env";
 import type { VendorTask, VendorTaskRunResult, VendorTaskStartOptions } from "bit-lite-vendors";
+import type { ResultStore, ResultStoreEntry } from "../result-store.js";
 
 export type TestServiceResult = {
   service: "test";
@@ -40,26 +41,18 @@ export type TestComponentResult = {
   errors: string[];
 };
 
-export type TestWatchResultEntry = {
-  observedAt: string;
-  taskId: string;
-  envName: string;
-  vendor: string;
-  json: TestServiceResult;
-  text: string;
-};
+export type TestWatchResultEntry = ResultStoreEntry<TestServiceResult>;
 
-export type TestWatchResultStore = {
-  add(task: VendorTask<unknown, TestServiceResult>, result: TestServiceResult): void;
-  entries(): TestWatchResultEntry[];
-  json(vendor?: string): TestServiceResult[];
-  text(vendor?: string): string;
+export type TestWatchResultStore = ResultStore<TestServiceResult>;
+
+export type RunTestCommandOptions = {
+  resultStore?: ResultStore<TestServiceResult>;
 };
 
 const serviceId = "test";
 const label = "Test";
 
-export async function runTestCommand(parsed: ParsedCliArgs) {
+export async function runTestCommand(parsed: ParsedCliArgs, options: RunTestCommandOptions = {}) {
   const workspace = await loadWorkspace(parsed.workspaceRoot);
   const components = selectComponentRefs(workspace.components, parsed.componentFilters);
   const groups = groupSelectedComponentsByEnv(workspace, components);
@@ -73,16 +66,22 @@ export async function runTestCommand(parsed: ParsedCliArgs) {
   }
 
   if (parsed.args.options.watch === true && isInteractiveTerminal()) {
-    const resultStore = createTestWatchResultStore();
+    const resultStore = options.resultStore;
+    const resultStoreOptions =
+      resultStore === undefined
+        ? {}
+        : {
+            onResult(result: TestServiceResult, task: VendorTask<unknown, TestServiceResult>) {
+              addTestWatchResult(resultStore, task, result);
+            },
+          };
 
     await watchVendorTasks<TestServiceResult>(tasks, {
       serviceId,
       label,
       title: "bit-lite test --watch",
       formatResult: formatTestWatchResult,
-      onResult(result, task) {
-        resultStore.add(task, result);
-      },
+      ...resultStoreOptions,
       formatStoppingMessage: (reason) => `Stopping bit-lite test (${reason})...\n`,
     });
     return;
@@ -145,35 +144,21 @@ function printTestResults(
   }
 }
 
-export function createTestWatchResultStore(): TestWatchResultStore {
-  const entries: TestWatchResultEntry[] = [];
+function addTestWatchResult(
+  resultStore: ResultStore<TestServiceResult>,
+  task: VendorTask<unknown, TestServiceResult>,
+  result: TestServiceResult
+) {
+  const observedAt = new Date().toISOString();
 
-  return {
-    add(task, result) {
-      entries.push({
-        observedAt: new Date().toISOString(),
-        taskId: task.id,
-        envName: task.envName,
-        vendor: result.vendor,
-        json: result,
-        text: formatTestResultText(result),
-      });
-    },
-    entries() {
-      return [...entries];
-    },
-    json(vendor) {
-      return entries
-        .filter((entry) => vendor === undefined || entry.vendor === vendor)
-        .map((entry) => entry.json);
-    },
-    text(vendor) {
-      return entries
-        .filter((entry) => vendor === undefined || entry.vendor === vendor)
-        .map((entry) => `# ${entry.vendor} run ${entry.json.run} @ ${entry.observedAt}\n${entry.text}`)
-        .join("\n---\n");
-    },
-  };
+  resultStore.add({
+    observedAt,
+    taskId: task.id,
+    envName: task.envName,
+    vendor: result.vendor,
+    json: result,
+    text: `# ${result.vendor} run ${result.run} @ ${observedAt}\n${formatTestResultText(result)}`,
+  });
 }
 
 function formatTestRunResult(result: unknown) {
