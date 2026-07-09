@@ -1,4 +1,4 @@
-import { add } from "../../lib/math/index.js";
+import { add } from "@my-scope/lib.math";
 
 export type ButtonProps = {
   label: string;

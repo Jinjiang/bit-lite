@@ -1,4 +1,5 @@
 {
+  "defaultScope": "my-scope",
   "envs": {
     "node": {
       "services": {
@@ -66,9 +67,33 @@
       }
     }
   },
-  "components": {
-    "components/lib/math": "node",
-    "components/ui/button": "react",
-    "components/vue/card": "vue"
-  }
+  "components": [
+    {
+      "path": "components/lib/math",
+      "id": "lib/math",
+      "packageName": "@my-scope/lib.math",
+      "env": {
+        "packageName": "demo-config",
+        "version": "workspace:*"
+      }
+    },
+    {
+      "path": "components/ui/button",
+      "id": "ui/button",
+      "packageName": "@my-scope/ui.button",
+      "env": {
+        "packageName": "demo-config",
+        "version": "workspace:*"
+      }
+    },
+    {
+      "path": "components/vue/card",
+      "id": "vue/card",
+      "packageName": "@my-scope/vue.card",
+      "env": {
+        "packageName": "demo-config",
+        "version": "workspace:*"
+      }
+    }
+  ]
 }

@@ -3,21 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "peerDependencies": {
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "vue": "^3.5.38"
+  "scripts": {
+    "clean": "rm -rf .bit-lite node_modules/@my-scope node_modules/@testing-library node_modules/@types node_modules/jsdom node_modules/react node_modules/react-dom node_modules/vitest node_modules/vue"
   },
   "devDependencies": {
-    "@testing-library/dom": "^10.0.0",
-    "@testing-library/react": "^16.3.0",
-    "@testing-library/vue": "^8.1.0",
-    "@types/node": "^25.9.1",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "bit-lite": "workspace:*",
-    "demo-config": "workspace:*",
-    "demo-vendors": "workspace:*",
-    "jsdom": "^27.4.0"
+    "bit-lite": "workspace:*"
   }
 }

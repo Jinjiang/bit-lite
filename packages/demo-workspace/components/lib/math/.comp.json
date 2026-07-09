@@ -1,0 +1,8 @@
+{
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "vitest": "^4.1.8"
+  },
+  "peerDependencies": {}
+}
