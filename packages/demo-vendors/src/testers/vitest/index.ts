@@ -31,6 +31,7 @@ export default async function startVitestVendor(
   let run = 0;
   let stopped = false;
   let activeVitest: Vitest | undefined;
+  let stoppingVitest: Promise<void> | undefined;
 
   const finish = (status: string) => {
     if (stopped) return;
@@ -38,11 +39,9 @@ export default async function startVitestVendor(
     runtime.postMessage({ type: "status", status });
   };
 
-  const unsubscribe = runtime.onMessage((message) => {
+  const unsubscribe = runtime.onMessage(async (message) => {
     if (isShutdownMessage(message)) {
-      void activeVitest?.close();
-      finish("stopped");
-      unsubscribe();
+      await stopVitest();
     }
   });
 
@@ -55,11 +54,7 @@ export default async function startVitestVendor(
       finish("error");
     });
     return {
-      async stop() {
-        await activeVitest?.close();
-        finish("stopped");
-        unsubscribe();
-      },
+      stop: stopVitest,
     };
   }
 
@@ -118,7 +113,7 @@ export default async function startVitestVendor(
   }
 
   async function runVitestFiles(configFile: string, files: string[]) {
-    activeVitest = await createVitest(
+    const vitest = await createVitest(
       "test",
       {
         root: workspaceRoot,
@@ -129,12 +124,15 @@ export default async function startVitestVendor(
         passWithNoTests: true,
       },
     );
+    activeVitest = vitest;
 
     try {
-      return await activeVitest.start(files);
+      return await vitest.start(files);
     } finally {
-      await activeVitest.close();
-      activeVitest = undefined;
+      if (activeVitest === vitest) {
+        activeVitest = undefined;
+        await vitest.close();
+      }
     }
   }
 
@@ -182,6 +180,20 @@ export default async function startVitestVendor(
         passWithNoTests: true,
       },
     );
+  }
+
+  async function stopVitest() {
+    if (stoppingVitest) return stoppingVitest;
+
+    stoppingVitest = (async () => {
+      const vitest = activeVitest;
+      activeVitest = undefined;
+      await vitest?.close();
+      finish("stopped");
+      unsubscribe();
+    })();
+
+    return stoppingVitest;
   }
 }
 

@@ -15,7 +15,6 @@ import {
   type TestServiceResult,
 } from "../result.js";
 import { registerJestWatchReporter, unregisterJestWatchReporter } from "./reporter.js";
-import { isShutdownMessage } from "../vendor-utils.js";
 
 export const meta: VendorDefinition = {
   id: "jest",
@@ -63,9 +62,6 @@ export default async function startJestVendor(
   const mode = watch ? "watch" : "run";
   let run = 0;
   let stopped = false;
-  let watchPromise: Promise<void> | undefined;
-  let stopJestWatch: (() => void) | undefined;
-  let stoppingWatch: Promise<void> | undefined;
 
   const finish = (status: string) => {
     if (stopped) return;
@@ -73,30 +69,21 @@ export default async function startJestVendor(
     runtime.postMessage({ type: "status", status });
   };
 
-  const unsubscribe = runtime.onMessage(async (message) => {
-    if (isShutdownMessage(message)) {
-      await stopWatch();
-    }
-  });
-
   runtime.postMessage({ type: "ready" });
 
   if (watch) {
     runtime.postMessage({ type: "status", status: "watching" });
-    watchPromise = runWatch().catch((error) => {
+    void runWatch().catch((error) => {
       runtime.postMessage({ type: "error", message: formatError(error) });
       finish("error");
     });
     return {
-      async stop() {
-        await stopWatch();
-      },
+      stop() {},
     };
   }
 
   const data = await runSnapshot();
   finish(data.stats.failed > 0 ? "failed" : "success");
-  unsubscribe();
   return { data };
 
   async function runSnapshot(): Promise<TestServiceResult> {
@@ -184,7 +171,6 @@ export default async function startJestVendor(
     const { runCLI } = (await import("jest")) as unknown as { runCLI: JestRunCLI };
     const config = await importJestConfig(configFile);
     const realWorkspaceRoot = await safeRealpath(workspaceRoot);
-    stopJestWatch = requestJestWatchQuit;
     const reporterId = registerJestWatchReporter({
       onRunStart() {
         runtime.postMessage({ type: "status", status: "running" });
@@ -228,22 +214,8 @@ export default async function startJestVendor(
         [realWorkspaceRoot]
       );
     } finally {
-      stopJestWatch = undefined;
       unregisterJestWatchReporter(reporterId);
     }
-  }
-
-  async function stopWatch() {
-    if (stoppingWatch) return stoppingWatch;
-
-    stoppingWatch = (async () => {
-      stopJestWatch?.();
-      await Promise.race([watchPromise ?? Promise.resolve(), wait(1000)]);
-      finish("stopped");
-      unsubscribe();
-    })();
-
-    return stoppingWatch;
   }
 }
 
@@ -350,14 +322,6 @@ async function safeRealpath(filePath: string) {
   } catch {
     return filePath;
   }
-}
-
-function requestJestWatchQuit() {
-  process.stdin.emit("data", Buffer.from("q"));
-}
-
-function wait(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 function isInteractiveTerminal() {

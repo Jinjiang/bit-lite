@@ -4,7 +4,12 @@ import { pathToFileURL } from "node:url";
 import { createRunner } from "./runner/index.js";
 import { ManagedTerminal, RawOutputBuffer } from "bit-lite-terminal";
 import type { CliArguments, ComponentRef, WorkspaceRuntime } from "bit-lite-context";
-import type { ManagedTerminalItem, ManagedTerminalOptions, TerminalOutputStream } from "bit-lite-terminal";
+import type {
+  ManagedTerminalItem,
+  ManagedTerminalOptions,
+  ManagedTerminalQuitReason,
+  TerminalOutputStream,
+} from "bit-lite-terminal";
 import type { RunnerExitCode, RunnerMode } from "./runner/index.js";
 import type {
   JsonValue,
@@ -73,19 +78,27 @@ export type WatchVendorTasksOptions<
   title: ManagedTerminalOptions<VendorTask<unknown, EventResult, InputMessage>>["title"];
   canAttach?: ManagedTerminalOptions<VendorTask<unknown, EventResult, InputMessage>>["canAttach"];
   formatResult(result: unknown): string[] | Error;
+  onResult?(result: EventResult, task: VendorTask<unknown, EventResult, InputMessage>): void;
   formatStoppingMessage?(reason: string): string | undefined;
   isInteractiveTerminal?(): boolean;
 };
 
+type WatchVendorTasksShutdownReason = ManagedTerminalQuitReason | "sigint" | "sigterm" | "completed";
+
 export type StopVendorTasksOptions = {
   exitTimeoutMs?: number | undefined;
+  terminateTimeoutMs?: number | undefined;
 };
 
 type CreateVendorTaskOptions = VendorTaskStartOptions & {
   mode: RunnerMode;
 };
 
-type CreateVendorTaskResultOptions<RunResult, EventResult extends JsonValue> = {
+type CreateVendorTaskResultOptions<
+  RunResult,
+  EventResult extends JsonValue,
+  InputMessage extends JsonValue = JsonValue,
+> = {
   serviceId: string;
   label: string;
   runResult?: {
@@ -93,6 +106,7 @@ type CreateVendorTaskResultOptions<RunResult, EventResult extends JsonValue> = {
   };
   eventResult?: {
     formatResult(result: unknown): string[] | Error;
+    onResult?(result: EventResult, task: VendorTask<unknown, EventResult, InputMessage>): void;
   };
 };
 
@@ -105,8 +119,8 @@ type ManagedVendorTask<
   serviceLabel: string;
   runner: VendorRunner<VendorConfig, RunResult, EventResult, InputMessage>;
   completed: boolean;
-  runResult?: CreateVendorTaskResultOptions<RunResult, EventResult>["runResult"];
-  eventResult?: CreateVendorTaskResultOptions<RunResult, EventResult>["eventResult"];
+  runResult?: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>["runResult"];
+  eventResult?: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>["eventResult"];
   resolveResult?: ((result: VendorTaskRunResult<RunResult>) => void) | undefined;
   rejectResult?: ((error: unknown) => void) | undefined;
 };
@@ -146,6 +160,7 @@ export async function watchVendorTasks<
   taskOptions: VendorTaskStartOptions[],
   options: WatchVendorTasksOptions<EventResult, InputMessage>
 ) {
+  const interactive = options.isInteractiveTerminal?.() ?? isInteractiveTerminal();
   const tasks = await createVendorTasks<unknown, EventResult, InputMessage>(
     taskOptions,
     "worker",
@@ -154,14 +169,15 @@ export async function watchVendorTasks<
       label: options.label,
       eventResult: {
         formatResult: options.formatResult,
+        ...(options.onResult ? { onResult: options.onResult } : {}),
       },
     }
   );
 
   if (tasks.length === 0) return tasks;
 
-  const interactive = options.isInteractiveTerminal?.() ?? isInteractiveTerminal();
   let shuttingDown = false;
+  let cleanedUp = false;
   let resolveShutdown!: () => void;
   const shutdownPromise = new Promise<void>((resolve) => {
     resolveShutdown = resolve;
@@ -172,7 +188,7 @@ export async function watchVendorTasks<
         items: tasks,
         canAttach: options.canAttach ?? ((item) => item.canAttach === true),
         onQuit(reason) {
-          void shutdown(reason === "ctrl-c" ? "received Ctrl+C" : "quit requested");
+          void shutdown(reason);
         },
       })
     : undefined;
@@ -191,10 +207,10 @@ export async function watchVendorTasks<
   ]);
 
   const handleSigint = () => {
-    void shutdown("received SIGINT");
+    void shutdown("sigint");
   };
   const handleSigterm = () => {
-    void shutdown("received SIGTERM");
+    void shutdown("sigterm");
   };
 
   process.once("SIGINT", handleSigint);
@@ -206,29 +222,37 @@ export async function watchVendorTasks<
       await shutdownPromise;
     } else {
       await Promise.all(tasks.map((task) => waitForWatchTaskSnapshot(task)));
-      await shutdown();
+      await shutdown("completed");
     }
   } finally {
-    process.off("SIGINT", handleSigint);
-    process.off("SIGTERM", handleSigterm);
-    for (const unsubscribe of unsubscribers) unsubscribe?.();
-    if (!shuttingDown) await shutdown();
+    cleanupWatchListeners();
+    if (!shuttingDown) await shutdown("completed");
   }
 
   return tasks;
 
-  async function shutdown(reason?: string) {
+  async function shutdown(reason: WatchVendorTasksShutdownReason) {
     if (shuttingDown) return;
     shuttingDown = true;
 
     terminal?.stop({ clearScreen: true });
-    if (interactive && reason) {
-      const message = options.formatStoppingMessage?.(reason);
+    if (interactive && reason !== "completed") {
+      const message = options.formatStoppingMessage?.(formatWatchShutdownReason(reason));
       if (message) process.stdout.write(message);
     }
 
     await stopVendorTasks(tasks);
     resolveShutdown();
+    cleanupWatchListeners();
+    killProcessForShutdownReason(reason);
+  }
+
+  function cleanupWatchListeners() {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    process.off("SIGINT", handleSigint);
+    process.off("SIGTERM", handleSigterm);
+    for (const unsubscribe of unsubscribers) unsubscribe?.();
   }
 }
 
@@ -241,8 +265,9 @@ export async function stopVendorTasks<
     await task.stop();
   }
 
+  const pendingTasks = new Set(tasks);
   const exitPromises = tasks
-    .map((task) => task.exitPromise)
+    .map((task) => task.exitPromise?.finally(() => pendingTasks.delete(task)))
     .filter((exitPromise): exitPromise is NonNullable<VendorTask["exitPromise"]> => exitPromise !== undefined);
 
   await Promise.race([
@@ -250,7 +275,38 @@ export async function stopVendorTasks<
     new Promise((resolve) => setTimeout(resolve, options.exitTimeoutMs ?? 3000)),
   ]);
 
-  await Promise.allSettled(tasks.map((task) => task.terminate?.()));
+  if (pendingTasks.size === 0) return;
+
+  const terminatePromises = Array.from(pendingTasks).map((task) => task.terminate?.());
+  await Promise.race([
+    Promise.allSettled(terminatePromises),
+    new Promise((resolve) => setTimeout(resolve, options.terminateTimeoutMs ?? 1000)),
+  ]);
+}
+
+function formatWatchShutdownReason(reason: Exclude<WatchVendorTasksShutdownReason, "completed">) {
+  switch (reason) {
+    case "ctrl-c":
+      return "received Ctrl+C";
+    case "quit":
+      return "quit requested";
+    case "sigint":
+      return "received SIGINT";
+    case "sigterm":
+      return "received SIGTERM";
+  }
+}
+
+function killProcessForShutdownReason(reason: WatchVendorTasksShutdownReason) {
+  switch (reason) {
+    case "ctrl-c":
+    case "sigint":
+      process.kill(process.pid, "SIGINT");
+      return;
+    case "sigterm":
+      process.kill(process.pid, "SIGTERM");
+      return;
+  }
 }
 
 async function createVendorTasks<
@@ -260,7 +316,7 @@ async function createVendorTasks<
 >(
   taskOptions: VendorTaskStartOptions[],
   mode: RunnerMode,
-  resultOptions: CreateVendorTaskResultOptions<RunResult, EventResult>
+  resultOptions: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>
 ): Promise<VendorTask<RunResult, EventResult, InputMessage>[]> {
   const tasks: VendorTask<RunResult, EventResult, InputMessage>[] = [];
 
@@ -286,7 +342,7 @@ async function createVendorTask<
   InputMessage extends JsonValue = JsonValue,
 >(
   options: CreateVendorTaskOptions,
-  resultOptions: CreateVendorTaskResultOptions<RunResult, EventResult>
+  resultOptions: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>
 ): Promise<VendorTask<RunResult, EventResult, InputMessage>> {
   const serviceConfig = readVendorServiceConfig(options.serviceConfig, resultOptions.serviceId, options.envName);
   const vendor = await loadVendor(
@@ -310,7 +366,7 @@ function createStartedVendorTask<
   InputMessage extends JsonValue,
 >(
   options: CreateVendorTaskOptions,
-  resultOptions: CreateVendorTaskResultOptions<RunResult, EventResult>,
+  resultOptions: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>,
   vendor: VendorDefinition,
   config: VendorConfig
 ): VendorTask<RunResult, EventResult, InputMessage> {
@@ -512,6 +568,7 @@ function recordVendorEventResult<
   }
 
   task.details = details;
+  task.eventResult.onResult?.(result as EventResult, task);
 }
 
 function rejectVendorRun<
