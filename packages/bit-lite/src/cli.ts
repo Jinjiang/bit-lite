@@ -1,5 +1,6 @@
 import { parseArgs } from "bit-lite-context";
 import { runCompileCommand } from "./commands/compile.js";
+import { runLinkCommand } from "./commands/link.js";
 import { runInstallCommand } from "./commands/install.js";
 import { runTestCommand } from "./commands/test.js";
 import type { ParsedCliArgs } from "bit-lite-context";
@@ -10,6 +11,7 @@ type CommandHandler = (parsed: ParsedCliArgs) => void | Promise<void>;
 const commands: Record<string, CommandHandler> = {
   compile: runCompileCommand,
   install: runInstallCommand,
+  link: runLinkCommand,
   test: runTestCommand,
 };
 

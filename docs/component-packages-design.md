@@ -314,20 +314,6 @@ bit-lite compile @acme/ui.button
 
 编译指定 component，以及它依赖的 internal components。
 
-```sh
-bit-lite inspect
-```
-
-输出 component package metadata、env package refs、dependency graph、entry detection 结果和 registry 校验信息。
-
-```sh
-bit-lite clean
-```
-
-清理 Bit-lite 在 `node_modules` 中生成的 component package 内容。
-
-`build` 先保留给未来更高层的语义，不在当前阶段使用。`graph` 也先不作为独立命令引入，现有或未来的 graph 输出应放进 `inspect`。
-
 ## External Dependencies
 
 每个 component 可以声明自己的 external dependencies。第一阶段不自动检测，只读取 `.comp.json`。
@@ -364,13 +350,12 @@ bit-lite clean
 1. 扩展 component config schema，让 `bit.json` 只记录 `path`、`id`、`packageName`、`env`。
 2. 为每个 component 引入 `.comp.json`，记录 dependencies、devDependencies、peerDependencies。
 3. 实现 component package registry、entry detection 和校验。
-4. 实现 `bit-lite inspect`，输出 registry、entry、env、dependency graph 信息。
-5. 实现 `bit-lite link`，生成 `node_modules/<package>` package manifest、源码 symlink 和目录结构。
-6. 设计并实现 `bit-lite install`，保证 package manager install 后恢复 Bit-lite 生成内容。
-7. 实现 `bit-lite compile` 的占位输出，先生成空的 `dist/index.js`。
-8. 修改 demo workspace，让 component 之间用 package name import。
-9. 验证 TypeScript、test、preview 是否能跑通。
-10. 再讨论 external dependency conflict policy、publish、cache、isolated build。
+4. 实现 `bit-lite link`，生成 `node_modules/<package>` package manifest、源码 symlink 和目录结构。
+5. 设计并实现 `bit-lite install`，保证 package manager install 后恢复 Bit-lite 生成内容。
+6. 实现 `bit-lite compile` 的占位输出，先生成空的 `dist/index.js`。
+7. 修改 demo workspace，让 component 之间用 package name import。
+8. 验证 TypeScript、test、preview 是否能跑通。
+9. 再讨论 external dependency conflict policy、publish、cache、isolated build。
 
 ## 待讨论问题
 
