@@ -1,5 +1,5 @@
 import path from "node:path";
-import { createVitest } from "vitest/node";
+import { createVitest, startVitest } from "vitest/node";
 import type { Reporter, TestModule, TestRunResult, Vitest } from "vitest/node";
 import type { VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
 import { readTestVendorConfig } from "../config.js";
@@ -169,8 +169,9 @@ export default async function startVitestVendor(
       },
     };
 
-    activeVitest = await createVitest(
+    activeVitest = await startVitest(
       "test",
+      [],
       {
         root: workspaceRoot,
         config: configFile,
@@ -181,13 +182,6 @@ export default async function startVitestVendor(
         passWithNoTests: true,
       },
     );
-
-    try {
-      await activeVitest.start(files);
-    } finally {
-      await activeVitest.close();
-      activeVitest = undefined;
-    }
   }
 }
 
