@@ -13,6 +13,9 @@ importers:
       bit-lite-context:
         specifier: workspace:*
         version: link:../bit-lite-context
+      bit-lite-deps:
+        specifier: workspace:*
+        version: link:../bit-lite-deps
       bit-lite-env:
         specifier: workspace:*
         version: link:../bit-lite-env

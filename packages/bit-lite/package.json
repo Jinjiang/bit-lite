@@ -19,6 +19,7 @@
   "type": "module",
   "dependencies": {
     "bit-lite-context": "workspace:*",
+    "bit-lite-deps": "workspace:*",
     "bit-lite-env": "workspace:*",
     "bit-lite-vendors": "workspace:*"
   },

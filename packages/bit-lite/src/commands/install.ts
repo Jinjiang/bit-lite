@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import type { ParsedCliArgs } from "bit-lite-context";
+import { installDependencyProjects, type DependencyProject } from "bit-lite-deps";
 import { BitLiteError } from "../utils/errors.js";
 import { compileComponentPackages } from "./compile.js";
 import {
@@ -23,25 +23,12 @@ type DependencyManifest = {
   devDependencies?: Record<string, string>;
 };
 
-type DependencyProject = {
-  rootDir: string;
-  manifest: DependencyManifest;
-};
-
-type DependencyInstallerModule = {
-  installDependencyProjects(options: {
-    rootDir: string;
-    projects: DependencyProject[];
-  }): Promise<void>;
-};
-
 export async function runInstallCommand(parsed: ParsedCliArgs) {
   const registry = await loadComponentPackageRegistry(parsed.workspaceRoot);
   const shouldCompile = readCompileOption(parsed.args.options.compile);
   const projects = await createDependencyProjects(registry.workspaceRoot, registry.components);
-  const installer = await loadDependencyInstaller();
 
-  await installer.installDependencyProjects({
+  await installDependencyProjects({
     rootDir: getDependencyInstallRoot(registry.workspaceRoot),
     projects,
   });
@@ -143,14 +130,4 @@ function countExternalRequirements(components: ComponentPackage[]) {
 
 function getDependencyInstallRoot(workspaceRoot: string) {
   return path.join(workspaceRoot, ".bit-lite", "deps");
-}
-
-async function loadDependencyInstaller(): Promise<DependencyInstallerModule> {
-  const modulePath = path.resolve(import.meta.dirname, "../../../bit-lite-deps/dist/index.js");
-  try {
-    return (await import(pathToFileURL(modulePath).href)) as DependencyInstallerModule;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new BitLiteError(`failed loading bit-lite-deps; run its build first: ${message}`);
-  }
 }
