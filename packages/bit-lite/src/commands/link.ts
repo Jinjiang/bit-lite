@@ -1,4 +1,4 @@
-import { access, lstat, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ParsedCliArgs } from "bit-lite-context";
 import { BitLiteError } from "../utils/errors.js";
@@ -138,6 +138,7 @@ export async function linkComponentPackages(registry: ComponentPackageRegistry) 
     await preparePackageDirectory(packageDir, component);
     await writeJsonFile(path.join(packageDir, "package.json"), createGeneratedPackageManifest(component));
     await ensureSourceSymlink(packageDir, component.rootDir);
+    await ensureComponentDependencyLinks(registry.workspaceRoot, packageDir, component);
     await mkdir(path.join(packageDir, "dist"), { recursive: true });
   }
 }
@@ -174,6 +175,10 @@ export function orderComponentsByInternalDependencies(registry: ComponentPackage
 
 export function getPackageDirectory(workspaceRoot: string, packageName: string) {
   return path.join(workspaceRoot, "node_modules", ...packageName.split("/"));
+}
+
+export function getComponentDependencyDirectory(workspaceRoot: string, packageName: string) {
+  return path.join(workspaceRoot, ".bit-lite", "deps", "components", ...packageName.split("/"));
 }
 
 export function isWorkspaceProtocolSpec(version: string) {
@@ -257,6 +262,70 @@ async function ensureSourceSymlink(packageDir: string, componentRootDir: string)
   await rm(sourceLink, { recursive: true, force: true });
   const relativeTarget = path.relative(packageDir, componentRootDir);
   await symlink(relativeTarget, sourceLink, "dir");
+}
+
+async function ensureComponentDependencyLinks(
+  workspaceRoot: string,
+  packageDir: string,
+  component: ComponentPackage
+) {
+  const dependencyDir = path.join(
+    getComponentDependencyDirectory(workspaceRoot, component.packageName),
+    "node_modules"
+  );
+  const destinations = [path.join(packageDir, "node_modules"), path.join(component.rootDir, "node_modules")];
+
+  try {
+    await access(dependencyDir);
+  } catch (error) {
+    if (!isNodeErrorCode(error, "ENOENT")) throw error;
+    for (const destination of destinations) {
+      await removeManagedDependencyLink(destination, dependencyDir);
+    }
+    return;
+  }
+
+  for (const destination of destinations) {
+    await replaceManagedDirectorySymlink(destination, dependencyDir, component.packageName);
+  }
+}
+
+async function replaceManagedDirectorySymlink(destination: string, source: string, packageName: string) {
+  await mkdir(path.dirname(destination), { recursive: true });
+  try {
+    const stats = await lstat(destination);
+    if (!stats.isSymbolicLink()) {
+      throw new BitLiteError(
+        `cannot link dependencies for ${packageName}: ${destination} exists and is not a symlink`
+      );
+    }
+    if (!(await symlinkPointsTo(destination, source))) {
+      throw new BitLiteError(
+        `cannot link dependencies for ${packageName}: ${destination} is not managed by bit-lite`
+      );
+    }
+    await rm(destination, { recursive: true, force: true });
+  } catch (error) {
+    if (!isNodeErrorCode(error, "ENOENT")) throw error;
+  }
+
+  await symlink(path.relative(path.dirname(destination), source), destination, "dir");
+}
+
+async function removeManagedDependencyLink(destination: string, source: string) {
+  try {
+    const stats = await lstat(destination);
+    if (stats.isSymbolicLink() && (await symlinkPointsTo(destination, source))) {
+      await rm(destination, { force: true });
+    }
+  } catch (error) {
+    if (!isNodeErrorCode(error, "ENOENT")) throw error;
+  }
+}
+
+async function symlinkPointsTo(linkPath: string, expectedTarget: string) {
+  const target = await readlink(linkPath);
+  return path.resolve(path.dirname(linkPath), target) === path.resolve(expectedTarget);
 }
 
 async function readComponentPackageConfig(rootDir: string, componentId: string): Promise<ComponentPackageConfig> {

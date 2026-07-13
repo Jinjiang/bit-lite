@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "clean": "rm -rf .bit-lite node_modules/@my-scope node_modules/@testing-library node_modules/@types node_modules/jsdom node_modules/react node_modules/react-dom node_modules/vitest node_modules/vue"
+    "clean": "rm -rf .bit-lite node_modules/@my-scope node_modules/@testing-library node_modules/@types node_modules/jsdom node_modules/react node_modules/react-dom node_modules/vitest node_modules/vue && find components -type l -name node_modules -delete"
   },
   "devDependencies": {
     "bit-lite": "workspace:*"

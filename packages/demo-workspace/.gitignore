@@ -1,2 +1,3 @@
 .bit-lite/
 node_modules/
+components/**/node_modules

@@ -87,6 +87,15 @@
       }
     },
     {
+      "path": "components/ui/legacy-badge",
+      "id": "ui/legacy-badge",
+      "packageName": "@my-scope/ui.legacy-badge",
+      "env": {
+        "packageName": "demo-config",
+        "version": "workspace:*"
+      }
+    },
+    {
       "path": "components/vue/card",
       "id": "vue/card",
       "packageName": "@my-scope/vue.card",

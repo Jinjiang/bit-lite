@@ -53,6 +53,10 @@
     "./test-result": {
       "types": "./src/samples/test-result.ts",
       "default": "./dist/samples/test-result.js"
+    },
+    "./compilers/typescript": {
+      "types": "./src/compilers/typescript/index.ts",
+      "default": "./dist/compilers/typescript/index.js"
     }
   },
   "scripts": {

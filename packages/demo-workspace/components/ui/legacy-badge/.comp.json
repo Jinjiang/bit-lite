@@ -1,0 +1,10 @@
+{
+  "dependencies": {},
+  "devDependencies": {
+    "@types/react": "^18.3.28",
+    "vitest": "^4.1.8"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1"
+  }
+}

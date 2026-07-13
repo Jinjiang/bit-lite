@@ -1,11 +1,11 @@
-import { spawn } from "node:child_process";
-import { access, lstat, mkdir, rm, symlink } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import type { ParsedCliArgs } from "bit-lite-context";
 import { BitLiteError } from "../utils/errors.js";
 import { compileComponentPackages } from "./compile.js";
 import {
-  getPackageDirectory,
+  getComponentDependencyDirectory,
   isWorkspaceProtocolSpec,
   linkComponentPackages,
   loadComponentPackageRegistry,
@@ -14,25 +14,43 @@ import {
   type ComponentPackage,
 } from "./link.js";
 
-type ExternalDependency = {
+type DependencyManifest = {
   name: string;
   version: string;
-  sources: string[];
+  private: boolean;
+  type: "module";
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+};
+
+type DependencyProject = {
+  rootDir: string;
+  manifest: DependencyManifest;
+};
+
+type DependencyInstallerModule = {
+  installDependencyProjects(options: {
+    rootDir: string;
+    projects: DependencyProject[];
+  }): Promise<void>;
 };
 
 export async function runInstallCommand(parsed: ParsedCliArgs) {
   const registry = await loadComponentPackageRegistry(parsed.workspaceRoot);
-  const externalDependencies = collectExternalDependencies(registry.components);
   const shouldCompile = readCompileOption(parsed.args.options.compile);
+  const projects = await createDependencyProjects(registry.workspaceRoot, registry.components);
+  const installer = await loadDependencyInstaller();
 
-  if (externalDependencies.length > 0) {
-    await installExternalDependencies(registry.workspaceRoot, externalDependencies);
-    await linkExternalDependencies(registry.workspaceRoot, externalDependencies);
-  }
-
+  await installer.installDependencyProjects({
+    rootDir: getDependencyInstallRoot(registry.workspaceRoot),
+    projects,
+  });
   await linkComponentPackages(registry);
 
-  console.log(`Installed ${externalDependencies.length} external dependenc${externalDependencies.length === 1 ? "y" : "ies"}.`);
+  const externalRequirements = countExternalRequirements(registry.components);
+  console.log(
+    `Installed ${externalRequirements} external dependency requirement${externalRequirements === 1 ? "" : "s"} across ${registry.components.length} component package${registry.components.length === 1 ? "" : "s"}.`
+  );
   console.log(`Linked ${registry.components.length} component package${registry.components.length === 1 ? "" : "s"}.`);
 
   if (shouldCompile) {
@@ -50,136 +68,89 @@ function readCompileOption(value: ParsedCliArgs["args"]["options"][string] | und
   throw new BitLiteError("--compile does not accept a value");
 }
 
-function collectExternalDependencies(components: ComponentPackage[]): ExternalDependency[] {
-  const externalDependencies = new Map<string, ExternalDependency>();
-
-  for (const component of components) {
-    collectDependencyMap(externalDependencies, component, "dependencies", component.dependencies);
-    collectDependencyMap(externalDependencies, component, "devDependencies", component.devDependencies);
-    collectDependencyMap(externalDependencies, component, "peerDependencies", component.peerDependencies);
-
-    if (component.env && !isWorkspaceProtocolSpec(component.env.version)) {
-      addExternalDependency(externalDependencies, component.env.packageName, component.env.version, `${component.id}:env`);
-    }
-  }
-
-  return [...externalDependencies.values()].sort((left, right) => left.name.localeCompare(right.name));
-}
-
-function collectDependencyMap(
-  externalDependencies: Map<string, ExternalDependency>,
-  component: ComponentPackage,
-  field: string,
-  dependencies: Record<string, string>
-) {
-  for (const [name, version] of Object.entries(dependencies)) {
-    if (isWorkspaceProtocolSpec(version)) continue;
-    addExternalDependency(externalDependencies, name, version, `${component.id}:${field}`);
-  }
-}
-
-function addExternalDependency(
-  externalDependencies: Map<string, ExternalDependency>,
-  name: string,
-  version: string,
-  source: string
-) {
-  const existing = externalDependencies.get(name);
-  if (existing) {
-    if (existing.version !== version) {
-      throw new BitLiteError(
-        `conflicting external dependency "${name}": ${existing.version} (${existing.sources.join(
-          ", "
-        )}) vs ${version} (${source})`
-      );
-    }
-    existing.sources.push(source);
-    return;
-  }
-
-  externalDependencies.set(name, {
-    name,
-    version,
-    sources: [source],
-  });
-}
-
-async function installExternalDependencies(workspaceRoot: string, dependencies: ExternalDependency[]) {
-  const depsDir = path.join(workspaceRoot, ".bit-lite", "deps");
-  await mkdir(depsDir, { recursive: true });
-  await writeJsonFile(path.join(depsDir, "package.json"), {
+async function createDependencyProjects(workspaceRoot: string, components: ComponentPackage[]) {
+  const installRoot = getDependencyInstallRoot(workspaceRoot);
+  const rootManifest: DependencyManifest = {
     name: "bit-lite-generated-component-deps",
     version: "0.0.0",
     private: true,
     type: "module",
-    dependencies: sortStringRecord(
-      Object.fromEntries(dependencies.map((dependency) => [dependency.name, dependency.version]))
-    ),
-  });
+  };
+  const projects: DependencyProject[] = [{ rootDir: installRoot, manifest: rootManifest }];
+  await mkdir(installRoot, { recursive: true });
+  await writeJsonFile(path.join(installRoot, "package.json"), rootManifest);
 
-  await runPnpmInstall(depsDir);
-}
-
-async function linkExternalDependencies(workspaceRoot: string, dependencies: ExternalDependency[]) {
-  const depsNodeModules = path.join(workspaceRoot, ".bit-lite", "deps", "node_modules");
-  for (const dependency of dependencies) {
-    const source = path.join(depsNodeModules, ...dependency.name.split("/"));
-    await assertPathExists(source, `pnpm did not install ${dependency.name}`);
-    const destination = getPackageDirectory(workspaceRoot, dependency.name);
-    await replaceSymlink(destination, source);
-  }
-}
-
-async function replaceSymlink(destination: string, source: string) {
-  await mkdir(path.dirname(destination), { recursive: true });
-
-  try {
-    const stats = await lstat(destination);
-    if (!stats.isSymbolicLink()) {
-      throw new BitLiteError(`cannot link dependency at ${destination}: path already exists and is not a symlink`);
-    }
-    await rm(destination, { recursive: true, force: true });
-  } catch (error) {
-    if (!isNodeErrorCode(error, "ENOENT")) throw error;
+  for (const component of components) {
+    const rootDir = getComponentDependencyDirectory(workspaceRoot, component.packageName);
+    const manifest = createComponentDependencyManifest(component);
+    await mkdir(rootDir, { recursive: true });
+    await writeJsonFile(path.join(rootDir, "package.json"), manifest);
+    projects.push({ rootDir, manifest });
   }
 
-  const relativeSource = path.relative(path.dirname(destination), source);
-  await symlink(relativeSource, destination, "dir");
+  return projects;
 }
 
-async function runPnpmInstall(depsDir: string) {
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn("pnpm", [
-      "--pm-on-fail=ignore",
-      "install",
-      "--dir",
-      depsDir,
-      "--ignore-workspace",
-      "--ignore-scripts",
-    ], {
-      stdio: "inherit",
-    });
+function createComponentDependencyManifest(component: ComponentPackage): DependencyManifest {
+  const runtimeDependencies = {
+    ...withoutWorkspaceDependencies(component.peerDependencies),
+    ...withoutWorkspaceDependencies(component.dependencies),
+  };
+  if (component.env && !isWorkspaceProtocolSpec(component.env.version)) {
+    runtimeDependencies[component.env.packageName] = component.env.version;
+  }
 
-    child.on("error", reject);
-    child.on("exit", (code, signal) => {
-      if (code === 0) {
-        resolve();
-        return;
+  const devDependencies = withoutWorkspaceDependencies(component.devDependencies);
+  for (const dependencyName of Object.keys(runtimeDependencies)) {
+    delete devDependencies[dependencyName];
+  }
+
+  const manifest: DependencyManifest = {
+    name: component.packageName,
+    version: "0.0.0",
+    private: true,
+    type: "module",
+  };
+  if (Object.keys(runtimeDependencies).length > 0) {
+    manifest.dependencies = sortStringRecord(runtimeDependencies);
+  }
+  if (Object.keys(devDependencies).length > 0) {
+    manifest.devDependencies = sortStringRecord(devDependencies);
+  }
+  return manifest;
+}
+
+function withoutWorkspaceDependencies(dependencies: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(dependencies).filter(([, version]) => !isWorkspaceProtocolSpec(version))
+  );
+}
+
+function countExternalRequirements(components: ComponentPackage[]) {
+  const requirements = new Set<string>();
+  for (const component of components) {
+    for (const dependencies of [component.dependencies, component.devDependencies, component.peerDependencies]) {
+      for (const [name, version] of Object.entries(dependencies)) {
+        if (!isWorkspaceProtocolSpec(version)) requirements.add(`${name}@${version}`);
       }
-      reject(new BitLiteError(`pnpm install failed${signal ? ` with signal ${signal}` : ` with exit code ${code}`}`));
-    });
-  });
-}
-
-async function assertPathExists(filePath: string, message: string) {
-  try {
-    await access(filePath);
-  } catch (error) {
-    if (isNodeErrorCode(error, "ENOENT")) throw new BitLiteError(message);
-    throw error;
+    }
+    if (component.env && !isWorkspaceProtocolSpec(component.env.version)) {
+      requirements.add(`${component.env.packageName}@${component.env.version}`);
+    }
   }
+  return requirements.size;
 }
 
-function isNodeErrorCode(error: unknown, code: string) {
-  return error instanceof Error && "code" in error && error.code === code;
+function getDependencyInstallRoot(workspaceRoot: string) {
+  return path.join(workspaceRoot, ".bit-lite", "deps");
+}
+
+async function loadDependencyInstaller(): Promise<DependencyInstallerModule> {
+  const modulePath = path.resolve(import.meta.dirname, "../../../bit-lite-deps/dist/index.js");
+  try {
+    return (await import(pathToFileURL(modulePath).href)) as DependencyInstallerModule;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new BitLiteError(`failed loading bit-lite-deps; run its build first: ${message}`);
+  }
 }
