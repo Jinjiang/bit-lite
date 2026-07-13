@@ -18,10 +18,6 @@
       "types": "./src/previewers/static-mounter.ts",
       "default": "./dist/previewers/static-mounter.js"
     },
-    "./previewers/vite-react": {
-      "types": "./src/previewers/vite-react.ts",
-      "default": "./dist/previewers/vite-react.js"
-    },
     "./previewers/vite-static": {
       "types": "./src/previewers/vite-static.ts",
       "default": "./dist/previewers/vite-static.js"
@@ -29,6 +25,10 @@
     "./previewers/vite-vue": {
       "types": "./src/previewers/vite-vue.ts",
       "default": "./dist/previewers/vite-vue.js"
+    },
+    "./previewers/webpack-react": {
+      "types": "./src/previewers/webpack-react.ts",
+      "default": "./dist/previewers/webpack-react.js"
     },
     "./previewers/vue-mounter": {
       "types": "./src/previewers/vue-mounter.ts",
@@ -56,6 +56,7 @@
     "@swc/core": "^1.15.43",
     "@swc/jest": "^0.2.39",
     "jest-environment-jsdom": "^30.4.1",
+    "swc-loader": "^0.2.6",
     "vite": "^8.1.2"
   },
   "peerDependencies": {

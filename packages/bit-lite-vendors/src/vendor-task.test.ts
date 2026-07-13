@@ -268,17 +268,25 @@ describe("vendor task helpers", () => {
   });
 
   it("uses event result data for watch details", async () => {
-    const tasks = await watchVendorTasks<MixedEventResult>([createTaskOptions("mixed", "mixed", ["--watch"])], {
-      serviceId: "mixed",
-      label: "Mixed",
-      title: "mixed watch",
-      formatResult: formatMixedWatchResult,
-      isInteractiveTerminal: () => false,
-    });
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
 
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0]?.details).toEqual(["event: event saw 1 component(s)"]);
-    expect(tasks[0]?.canAttach).toBe(true);
+    try {
+      const tasks = await watchVendorTasks<MixedEventResult>([createTaskOptions("mixed", "mixed", ["--watch"])], {
+        serviceId: "mixed",
+        label: "Mixed",
+        title: "mixed watch",
+        formatResult: formatMixedWatchResult,
+        onResult() {
+          process.emit("SIGTERM");
+        },
+      });
+
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0]?.details).toEqual(["event: event saw 1 component(s)"]);
+      expect(tasks[0]?.canAttach).toBe(true);
+    } finally {
+      kill.mockRestore();
+    }
   });
 
   it("does not wait forever for hung task termination", async () => {

@@ -2,9 +2,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { createServer, type ViteDevServer } from "vite";
 import type { ComponentRef } from "bit-lite-context";
-import type { JsonObject, VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
+import type { JsonObject } from "bit-lite-vendors";
 
 export type PreviewVendorRuntime = JsonObject & {
   host: string;
@@ -28,163 +27,40 @@ export type PreviewServiceResult = JsonObject & {
   server: PreviewServerInfo;
 };
 
-type PreviewVendorConfig = {
+export type PreviewVendorConfig = {
   configFile: string;
   mounter?: string | undefined;
   docsTemplate?: string | undefined;
 };
 
-type PreviewDocsEntry = {
+export type PreviewDocsEntry = {
   title: string;
   source: string;
 };
 
-type PreviewCompositionEntry = {
+export type PreviewCompositionEntry = {
   id: string;
   title: string;
   filePath: string;
 };
 
-type PreviewComponentEntry = {
+export type PreviewComponentEntry = {
   component: ComponentRef;
   docs?: PreviewDocsEntry | undefined;
   compositions: PreviewCompositionEntry[];
 };
 
-type MatchedPreviewRoute =
+export type MatchedPreviewRoute =
   | { entry: PreviewComponentEntry; kind: "docs" }
   | { entry: PreviewComponentEntry; kind: "compositions-list" }
   | { entry: PreviewComponentEntry; kind: "composition"; compositionId: string };
 
-export async function startVitePreviewVendor(
-  runtime: VendorRuntime<Record<string, unknown>, PreviewServiceResult, never, PreviewVendorRuntime>,
-  meta: VendorDefinition
-): Promise<VendorStartResult<PreviewServiceResult>> {
-  const workspaceRoot = runtime.data.context?.workspaceRoot ?? process.cwd();
-  const previewRuntime = readPreviewRuntime(runtime.data.runtime);
-  const vendorConfig = readPreviewVendorConfig(runtime.data.config, workspaceRoot);
-  let server: ViteDevServer | undefined;
-  let stopped = false;
-  let stopping: Promise<void> | undefined;
-
-  const unsubscribe = runtime.onMessage(async (message) => {
-    if (isShutdownMessage(message)) await stop();
-  });
-
-  runtime.postMessage({ type: "ready" });
-  runtime.postMessage({ type: "status", status: "building" });
-
-  try {
-    const entries = await discoverPreviewEntries(runtime.data.components);
-    server = await createServer({
-      root: workspaceRoot,
-      configFile: vendorConfig.configFile,
-      base: previewRuntime.basePath,
-      appType: "custom",
-      server: {
-        host: previewRuntime.host,
-        port: previewRuntime.port,
-        strictPort: true,
-        hmr: createHmrOptions(previewRuntime),
-      },
-    });
-
-    installPreviewRoutes(server, previewRuntime, vendorConfig, entries);
-    await server.listen(previewRuntime.port);
-
-    const serverInfo: PreviewServerInfo = {
-      origin: `http://${previewRuntime.host}:${previewRuntime.port}`,
-      host: previewRuntime.host,
-      port: previewRuntime.port,
-      basePath: previewRuntime.basePath,
-    };
-    const data: PreviewServiceResult = {
-      service: "preview",
-      vendor: meta.id,
-      envName: runtime.data.envName,
-      mode: "serve",
-      server: serverInfo,
-    };
-
-    runtime.postMessage({ type: "result", data });
-    runtime.postMessage({ type: "status", status: "ready" });
-    return { stop };
-  } catch (error) {
-    runtime.postMessage({ type: "status", status: "error" });
-    await stop();
-    throw error;
-  }
-
-  async function stop() {
-    if (stopping) return stopping;
-    stopping = (async () => {
-      if (stopped) return;
-      stopped = true;
-      const activeServer = server;
-      server = undefined;
-      await activeServer?.close();
-      runtime.postMessage({ type: "status", status: "stopped" });
-      unsubscribe();
-    })();
-    return stopping;
-  }
-}
-
-function installPreviewRoutes(
-  server: ViteDevServer,
-  previewRuntime: PreviewVendorRuntime,
-  vendorConfig: PreviewVendorConfig,
-  entries: PreviewComponentEntry[]
-) {
-  server.middlewares.use(async (request, response, next) => {
-    if (request.method !== "GET" || request.url === undefined) {
-      next();
-      return;
-    }
-
-    const route = matchPreviewRoute(request.url, previewRuntime.basePath, entries);
-    if (!route) {
-      next();
-      return;
-    }
-
-    if (route.kind === "docs") {
-      await sendPreviewHtml(
-        server,
-        request.url,
-        response,
-        route.entry.docs ? 200 : 404,
-        renderDocsPage(route.entry, previewRuntime)
-      );
-      return;
-    }
-
-    if (route.kind === "compositions-list") {
-      await sendPreviewHtml(server, request.url, response, 200, renderCompositionsPage(route.entry, previewRuntime));
-      return;
-    }
-
-    const composition = route.entry.compositions.find((candidate) => candidate.id === route.compositionId);
-    await sendPreviewHtml(
-      server,
-      request.url,
-      response,
-      composition && vendorConfig.mounter ? 200 : composition ? 500 : 404,
-      !composition
-        ? renderMessagePage("Composition not found", `${route.entry.component.id}/${route.compositionId}`)
-        : vendorConfig.mounter
-          ? renderCompositionPage(route.entry, composition, previewRuntime, vendorConfig.mounter)
-          : renderMessagePage("Preview mounter missing", "This env preview config must define config.mounter.")
-    );
-  });
-}
-
-async function discoverPreviewEntries(components: ComponentRef[]) {
+export async function discoverPreviewEntries(components: ComponentRef[]) {
   const entries = await Promise.all(components.map(discoverComponentPreviewEntry));
   return entries.sort((left, right) => left.component.id.localeCompare(right.component.id));
 }
 
-async function discoverComponentPreviewEntry(component: ComponentRef): Promise<PreviewComponentEntry> {
+export async function discoverComponentPreviewEntry(component: ComponentRef): Promise<PreviewComponentEntry> {
   const dirEntries = await readdir(component.rootDir, { withFileTypes: true });
   const fileNames = dirEntries
     .filter((entry) => entry.isFile())
@@ -202,22 +78,7 @@ async function discoverComponentPreviewEntry(component: ComponentRef): Promise<P
   };
 }
 
-async function readDocsEntry(filePath: string, componentId: string): Promise<PreviewDocsEntry> {
-  const source = await readFile(filePath, "utf8");
-  return { title: readDocsTitle(source) ?? componentId, source };
-}
-
-async function readCompositionEntry(filePath: string, fileName: string): Promise<PreviewCompositionEntry> {
-  const id = readCompositionId(fileName);
-  if (!id) throw new Error(`Invalid demo file name: ${fileName}`);
-  return {
-    id,
-    title: readCompositionTitle(await readFile(filePath, "utf8")) ?? titleFromId(id),
-    filePath,
-  };
-}
-
-function matchPreviewRoute(
+export function matchPreviewRoute(
   url: string,
   basePath: string,
   entries: PreviewComponentEntry[]
@@ -247,19 +108,7 @@ function matchPreviewRoute(
   return undefined;
 }
 
-async function sendPreviewHtml(
-  server: ViteDevServer,
-  url: string,
-  response: { statusCode: number; setHeader(name: string, value: string): void; end(content: string): void },
-  statusCode: number,
-  html: string
-) {
-  response.statusCode = statusCode;
-  response.setHeader("content-type", "text/html; charset=utf-8");
-  response.end(await server.transformIndexHtml(url, html));
-}
-
-function renderDocsPage(entry: PreviewComponentEntry, runtime: PreviewVendorRuntime) {
+export function renderDocsPage(entry: PreviewComponentEntry, runtime: PreviewVendorRuntime) {
   const docs = entry.docs;
   const body = docs
     ? `<article class="docs">${renderMarkdown(docs.source)}</article>`
@@ -267,48 +116,134 @@ function renderDocsPage(entry: PreviewComponentEntry, runtime: PreviewVendorRunt
   const compositions = entry.compositions
     .map((composition) => `<li><a href="${compositionRoute(runtime, entry.component.id, composition.id)}">${escapeHtml(composition.title)}</a></li>`)
     .join("");
-  return renderPage(docs?.title ?? entry.component.id, `${body}<aside><h2>Compositions</h2><ul>${compositions || "<li>No compositions found.</li>"}</ul></aside>`);
+
+  return renderPage(
+    docs?.title ?? entry.component.id,
+    `${body}<aside><h2>Compositions</h2><ul>${compositions || "<li>No compositions found.</li>"}</ul></aside>`
+  );
 }
 
-function renderCompositionsPage(entry: PreviewComponentEntry, runtime: PreviewVendorRuntime) {
+export function renderCompositionsPage(entry: PreviewComponentEntry, runtime: PreviewVendorRuntime) {
   const items = entry.compositions
     .map((composition) => `<li><a href="${compositionRoute(runtime, entry.component.id, composition.id)}">${escapeHtml(composition.title)}</a><span>${escapeHtml(composition.id)}</span></li>`)
     .join("");
+
   return renderPage(
     `${entry.component.id} compositions`,
     `<p><a href="${componentRoute(runtime, entry.component.id)}/docs">Docs</a></p><ul class="composition-list">${items || "<li>No compositions found.</li>"}</ul>`
   );
 }
 
-function renderCompositionPage(
+export function renderCompositionHostPage(
   entry: PreviewComponentEntry,
   composition: PreviewCompositionEntry,
   runtime: PreviewVendorRuntime,
-  mounter: string
+  extraBody: string
 ) {
-  const context = JSON.stringify({ componentId: entry.component.id, compositionId: composition.id });
   return renderPage(
     `${composition.title} · ${entry.component.id}`,
     `<p><a href="${componentRoute(runtime, entry.component.id)}/compositions">All compositions</a></p>
 <div id="preview-root" class="preview-root"></div>
-<script type="module">
-import * as compositionModule from ${JSON.stringify(toBrowserImportSpecifier(composition.filePath))};
-import mountPreviewComposition from ${JSON.stringify(toBrowserImportSpecifier(mounter))};
-const root = document.getElementById("preview-root");
-const composition = compositionModule.default ?? compositionModule;
-const cleanup = await mountPreviewComposition(composition, root, ${context});
-if (import.meta.hot) {
-  import.meta.hot.accept();
-  import.meta.hot.dispose(() => {
-    if (typeof cleanup === "function") cleanup();
-  });
-}
-</script>`
+${extraBody}`
   );
 }
 
-function renderMessagePage(title: string, message: string) {
+export function renderMessagePage(title: string, message: string) {
   return renderPage(title, `<p class="empty">${escapeHtml(message)}</p>`);
+}
+
+export function readPreviewVendorConfig(config: Record<string, unknown>, workspaceRoot: string): PreviewVendorConfig {
+  const configFile = config.configFile;
+  if (typeof configFile !== "string" || configFile.length === 0) {
+    throw new Error('preview vendor config must define a non-empty "configFile" string');
+  }
+
+  const mounter = config.mounter;
+  const docsTemplate = config.docsTemplate;
+  if (mounter !== undefined && typeof mounter !== "string") {
+    throw new Error('preview vendor config field "mounter" must be a string');
+  }
+  if (docsTemplate !== undefined && typeof docsTemplate !== "string") {
+    throw new Error('preview vendor config field "docsTemplate" must be a string');
+  }
+
+  return {
+    configFile: resolveImportSpecifier(configFile, workspaceRoot),
+    ...(mounter === undefined ? {} : { mounter: resolveImportSpecifier(mounter, workspaceRoot) }),
+    ...(docsTemplate === undefined ? {} : { docsTemplate: resolveImportSpecifier(docsTemplate, workspaceRoot) }),
+  };
+}
+
+export function readPreviewRuntime(runtime: JsonObject | undefined): PreviewVendorRuntime {
+  if (!isRecord(runtime)) throw new Error("preview vendor runtime is missing");
+  const { host, port, basePath, proxyOrigin } = runtime;
+  if (typeof host !== "string" || host.length === 0) throw new Error("preview vendor runtime.host is missing");
+  if (typeof port !== "number" || !Number.isInteger(port)) throw new Error("preview vendor runtime.port is missing");
+  if (typeof basePath !== "string" || !basePath.startsWith("/")) throw new Error("preview vendor runtime.basePath is missing");
+  if (typeof proxyOrigin !== "string" || proxyOrigin.length === 0) throw new Error("preview vendor runtime.proxyOrigin is missing");
+  return { host, port, basePath, proxyOrigin };
+}
+
+export function createPreviewServiceResult(
+  runtime: PreviewVendorRuntime,
+  envName: string,
+  vendor: string
+): PreviewServiceResult {
+  return {
+    service: "preview",
+    vendor,
+    envName,
+    mode: "serve",
+    server: {
+      origin: `http://${runtime.host}:${runtime.port}`,
+      host: runtime.host,
+      port: runtime.port,
+      basePath: runtime.basePath,
+    },
+  };
+}
+
+export function toBrowserImportSpecifier(specifier: string) {
+  if (path.isAbsolute(specifier)) return `/@fs${toPosixPath(specifier)}`;
+  if (isFileUrl(specifier)) return `/@fs${toPosixPath(fileURLToPath(specifier))}`;
+  return specifier;
+}
+
+export function toWebpackImportSpecifier(specifier: string) {
+  if (isFileUrl(specifier)) return toPosixPath(fileURLToPath(specifier));
+  return path.isAbsolute(specifier) ? toPosixPath(specifier) : specifier;
+}
+
+export function isShutdownMessage(message: unknown) {
+  return typeof message === "object" && message !== null && (message as { type?: unknown }).type === "shutdown";
+}
+
+export function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&": return "&amp;";
+      case "<": return "&lt;";
+      case ">": return "&gt;";
+      case '"': return "&quot;";
+      case "'": return "&#39;";
+      default: return char;
+    }
+  });
+}
+
+async function readDocsEntry(filePath: string, componentId: string): Promise<PreviewDocsEntry> {
+  const source = await readFile(filePath, "utf8");
+  return { title: readDocsTitle(source) ?? componentId, source };
+}
+
+async function readCompositionEntry(filePath: string, fileName: string): Promise<PreviewCompositionEntry> {
+  const id = readCompositionId(fileName);
+  if (!id) throw new Error(`Invalid demo file name: ${fileName}`);
+  return {
+    id,
+    title: readCompositionTitle(await readFile(filePath, "utf8")) ?? titleFromId(id),
+    filePath,
+  };
 }
 
 function renderPage(title: string, body: string) {
@@ -365,41 +300,6 @@ function renderInlineMarkdown(value: string) {
   return escapeHtml(value).replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
-function readPreviewVendorConfig(config: Record<string, unknown>, workspaceRoot: string): PreviewVendorConfig {
-  const configFile = config.configFile;
-  if (typeof configFile !== "string" || configFile.length === 0) {
-    throw new Error('preview vendor config must define a non-empty "configFile" string');
-  }
-  const mounter = config.mounter;
-  const docsTemplate = config.docsTemplate;
-  if (mounter !== undefined && typeof mounter !== "string") throw new Error('preview vendor config field "mounter" must be a string');
-  if (docsTemplate !== undefined && typeof docsTemplate !== "string") throw new Error('preview vendor config field "docsTemplate" must be a string');
-  return {
-    configFile: resolveImportSpecifier(configFile, workspaceRoot),
-    ...(mounter === undefined ? {} : { mounter: resolveImportSpecifier(mounter, workspaceRoot) }),
-    ...(docsTemplate === undefined ? {} : { docsTemplate: resolveImportSpecifier(docsTemplate, workspaceRoot) }),
-  };
-}
-
-function readPreviewRuntime(runtime: JsonObject | undefined): PreviewVendorRuntime {
-  if (!isRecord(runtime)) throw new Error("preview vendor runtime is missing");
-  const { host, port, basePath, proxyOrigin } = runtime;
-  if (typeof host !== "string" || host.length === 0) throw new Error("preview vendor runtime.host is missing");
-  if (typeof port !== "number" || !Number.isInteger(port)) throw new Error("preview vendor runtime.port is missing");
-  if (typeof basePath !== "string" || !basePath.startsWith("/")) throw new Error("preview vendor runtime.basePath is missing");
-  if (typeof proxyOrigin !== "string" || proxyOrigin.length === 0) throw new Error("preview vendor runtime.proxyOrigin is missing");
-  return { host, port, basePath, proxyOrigin };
-}
-
-function createHmrOptions(runtime: PreviewVendorRuntime) {
-  const proxy = new URL(runtime.proxyOrigin);
-  return {
-    host: proxy.hostname,
-    clientPort: proxy.port ? Number(proxy.port) : proxy.protocol === "https:" ? 443 : 80,
-    protocol: proxy.protocol === "https:" ? "wss" as const : "ws" as const,
-  };
-}
-
 function readDocsTitle(source: string) {
   const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(source);
   const frontmatterTitle = frontmatter?.[1]?.match(/^title:\s*["']?(.+?)["']?\s*$/m)?.[1];
@@ -428,12 +328,6 @@ function componentRoute(runtime: PreviewVendorRuntime, componentId: string) {
 
 function compositionRoute(runtime: PreviewVendorRuntime, componentId: string, compositionId: string) {
   return `${componentRoute(runtime, componentId)}/compositions/${encodeURIComponent(compositionId)}`;
-}
-
-function toBrowserImportSpecifier(specifier: string) {
-  if (path.isAbsolute(specifier)) return `/@fs${toPosixPath(specifier)}`;
-  if (isFileUrl(specifier)) return `/@fs${toPosixPath(fileURLToPath(specifier))}`;
-  return specifier;
 }
 
 function resolveImportSpecifier(specifier: string, workspaceRoot: string) {
@@ -468,27 +362,10 @@ function isAbsoluteUrl(value: string) {
   }
 }
 
-function isShutdownMessage(message: unknown) {
-  return typeof message === "object" && message !== null && (message as { type?: unknown }).type === "shutdown";
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function toPosixPath(value: string) {
   return value.split(path.sep).join("/");
-}
-
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (char) => {
-    switch (char) {
-      case "&": return "&amp;";
-      case "<": return "&lt;";
-      case ">": return "&gt;";
-      case '"': return "&quot;";
-      case "'": return "&#39;";
-      default: return char;
-    }
-  });
 }

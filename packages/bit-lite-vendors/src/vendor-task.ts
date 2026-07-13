@@ -83,8 +83,6 @@ export type WatchVendorTasksOptions<
   formatResult(result: unknown): string[] | Error;
   onResult?(result: EventResult, task: VendorTask<unknown, EventResult, InputMessage>): void;
   formatStoppingMessage?(reason: string): string | undefined;
-  isInteractiveTerminal?(): boolean;
-  nonInteractiveMode?: "snapshot-and-exit" | "keep-alive" | undefined;
   onTasksStarted?(
     tasks: VendorTask<unknown, EventResult, InputMessage>[]
   ): void | (() => void | Promise<void>) | Promise<void | (() => void | Promise<void>)>;
@@ -169,8 +167,7 @@ export async function watchVendorTasks<
   taskOptions: VendorTaskStartOptions[],
   options: WatchVendorTasksOptions<EventResult, InputMessage>
 ) {
-  const interactive = options.isInteractiveTerminal?.() ?? isInteractiveTerminal();
-  const nonInteractiveMode = options.nonInteractiveMode ?? "snapshot-and-exit";
+  const interactive = isInteractiveTerminal();
   const tasks = await createVendorTasks<unknown, EventResult, InputMessage>(
     taskOptions,
     "worker",
@@ -236,13 +233,7 @@ export async function watchVendorTasks<
     if (typeof cleanup === "function") cleanupTasksStarted = cleanup;
 
     terminal?.start();
-
-    if (interactive || nonInteractiveMode === "keep-alive") {
-      await shutdownPromise;
-    } else {
-      await Promise.all(tasks.map((task) => waitForWatchTaskSnapshot(task)));
-      await shutdown("completed");
-    }
+    await shutdownPromise;
   } finally {
     cleanupWatchListeners();
     if (!shuttingDown) await shutdown("completed");
@@ -613,40 +604,6 @@ function rejectVendorRun<
   if (task.completed) return;
   task.completed = true;
   task.rejectResult?.(error instanceof Error ? error : new Error(formatError(error)));
-}
-
-function waitForWatchTaskSnapshot<
-  RunResult,
-  EventResult extends JsonValue,
-  InputMessage extends JsonValue,
->(
-  task: VendorTask<RunResult, EventResult, InputMessage>
-) {
-  return new Promise<void>((resolve, reject) => {
-    let settled = false;
-    let unsubscribe: (() => void) | undefined;
-
-    const settle = (error?: unknown) => {
-      if (settled) return;
-      settled = true;
-      unsubscribe?.();
-      if (error === undefined) {
-        resolve();
-        return;
-      }
-      reject(error instanceof Error ? error : new Error(formatError(error)));
-    };
-
-    const hasDetails = () => (task.details?.length ?? 0) > 0;
-
-    unsubscribe = task.onMessage?.(() => {
-      if (hasDetails()) settle();
-    });
-
-    if (hasDetails()) settle();
-
-    void task.result.catch((error) => settle(error));
-  });
 }
 
 function callFormatResult<Result>(

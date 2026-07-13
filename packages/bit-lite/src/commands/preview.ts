@@ -65,16 +65,14 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
   const proxy = await proxyServer.start(host, proxyPort);
   const taskOptions = await addPreviewRuntime(tasks, proxy.origin, host);
   const componentCounts = new Map(tasks.map((task) => [task.envName, task.components.length]));
-  const interactive = isInteractiveTerminal();
   let proxyCleanupRegistered = false;
 
   try {
+    console.log(`Preview: ${proxyServer.origin}`);
     await watchVendorTasks<PreviewServiceResult>(taskOptions, {
       serviceId,
       label,
       title: () => `Preview: ${proxyServer.origin}`,
-      nonInteractiveMode: "keep-alive",
-      isInteractiveTerminal: () => interactive,
       formatResult(result) {
         return formatPreviewResult(result, componentCounts);
       },
@@ -84,10 +82,6 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
       onTasksStarted(tasks) {
         proxyCleanupRegistered = true;
         const cleanupTaskListeners = attachPreviewTaskListeners(proxyServer, tasks);
-        if (!interactive) {
-          console.log(`Preview: ${proxyServer.origin}`);
-          console.log("Press Ctrl+C to stop.");
-        }
         return async () => {
           cleanupTaskListeners();
           await proxyServer.close();
@@ -227,10 +221,6 @@ function readPort(value: CliOptionValue | undefined, optionName: string, fallbac
 function readVendorLabel(serviceConfig: unknown) {
   if (!isRecord(serviceConfig) || typeof serviceConfig.vendor !== "string") return "unknown";
   return serviceConfig.vendor;
-}
-
-function isInteractiveTerminal() {
-  return process.stdin.isTTY === true && process.stdout.isTTY === true;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

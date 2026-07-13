@@ -10,7 +10,7 @@
           }
         },
         "preview": {
-          "vendor": "demo-vendors/previewers/vite-static",
+          "vendor": "demo-vendors/previewers/vite",
           "config": {
             "configFile": "demo-config/previewers/vite-static",
             "mounter": "demo-config/previewers/static-mounter"
@@ -28,9 +28,9 @@
           }
         },
         "preview": {
-          "vendor": "demo-vendors/previewers/vite-react",
+          "vendor": "demo-vendors/previewers/webpack",
           "config": {
-            "configFile": "demo-config/previewers/vite-react",
+            "configFile": "demo-config/previewers/webpack-react",
             "mounter": "demo-config/previewers/react-mounter"
           }
         }
@@ -46,7 +46,7 @@
           }
         },
         "preview": {
-          "vendor": "demo-vendors/previewers/vite-vue",
+          "vendor": "demo-vendors/previewers/vite",
           "config": {
             "configFile": "demo-config/previewers/vite-vue",
             "mounter": "demo-config/previewers/vue-mounter"
