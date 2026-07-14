@@ -45,8 +45,8 @@ type WebpackHotMiddleware = ReturnType<typeof webpackHotMiddleware> & { close():
 export default async function startWebpackPreviewVendor(
   runtime: VendorRuntime<Record<string, unknown>, PreviewServiceResult, never, PreviewVendorRuntime>
 ): Promise<VendorStartResult<PreviewServiceResult>> {
-  const workspaceRoot = runtime.data.context?.workspaceRoot ?? process.cwd();
   const previewRuntime = readPreviewRuntime(runtime.data.runtime);
+  const workspaceRoot = previewRuntime.workspace.rootDir;
   const configFile = readPreviewConfigFile(runtime.data.config);
   let server: Server | undefined;
   let middleware: WebpackPreviewMiddleware | undefined;
@@ -159,8 +159,42 @@ function createWebpackConfig(
       ...(userConfig.optimization ?? {}),
       runtimeChunk: false,
     },
+    resolve: {
+      ...(userConfig.resolve ?? {}),
+      alias: createWebpackWorkspaceAliases(userConfig.resolve?.alias, runtime),
+    },
     plugins: [...(userConfig.plugins ?? []), new webpack.HotModuleReplacementPlugin()],
   };
+}
+
+export function createWebpackWorkspaceAliases(
+  userAliases: WebpackAliases | undefined,
+  runtime: PreviewVendorRuntime
+): WebpackAliases {
+  const workspacePackageNames = new Set(runtime.workspace.components.map(({ packageName }) => packageName));
+  if (Array.isArray(userAliases)) {
+    return [
+      ...runtime.workspace.components.map(({ packageName, sourceDir }) => ({
+        name: packageName,
+        alias: sourceDir,
+        onlyModule: true,
+      })),
+      ...userAliases.filter(({ name }) => !workspacePackageNames.has(stripExactAliasSuffix(name))),
+    ];
+  }
+  const generatedAliases = Object.fromEntries(
+    runtime.workspace.components.map(({ packageName, sourceDir }) => [`${packageName}$`, sourceDir])
+  );
+  const preservedAliases = Object.fromEntries(
+    Object.entries(userAliases ?? {}).filter(([alias]) => !workspacePackageNames.has(stripExactAliasSuffix(alias)))
+  );
+  return { ...generatedAliases, ...preservedAliases };
+}
+
+type WebpackAliases = NonNullable<NonNullable<Configuration["resolve"]>["alias"]>;
+
+function stripExactAliasSuffix(alias: string) {
+  return alias.endsWith("$") ? alias.slice(0, -1) : alias;
 }
 
 async function importWebpackConfig(configFile: string): Promise<Configuration> {

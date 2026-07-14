@@ -23,8 +23,8 @@ describe("preview preparation", () => {
     });
 
     const result = await discoverPreviewComponents([
-      { id: "scope/zeta", rootDir: zetaRoot },
-      { id: "scope/alpha", rootDir: alphaRoot },
+      { id: "scope/zeta", rootDir: zetaRoot, packageName: "@scope/zeta" },
+      { id: "scope/alpha", rootDir: alphaRoot, packageName: "@scope/alpha" },
     ]);
 
     expect(result.map((component) => component.component.id)).toEqual(["scope/alpha", "scope/zeta"]);
@@ -72,7 +72,9 @@ describe("preview preparation", () => {
       "secondary.demo.ts": "export const mySecondDemo = {};",
     });
 
-    const [component] = await discoverPreviewComponents([{ id: "scope/exports", rootDir: componentRoot }]);
+    const [component] = await discoverPreviewComponents([
+      { id: "scope/exports", rootDir: componentRoot, packageName: "@scope/exports" },
+    ]);
 
     expect(component?.compositions.map(({ id, exportName, name }) => ({ id, exportName, name }))).toEqual([
       { id: "primary/default", exportName: "default", name: "Default" },
@@ -91,7 +93,9 @@ describe("preview preparation", () => {
       "primary.demo.ts": 'export * from "./other.js";\n',
     });
 
-    await expect(discoverPreviewComponents([{ id: "scope/star", rootDir: componentRoot }])).rejects.toThrow(
+    await expect(
+      discoverPreviewComponents([{ id: "scope/star", rootDir: componentRoot, packageName: "@scope/star" }])
+    ).rejects.toThrow(
       `demo file ${path.join(componentRoot, "primary.demo.ts")} uses unsupported unresolved export *`
     );
   });
@@ -109,7 +113,7 @@ describe("preview preparation", () => {
 
     const prepared = await preparePreviewEnv({
       envName: "react env",
-      components: [{ id: 'scope/"quoted"', rootDir: componentRoot }],
+      components: [{ id: 'scope/"quoted"', rootDir: componentRoot, packageName: "@scope/quoted" }],
       serviceConfig: {
         vendor: "vite-preview",
         config: {
@@ -146,8 +150,12 @@ describe("preview preparation", () => {
     expect(source).not.toContain("renderOverview");
     expect(source).not.toContain("loadDocs");
     expect(source).not.toContain("loadComposition");
-    expect(html).toContain('src="/env/react%20env/__bit-lite/preview.js"');
-    expect(Object.keys(prepared.runtime)).toEqual(["server", "prepared"]);
+    expect(html).toContain('src="./__bit-lite/preview.js"');
+    expect(Object.keys(prepared.runtime)).toEqual(["server", "prepared", "workspace"]);
+    expect(prepared.runtime.workspace).toEqual({
+      rootDir: workspaceRoot,
+      components: [{ packageName: "@scope/quoted", sourceDir: componentRoot }],
+    });
     expect(JSON.parse(JSON.stringify(prepared.runtime))).toEqual(prepared.runtime);
 
     const tempDir = prepared.tempDir;
@@ -181,7 +189,7 @@ describe("preview preparation", () => {
 
     const prepared = await preparePreviewEnv({
       ...baseOptions,
-      components: [{ id: "scope/docs-only", rootDir: docsOnlyRoot }],
+      components: [{ id: "scope/docs-only", rootDir: docsOnlyRoot, packageName: "@scope/docs-only" }],
     });
     const source = await readFile(prepared.runtime.prepared.entryFile, "utf8");
     expect(source).not.toContain("previewMounter");
@@ -189,7 +197,10 @@ describe("preview preparation", () => {
     await prepared.cleanup();
 
     await expect(
-      preparePreviewEnv({ ...baseOptions, components: [{ id: "scope/with-demo", rootDir: withDemoRoot }] })
+      preparePreviewEnv({
+        ...baseOptions,
+        components: [{ id: "scope/with-demo", rootDir: withDemoRoot, packageName: "@scope/with-demo" }],
+      })
     ).rejects.toThrow('config.mounter is required because the selected components contain demos');
   });
 

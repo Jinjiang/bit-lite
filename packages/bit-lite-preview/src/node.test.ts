@@ -7,10 +7,18 @@ describe("prepared preview runtime", () => {
       readPreviewPreparedRuntime({
         server: { host: "127.0.0.1", port: 6000, basePath: "/env/react/", proxyOrigin: "http://127.0.0.1:4000" },
         prepared: { entryFile: "/tmp/entry.mjs", htmlFile: "/tmp/index.html" },
+        workspace: {
+          rootDir: "/workspace",
+          components: [{ packageName: "@scope/ui.button", sourceDir: "/workspace/components/button" }],
+        },
       })
     ).toEqual({
       server: { host: "127.0.0.1", port: 6000, basePath: "/env/react/", proxyOrigin: "http://127.0.0.1:4000" },
       prepared: { entryFile: "/tmp/entry.mjs", htmlFile: "/tmp/index.html" },
+      workspace: {
+        rootDir: "/workspace",
+        components: [{ packageName: "@scope/ui.button", sourceDir: "/workspace/components/button" }],
+      },
     });
   });
 
@@ -23,5 +31,20 @@ describe("prepared preview runtime", () => {
         proxyOrigin: "http://127.0.0.1:4000",
       })
     ).toThrow("runtime.server is missing");
+  });
+
+  it("rejects missing or malformed workspace alias descriptors", () => {
+    const baseRuntime = {
+      server: { host: "127.0.0.1", port: 6000, basePath: "/env/react/", proxyOrigin: "http://127.0.0.1:4000" },
+      prepared: { entryFile: "/tmp/entry.mjs", htmlFile: "/tmp/index.html" },
+    };
+
+    expect(() => readPreviewPreparedRuntime(baseRuntime)).toThrow("runtime.workspace is missing");
+    expect(() =>
+      readPreviewPreparedRuntime({
+        ...baseRuntime,
+        workspace: { rootDir: "/workspace", components: [{ packageName: "@scope/ui.button" }] },
+      })
+    ).toThrow("workspace.components[0].sourceDir is missing");
   });
 });

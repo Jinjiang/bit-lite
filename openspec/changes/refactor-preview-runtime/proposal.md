@@ -5,7 +5,8 @@ Preview vendors currently rediscover component files, parse docs, generate bundl
 ## What Changes
 
 - Move component preview discovery, metadata normalization, config resolution, route metadata, and generated-entry preparation into a command-owned Node API in `bit-lite-preview`, invoked by the `preview` command before vendor tasks start.
-- Define a serializable prepared-preview contract so a vendor receives explicit files and one generated browser entry instead of deriving preview inputs from `runtime.data.components`.
+- Define a serializable prepared-preview contract so a vendor receives explicit files and one generated browser entry instead of deriving preview content from `runtime.data.components`.
+- Include the workspace root plus a minimal alias descriptor for each selected component (`packageName` and resolved source directory) in the vendor input. Each vendor must translate those descriptors into its dev server's native package-alias configuration without using them to rediscover docs, demos, or rendering metadata.
 - Replace per-component server routes and per-composition Webpack bundles with one HTML document and one browser entry per env; the browser runtime selects the component, preview kind, and composition from `location.hash` and reacts to `hashchange`.
 - Discover every runtime value export from every selected `*.demo.*` file without executing the module during preparation. Each export becomes a demo: `default` is supported as the discouraged display name `Default`, while named exports derive readable names such as `MySecondDemo` → `My Second Demo`.
 - Generate browser-only component records whose docs and export-level demo entries each carry a statically analyzable lazy loader. Demo loaders import the containing file and resolve only the selected export before invoking the mounter. `startPreview` consumes these records directly instead of receiving top-level `loadDocs` or `loadComposition` callbacks; the functions exist in generated source and never enter serialized vendor data.
@@ -17,7 +18,7 @@ Preview vendors currently rediscover component files, parse docs, generate bundl
 - Keep the default component overview and generated browser entry in a centrally maintained frontend package so a future version can add fixed site-wide CSS, scripts, components, or layout without adding per-vendor configuration.
 - Update the proxy manifest and links to point at hash-routed env preview URLs while retaining the proxy as the single public origin.
 - Give every demo a stable composite ID `<demo-file-id>/<export-name>` so multiple files may export the same name, including multiple discouraged default exports, without route collisions. Demo descriptors expose the original `exportName` and derived `name`; they do not accept author-supplied titles.
-- **BREAKING**: The preview vendor runtime input changes from raw components plus vendor-owned discovery to prepared preview data, so existing preview vendors must adopt the new contract.
+- **BREAKING**: The preview vendor runtime input changes from raw components plus vendor-owned discovery to prepared preview data and explicit workspace alias descriptors, so existing preview vendors must adopt the new contract and configure package aliases through their native dev-server API.
 - **BREAKING**: Configured preview URLs move from path-based content routes to the env entry plus a hash route; the existing `docsTemplate` config remains supported.
 - **BREAKING**: Demo identities change from one file-level ID to one export-level composite ID, and overview/proxy descriptors gain the derived `name` and original `exportName` needed to address each exported demo.
 
@@ -37,6 +38,7 @@ None. This repository does not yet have main OpenSpec capability specs for previ
 ## Impact
 
 - Affects `packages/bit-lite` preview orchestration, the Node preparation/proxy exports in `packages/bit-lite-preview`, both demo preview vendors, demo preview config modules, and preview tests/documentation; `bit-lite-env` retains the existing `docsTemplate` field.
+- Moves workspace-component package aliasing out of demo config helpers: the command supplies resolved alias metadata and each Vite or Webpack vendor merges it into the loaded user config using the toolchain's native alias shape.
 - Adds `demo-utils` for reusable build-time MDX options and a shared preview preparation/browser-runtime boundary; package installation and lockfile updates must use `pnpm`.
 - Removes duplicated discovery, Markdown rendering, route matching, HTML/CSS generation, and Webpack per-composition entry generation from vendor code.
 - Requires demo Vite/Webpack configs to consume the shared MDX utility and requires any third-party preview vendor implementing the current runtime shape to adopt prepared inputs.

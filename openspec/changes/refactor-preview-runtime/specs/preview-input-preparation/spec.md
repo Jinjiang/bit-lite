@@ -5,7 +5,7 @@ The `preview` command SHALL discover, normalize, and generate every selected env
 
 #### Scenario: Selected env has preview content
 - **WHEN** the command selects components for an env with `services.preview`
-- **THEN** it prepares that env's component manifest, generated browser entry, HTML file, resolved service config, and server runtime before starting the vendor task
+- **THEN** it prepares that env's component manifest, generated browser entry, HTML file, resolved service config, server runtime, workspace root, and selected-component alias descriptors before starting the vendor task
 
 #### Scenario: Vendor consumes prepared files
 - **WHEN** a preview vendor starts successfully
@@ -54,15 +54,48 @@ Each discovered demo export SHALL have `exportName`, derived `name`, and a stabl
 - **THEN** its derived name is `XML Card`
 
 ### Requirement: Vendor runtime data is minimal and serializable
-The command SHALL pass a JSON-serializable `PreviewPreparedRuntime` containing only server coordinates and the prepared entry and HTML paths required by the vendor. The command SHALL retain the normalized component manifest and temp-directory lifecycle state, and the existing preview service config SHALL carry the resolved dev-server `configFile`. Loaded modules, callbacks, MDX options, plugin functions, and raw component inputs MUST NOT cross the vendor worker boundary.
+The command SHALL pass a JSON-serializable `PreviewPreparedRuntime` containing server coordinates, the prepared entry and HTML paths, the workspace root, and a minimal alias descriptor for every selected component in that env. Each descriptor SHALL contain only the component package name and its command-resolved absolute source directory. The command SHALL retain the normalized preview component manifest and temp-directory lifecycle state, and the existing preview service config SHALL carry the resolved dev-server `configFile`. Loaded modules, callbacks, MDX options, plugin functions, raw `ComponentRef` values, docs/demo manifests, env configuration, and rendering metadata MUST NOT cross the vendor worker boundary.
 
 #### Scenario: Worker task is created
 - **WHEN** the command converts a prepared env into `VendorTaskStartOptions`
-- **THEN** `runtime.data.server` contains `host`, `port`, `basePath`, and `proxyOrigin`, while `runtime.data.prepared` contains only `entryFile` and `htmlFile`
+- **THEN** `runtime.data.server` contains `host`, `port`, `basePath`, and `proxyOrigin`, `runtime.data.prepared` contains only `entryFile` and `htmlFile`, and `runtime.data.workspace` contains `rootDir` plus selected `{ packageName, sourceDir }` descriptors
+
+#### Scenario: Different envs select different components
+- **WHEN** the command prepares separate vendor tasks for two envs
+- **THEN** each task's workspace descriptor contains only the components selected for that env rather than the complete workspace component catalog
 
 #### Scenario: Generated source references runtime modules
 - **WHEN** the generated entry references a docs, demo, mounter, or `docsTemplate` module
 - **THEN** it uses the command-resolved module path encoded as a safe JavaScript string literal
+
+### Requirement: Vendors apply workspace component aliases natively
+Each preview vendor SHALL translate the supplied workspace component descriptors into its dev server toolchain's native package-alias configuration. The generated alias SHALL match the workspace package name and resolve it to the supplied source directory. A generated workspace alias SHALL take precedence over a user-configured alias for the same package, while aliases for unrelated names SHALL remain unchanged. Vendors SHALL NOT read `bit-lite.json` or rediscover component paths to construct these aliases.
+
+The command SHALL limit source aliases to components selected for the current env so every aliased source file is processed by a compatible preview vendor and config. A workspace component imported from another env SHALL continue through normal package resolution and therefore requires its compiled package artifact to exist before preview starts. Implementations MAY later share aliases across envs only when they can prove that the preview vendor and resolved config are identical.
+
+#### Scenario: Vite vendor starts a workspace env
+- **WHEN** the Vite preview vendor receives a selected component descriptor
+- **THEN** it merges an equivalent Vite `resolve.alias` entry into the loaded config before creating the dev server
+
+#### Scenario: Webpack vendor starts a workspace env
+- **WHEN** the Webpack preview vendor receives a selected component descriptor
+- **THEN** it merges an exact-package Webpack `resolve.alias` entry into the loaded config before creating the compiler
+
+#### Scenario: User config already defines unrelated aliases
+- **WHEN** a loaded dev-server config contains aliases whose names do not match selected workspace packages
+- **THEN** the vendor preserves those aliases alongside the generated workspace aliases
+
+#### Scenario: User config aliases a selected workspace package elsewhere
+- **WHEN** a loaded dev-server config defines an alias for the same package name as a selected workspace component
+- **THEN** the command-supplied source directory wins so preview imports consistently address the selected local component
+
+#### Scenario: Maintained demo config is loaded
+- **WHEN** a maintained Vite or Webpack config is evaluated for preview
+- **THEN** it does not read workspace configuration or import a workspace-component-alias helper
+
+#### Scenario: Selected component imports a component from another env
+- **WHEN** a source-aliased component imports a workspace package owned by an env with a different preview transform configuration
+- **THEN** the vendor does not alias that foreign source and normal package resolution consumes the artifact produced by `bit-lite compile`
 
 ### Requirement: Generated browser records own their lazy imports
 The command SHALL generate a browser-only `PreviewBrowserComponent` array separately from the JSON manifest. Each docs record SHALL contain its own literal `load: () => import("<resolved-path>")` function. Each export-level demo record SHALL contain a literal dynamic import of its containing file followed by selection of `module[exportName]`, so its `load()` resolves the selected export value rather than the module namespace. The generated entry MUST NOT expose top-level `loadDocs` or `loadComposition` dispatch callbacks.

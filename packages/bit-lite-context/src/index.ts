@@ -17,5 +17,7 @@ export type {
   ResolvedWorkspaceConfig,
   SelectedEnvGroup,
   WorkspaceConfig,
+  WorkspaceComponentConfig,
+  WorkspaceComponentsConfig,
   WorkspaceRuntime,
 } from "./types/index.js";

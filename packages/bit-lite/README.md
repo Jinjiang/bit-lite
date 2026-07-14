@@ -8,6 +8,7 @@ Small CLI entrypoint for running bit-lite workspace commands.
 bit-lite test --workspace <dir>
 bit-lite test --workspace <dir> --filter <component-pattern>
 bit-lite test --workspace <dir> --watch
+bit-lite compile --workspace <dir>
 bit-lite preview --workspace <dir>
 bit-lite preview --workspace <dir> --filter <component-pattern> --port 4000
 ```
@@ -17,6 +18,12 @@ each env's configured `services.test` vendor with that env's config.
 Use `--filter` to restrict the command input to matching component ids. Exact
 component ids and the workspace pattern syntax (`*` and `**`) are supported, and
 the flag may be repeated.
+
+Run `bit-lite compile` before preview when a component imports a workspace
+package owned by another env. Preview aliases only the current env's selected
+components to source because other envs may require incompatible loaders or
+plugins; cross-env imports continue to resolve through compiled package `dist`
+artifacts.
 
 `bit-lite preview` prepares one HTML and one browser entry per selected env,
 then starts the configured preview dev-server vendor behind a shared proxy.
@@ -29,8 +36,9 @@ Public component links use hash routes under the env base, for example:
 ```
 
 Preview preparation owns docs/demo discovery and literal dynamic imports. A
-preview vendor receives only server coordinates plus the prepared entry/HTML
-paths; it does not receive raw components or MDX options in runtime JSON.
+preview vendor receives server coordinates, the prepared entry/HTML paths, and
+the current env's `{ packageName, sourceDir }` alias descriptors; it does not
+receive raw components or MDX options in runtime JSON.
 
 Every runtime value export in a sorted `*.demo.*` file is one demo. For example,
 `export const MySecondDemo = ...` in `primary.demo.ts` has ID

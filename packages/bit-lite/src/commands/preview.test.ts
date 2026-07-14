@@ -46,7 +46,18 @@ describe("preview command preparation isolation", () => {
     expect(result.failures).toHaveLength(1);
     expect(result.taskOptions[0]?.components).toEqual([]);
     expect(result.taskOptions[0]?.runtime).toEqual(result.preparedEnvs[0]?.runtime);
-    expect(Object.keys(result.taskOptions[0]?.runtime ?? {})).toEqual(["server", "prepared"]);
+    expect(Object.keys(result.taskOptions[0]?.runtime ?? {})).toEqual(["server", "prepared", "workspace"]);
+    expect(result.taskOptions[0]?.runtime?.workspace).toEqual({
+      rootDir: workspaceRoot,
+      components: [{ packageName: "@scope/valid", sourceDir: validRoot }],
+    });
+    expect(result.taskOptions[0]?.context).toEqual({
+      workspaceRoot,
+      config: { envs: {}, components: {} },
+      envs: {},
+      components: [],
+      groups: [],
+    });
     expect(proxy.manifest().envs).toMatchObject([
       { envName: "failed", status: "failed", error: expect.stringContaining("could not be resolved") },
       { envName: "valid", status: "starting" },
@@ -67,11 +78,11 @@ function createTask(
   const serviceConfig = { vendor: "vite-preview", config: { configFile } };
   return {
     envName,
-    components: [{ id: `scope/${envName}`, rootDir }],
+    components: [{ id: `scope/${envName}`, rootDir, packageName: `@scope/${envName}` }],
     serviceConfig,
     taskOptions: {
       envName,
-      components: [{ id: `scope/${envName}`, rootDir }],
+      components: [{ id: `scope/${envName}`, rootDir, packageName: `@scope/${envName}` }],
       args: parseCliArguments([]),
       context,
       serviceConfig,

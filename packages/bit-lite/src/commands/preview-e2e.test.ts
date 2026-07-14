@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { parseCliArguments } from "bit-lite-context";
@@ -36,63 +36,74 @@ describe("prepared preview end-to-end", () => {
     },
   ])("serves one $name document and logical entry with lazy docs/demo modules and HMR", async (variant) => {
     const repoRoot = path.resolve(process.cwd(), "../..");
-    const workspaceRoot = await mkdtemp(path.join(repoRoot, `.bit-lite-preview-e2e-${variant.name}-`));
-    const componentRoot = path.join(workspaceRoot, "components", "sample");
-    await mkdir(componentRoot, { recursive: true });
-    await symlink(path.join(repoRoot, "packages", "demo-config", "node_modules"), path.join(workspaceRoot, "node_modules"), "dir");
-    await Promise.all([
-      writeFile(path.join(workspaceRoot, "package.json"), '{"type":"module"}\n', "utf8"),
-      writeFile(
-        path.join(componentRoot, "sample.docs.mdx"),
-        '---\ntitle: E2E docs\n---\n# Documentation\n<div data-e2e-docs="">MDX body</div>\n',
-        "utf8"
-      ),
-      writeFile(path.join(componentRoot, variant.demoFile), variant.demoSource, "utf8"),
-    ]);
-    const vendorPort = await findAvailablePort("127.0.0.1", variant.name === "vite" ? 46_000 : 46_100);
-    const proxy = new PreviewProxyServer({
-      envs: [
-        {
-          envName: variant.name,
-          taskId: variant.name,
-          vendor: `${variant.name}-preview`,
-          status: "starting",
-          components: [{ id: "components/sample" }],
-        },
-      ],
-      skipped: [],
-    });
-    await proxy.start("127.0.0.1", variant.name === "vite" ? 45_000 : 45_100);
-    const prepared = await preparePreviewEnv({
-      envName: variant.name,
-      components: [{ id: "components/sample", rootDir: componentRoot }],
-      serviceConfig: {
-        vendor: `${variant.name}-preview`,
-        config: {
-          configFile: require.resolve(variant.configFile),
-          mounter: require.resolve(
-            variant.name === "vite" ? "demo-config/previewers/static-mounter" : "demo-config/previewers/react-mounter"
-          ),
-          docsTemplate: require.resolve("demo-config/previewers/docs-template"),
-        },
-      },
-      workspaceRoot,
-      server: {
-        host: "127.0.0.1",
-        port: vendorPort,
-        basePath: `/env/${variant.name}/`,
-        proxyOrigin: proxy.origin,
-      },
-    });
-    const generatedEntry = await readFile(prepared.runtime.prepared.entryFile, "utf8");
-    expect(generatedEntry.match(new RegExp(variant.demoFile.replaceAll(".", "\\."), "g"))).toHaveLength(2);
-    expect(generatedEntry).toContain('.then((module) => module["Primary"])');
-    expect(generatedEntry).toContain('.then((module) => module["MySecondDemo"])');
-    proxy.updatePreparedComponents(variant.name, prepared.runtime.server.basePath, prepared.components);
-    const harness = createHarness(variant.name, workspaceRoot, prepared);
-    let handle;
+    const tempRoot = path.join(repoRoot, "packages", "demo-workspace", ".bit-lite");
+    await mkdir(tempRoot, { recursive: true });
+    const workspaceRoot = await mkdtemp(path.join(tempRoot, `preview-e2e-${variant.name}-`));
+    let stopVendor: (() => Promise<void> | void) | undefined;
+    let closeProxy: (() => Promise<void>) | undefined;
+    let cleanupPrepared: (() => Promise<void>) | undefined;
+    let preparedTempDir: string | undefined;
+
     try {
-      handle = await variant.startVendor(harness.runtime as never);
+      const componentRoot = path.join(workspaceRoot, "components", "sample");
+      await mkdir(componentRoot, { recursive: true });
+      await Promise.all([
+        writeFile(path.join(workspaceRoot, "package.json"), '{"type":"module"}\n', "utf8"),
+        writeFile(
+          path.join(componentRoot, "sample.docs.mdx"),
+          '---\ntitle: E2E docs\n---\n# Documentation\n<div data-e2e-docs="">MDX body</div>\n',
+          "utf8"
+        ),
+        writeFile(path.join(componentRoot, variant.demoFile), variant.demoSource, "utf8"),
+      ]);
+      const vendorPort = await findAvailablePort("127.0.0.1", variant.name === "vite" ? 46_000 : 46_100);
+      const proxy = new PreviewProxyServer({
+        envs: [
+          {
+            envName: variant.name,
+            taskId: variant.name,
+            vendor: `${variant.name}-preview`,
+            status: "starting",
+            components: [{ id: "components/sample" }],
+          },
+        ],
+        skipped: [],
+      });
+      closeProxy = () => proxy.close();
+      await proxy.start("127.0.0.1", variant.name === "vite" ? 45_000 : 45_100);
+      const prepared = await preparePreviewEnv({
+        envName: variant.name,
+        components: [{ id: "components/sample", rootDir: componentRoot, packageName: "@scope/sample" }],
+        serviceConfig: {
+          vendor: `${variant.name}-preview`,
+          config: {
+            configFile: require.resolve(variant.configFile),
+            mounter: require.resolve(
+              variant.name === "vite"
+                ? "demo-config/previewers/static-mounter"
+                : "demo-config/previewers/react-mounter"
+            ),
+            docsTemplate: require.resolve("demo-config/previewers/docs-template"),
+          },
+        },
+        workspaceRoot,
+        server: {
+          host: "127.0.0.1",
+          port: vendorPort,
+          basePath: `/env/${variant.name}/`,
+          proxyOrigin: proxy.origin,
+        },
+      });
+      cleanupPrepared = () => prepared.cleanup();
+      preparedTempDir = prepared.tempDir;
+      const generatedEntry = await readFile(prepared.runtime.prepared.entryFile, "utf8");
+      expect(generatedEntry.match(new RegExp(variant.demoFile.replaceAll(".", "\\."), "g"))).toHaveLength(2);
+      expect(generatedEntry).toContain('.then((module) => module["Primary"])');
+      expect(generatedEntry).toContain('.then((module) => module["MySecondDemo"])');
+      proxy.updatePreparedComponents(variant.name, prepared.runtime.server.basePath, prepared.components);
+      const harness = createHarness(variant.name, workspaceRoot, prepared);
+      const handle = await variant.startVendor(harness.runtime as never);
+      stopVendor = () => handle.stop?.();
       proxy.updateServer(
         variant.name,
         {
@@ -106,16 +117,24 @@ describe("prepared preview end-to-end", () => {
 
       const base = `${proxy.origin}${prepared.runtime.server.basePath}`;
       const html = await fetch(base).then((response) => response.text());
-      const entryResponse = await fetch(`${base}__bit-lite/preview.js`);
+      const entryUrl = new URL(readModuleScriptSource(html), base);
+      const entryResponse = await fetch(entryUrl);
       const entry = await entryResponse.text();
       expect(html).toContain('id="preview-root"');
       expect(html.match(/__bit-lite\/preview\.js/g)).toHaveLength(1);
+      expect(entryUrl.pathname).toBe(`/env/${variant.name}/__bit-lite/preview.js`);
       expect(entryResponse.status).toBe(200);
       expect(entry).toContain("sample.docs.mdx");
       expect(entry).toContain(variant.demoFile);
       expect(entry).toContain("previewController.refresh");
 
       if (variant.name === "vite") {
+        const browserRuntimeUrl = new URL(readBrowserRuntimeSource(entry), base);
+        const browserRuntimeResponse = await fetch(browserRuntimeUrl);
+        const browserRuntimeSource = await browserRuntimeResponse.text();
+        expect(browserRuntimeResponse.status).toBe(200);
+        expect(browserRuntimeSource).toMatch(/\.bit-lite\/vite-preview\/env-vite\/deps\/react\.js/);
+        expect(browserRuntimeSource).not.toMatch(/@fs.*react\/index\.js/);
         const docs = await fetch(`${base}components/sample/sample.docs.mdx?import`);
         const demo = await fetch(`${base}components/sample/${variant.demoFile}`);
         expect(docs.status).toBe(200);
@@ -152,13 +171,14 @@ describe("prepared preview end-to-end", () => {
       ]);
       expect(harness.messages).toContainEqual(expect.objectContaining({ type: "status", status: "ready" }));
     } finally {
-      await handle?.stop?.();
-      await proxy.close();
-      await prepared.cleanup();
-      await rm(workspaceRoot, { recursive: true, force: true });
+      await stopVendor?.();
+      await closeProxy?.();
+      await cleanupPrepared?.();
+      await removePreviewTestWorkspace(workspaceRoot);
     }
 
-    await expect(access(prepared.tempDir)).rejects.toThrow();
+    expect(preparedTempDir).toBeDefined();
+    await expect(access(preparedTempDir!)).rejects.toThrow();
   }, 30_000);
 });
 
@@ -191,4 +211,29 @@ function createHarness(name: string, workspaceRoot: string, prepared: Awaited<Re
 
 function readWebpackLazyChunkFiles(entry: string) {
   return Array.from(entry.matchAll(/"([^"]*(?:docs|demo)[^"]*)":"([a-f0-9]+)"/g), (match) => `${match[1]}.${match[2]}.js`);
+}
+
+function readModuleScriptSource(html: string) {
+  const match = /\bsrc=["']([^"']*__bit-lite\/preview\.js[^"']*)["']/i.exec(html);
+  if (!match?.[1]) throw new Error("Prepared preview HTML is missing its module script");
+  return match[1];
+}
+
+function readBrowserRuntimeSource(entry: string) {
+  const match = /from\s+["']([^"']*bit-lite-preview\/dist\/browser\/index\.js[^"']*)["']/.exec(entry);
+  if (!match?.[1]) throw new Error("Transformed preview entry is missing the browser runtime import");
+  return match[1];
+}
+
+async function removePreviewTestWorkspace(workspaceRoot: string) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await rm(workspaceRoot, { recursive: true, force: true });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    try {
+      await access(workspaceRoot);
+    } catch {
+      return;
+    }
+  }
+  throw new Error(`preview test workspace was recreated during cleanup: ${workspaceRoot}`);
 }

@@ -71,3 +71,12 @@
 - [x] 9.5 Update maintained demo fixtures so at least one file exports both a discouraged default demo and a named demo such as `MySecondDemo`, while other maintained examples prefer named exports.
 - [x] 9.6 Add preparation, naming, route, browser lifecycle, proxy, Vite, Webpack, HMR, same-file chunk, duplicate-cross-file export-name, type-only export, and unsupported star-export coverage for export-level demos.
 - [x] 9.7 Update preview documentation and package READMEs with export-level authoring and restart semantics, update the lockfile with `pnpm`, then run targeted tests, the full workspace tests, typechecks, builds, and strict OpenSpec validation.
+
+## 10. Runtime Verification Follow-up
+
+- [x] 10.1 Make workspace loading honor the restored per-component config array, preserve explicit component IDs, and bridge each record to its local service env with `envName`.
+- [x] 10.2 Extend `PreviewPreparedRuntime` and command-side preparation with the workspace root plus selected `{ packageName, sourceDir }` alias descriptors, keeping raw component and preview-manifest data out of the vendor worker payload.
+- [x] 10.3 Make the Vite and Webpack preview vendors merge command-supplied workspace aliases through their native config shapes, give generated exact-package aliases precedence, preserve unrelated user aliases, and cover both adapters with focused tests.
+- [x] 10.4 Remove the demo-config `workspace-component-aliases` helper and config imports, document that cross-env package imports require `bit-lite compile`, then run targeted tests, typechecks, builds, strict OpenSpec validation, and the real compiled demo-workspace preview command.
+- [x] 10.5 Fix browser regressions by making the prepared module-script URL base-relative, scanning the prepared Vite entry, ensuring maintained env configs resolve and deduplicate framework runtimes across source-aliased components, preserving self-rendered static demos, stopping manifest polling after startup reaches terminal states, adding regression coverage, and verifying every demo-workspace preview surface in a real browser.
+- [x] 10.6 Isolate each Vite preview env's dependency-optimizer cache under the workspace `.bit-lite` directory, move E2E temp workspaces under `demo-workspace/.bit-lite` with setup-wide cleanup, remove leaked root temp directories, and verify concurrent Vite envs in a real browser.

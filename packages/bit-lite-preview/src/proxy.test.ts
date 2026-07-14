@@ -18,6 +18,10 @@ describe("preview proxy", () => {
     });
     await proxy.start("127.0.0.1", 43_000);
 
+    const shell = await fetch(`${proxy.origin}/`).then((response) => response.text());
+    expect(shell).toContain("isTerminalStatus");
+    expect(shell).not.toContain("setInterval(loadManifest");
+
     proxy.updatePreparedComponents("react env", "/env/react%20env/", [
       {
         component: { id: "scope/button" },

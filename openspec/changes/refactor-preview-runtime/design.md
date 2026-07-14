@@ -15,6 +15,7 @@ bit-lite does not need Bit's aspect or artifact machinery, but it can preserve t
 **Goals:**
 
 - Make the `preview` command the owner of file discovery policy, normalized metadata, generated entry files, and temporary-file lifecycle, using reusable Node APIs exported by `bit-lite-preview`.
+- Make the `preview` command the owner of resolved workspace-component alias metadata so vendors do not read workspace config files themselves.
 - Give each env vendor one prepared browser entry and one HTML document to serve.
 - Route a shared component overview, docs, and selected demos inside the browser from a documented hash grammar.
 - Treat every runtime value export of every selected `*.demo.*` file as an independently addressable demo, with deterministic identity and a derived readable name.
@@ -46,7 +47,7 @@ Add command-owned preparation APIs to the explicit `bit-lite-preview/node` expor
 3. Statically discover demo-file runtime exports and derive docs display metadata plus stable export-level demo IDs and names.
 4. Resolve the existing `configFile`, mounter, and `docsTemplate` module specifiers relative to the workspace.
 5. Create an env-scoped temporary directory containing one generated browser entry and one HTML file.
-6. Return only the paths and server values the vendor needs.
+6. Return the paths, server values, workspace root, and selected-component alias descriptors the vendor needs.
 
 Conceptual vendor contract:
 
@@ -62,16 +63,27 @@ type PreviewPreparedRuntime = JsonObject & {
     entryFile: string;
     htmlFile: string;
   };
+  workspace: {
+    rootDir: string;
+    components: Array<{
+      packageName: string;
+      sourceDir: string;
+    }>;
+  };
 };
 ```
 
+`workspace.components` contains only components selected for the current env. `sourceDir` is an absolute source-directory path resolved by the command, while `rootDir` identifies the workspace from which the preview was prepared. These descriptors are intentionally narrower than `ComponentRef`: they carry no docs, demos, env configuration, or rendering metadata and exist only so a vendor can map workspace package imports to source directories through its toolchain's native alias mechanism.
+
+The env boundary is also a transform-compatibility boundary. A vendor aliases only components known to use that env's preview vendor and config; it does not alias arbitrary workspace components that may require different loaders or plugins. An internal package imported from another env therefore resolves through its generated package manifest and compiled `dist`, so workspaces with cross-env component dependencies must run `bit-lite compile` before `bit-lite preview`. A future preparation strategy may safely share aliases across envs only when their preview vendor and resolved config are identical.
+
 The existing `PreviewServiceConfig.configFile` remains the Vite or Webpack dev-server/toolchain config. Command-side preparation resolves that value in the standard vendor config data; it is not a generated preview artifact and is therefore not duplicated in `PreviewPreparedRuntime.prepared`.
 
-The command retains the normalized JSON component manifest and temp-directory handle for proxy state and cleanup rather than sending them merely because they exist. The generated entry derives browser-only component records from that manifest. Each docs record contains its descriptors plus a safely encoded, statically analyzable `load: () => import("<resolved-path>")` function. Each demo record contains `id`, `exportName`, derived `name`, and route descriptors plus a loader that imports its containing file and resolves only `module[exportName]`. The entry conditionally imports configured `mounter` and `docsTemplate` modules and calls the fixed browser bootstrap. Values inserted into generated source are emitted with JSON stringification rather than raw interpolation.
+The command retains the normalized JSON component manifest and temp-directory handle for proxy state and cleanup rather than sending them merely because they exist. Only the separately normalized workspace alias descriptors cross the vendor boundary. The generated entry derives browser-only component records from the manifest. Each docs record contains its descriptors plus a safely encoded, statically analyzable `load: () => import("<resolved-path>")` function. Each demo record contains `id`, `exportName`, derived `name`, and route descriptors plus a loader that imports its containing file and resolves only `module[exportName]`. The entry conditionally imports configured `mounter` and `docsTemplate` modules and calls the fixed browser bootstrap. Values inserted into generated source are emitted with JSON stringification rather than raw interpolation.
 
 These `load` functions are generated JavaScript, not worker-protocol data or a DevServer-specific API. Vite preserves each dynamic import as an on-demand browser module request, while Webpack compiles it into an async chunk boundary. Both remain inside one logical entry graph and delay module evaluation until the corresponding route is active.
 
-Vendors neither scan component roots nor create or delete generated preview entries. Preparation failure prevents that env task from starting and is reported with the env and offending config or file. The command owns cleanup for all prepared temp directories.
+Vendors neither scan component roots for preview content nor create or delete generated preview entries. They may consume the supplied `packageName` and `sourceDir` pairs only to construct dev-server aliases. Preparation failure prevents that env task from starting and is reported with the env and offending config or file. The command owns cleanup for all prepared temp directories.
 
 Alternative considered: put discovery and entry generation in a shared vendor helper. Rejected because these operations define vendor input and must be complete before vendor startup.
 
@@ -205,11 +217,12 @@ The command does not add `mdxOptions`, `mdxComponents`, or user-configurable lay
 The vendor receives the prepared entry and HTML through preview runtime data, the existing resolved `configFile` through service config data, and the assigned network paths. Its responsibilities are limited to:
 
 - Load the resolved Vite or Webpack `configFile`, including whatever transform plugins or loaders that dev server needs.
+- Translate the command-supplied workspace component descriptors into the toolchain's native package alias configuration and merge them with the loaded user config. Generated exact-package aliases take precedence for the same workspace package name, while unrelated user aliases remain intact.
 - Set the prepared entry as the sole logical bundler entry and serve the prepared HTML at the env base path.
 - Configure asset base paths and HMR for the public proxy origin.
 - Report readiness and stop the dev server on shutdown.
 
-Webpack changes from an `EntryObject` with one entry per composition to one entry. Vite removes custom docs/composition route middleware and serves the prepared HTML fallback. Bundlers may emit lazy chunks, but there is exactly one logical entry graph and no route-specific entry generation.
+Webpack changes from an `EntryObject` with one entry per composition to one entry and expresses workspace packages as exact-match aliases. Vite removes custom docs/composition route middleware, serves the prepared HTML fallback, and merges equivalent aliases through Vite's native config shape. Bundlers may emit lazy chunks, but there is exactly one logical entry graph and no route-specific entry generation. Maintained demo configs no longer read `bit-lite.json` or import a workspace-alias helper.
 
 Alternative considered: precompile every MDX file in the command. Rejected because emitted modules with relative imports need source-relative bundler resolution, which the existing config files already provide naturally.
 
@@ -363,6 +376,9 @@ Command-side filesystem discovery, temp-file generation, proxy serving, and thei
 - [Several demo records can import the same file] → Rely on bundler chunk deduplication and the browser module cache while resolving each record's selected export after the shared import promise.
 - [Adding or removing an export does not regenerate the prepared catalog during the current process] → Document preview restart as required for export-set changes; ordinary edits to an existing export continue through HMR.
 - [Vite and Webpack transform dynamic imports differently] → Generate only literal import specifiers, test the same browser component fixture through both toolchains, and treat docs module promises plus selected demo export promises as the shared runtime contracts.
+- [A generated workspace alias conflicts with a user-configured alias] → Make the generated exact-package alias authoritative for selected workspace packages while preserving every unrelated user alias, and cover merge behavior in both vendor suites.
+- [A vendor cannot transform a selected component's source format] → Treat source transformation as part of that env's dev-server config responsibility and surface its normal config/build error rather than falling back to a missing compiled package.
+- [A selected component imports a workspace component from another env] → Do not alias the foreign source through an incompatible loader/plugin stack; require `bit-lite compile` so normal package resolution can consume its generated `dist` artifact.
 - [Temp paths or source paths can produce invalid generated code] → Resolve paths before generation, serialize every literal, use deterministic filenames, and test spaces, quotes, and cross-platform separators.
 - [Node HTML templates can be omitted from a built package] → Keep templates under the preview package and copy them into `dist/assets` in the package build lifecycle, with built-output verification.
 - [Different UI frameworks can compete for the same DOM] → Give a composition mounter a dedicated host whose descendants only it owns, and run its cleanup before the browser runtime removes that host.
@@ -377,7 +393,7 @@ Command-side filesystem discovery, temp-file generation, proxy serving, and thei
 3. Add the command-owned Node discovery, module resolution, JSON manifest generation, browser component record generation with content-local dynamic imports, entry generation, proxy, and cleanup APIs to `bit-lite-preview/node`, then invoke them from the command behind the minimal prepared runtime type.
 4. Replace file-level demos with syntax-aware export discovery, composite IDs, derived names, and generated loaders that resolve one selected export value.
 5. Update demo Vite and Webpack configs to install their native MDX integrations using the same `demo-utils` options.
-6. Convert Vite and Webpack vendors to the prepared single-entry contract and remove vendor-owned discovery, routing, rendering, and per-composition entry generation.
+6. Convert Vite and Webpack vendors to the prepared single-entry contract, add native workspace-package alias merging from command-supplied descriptors, remove demo-config alias discovery, and remove vendor-owned discovery, routing, rendering, and per-composition entry generation.
 7. Add the default component overview and optional overview callback, make overview the default hash surface, change proxy manifest links to hash URLs, and update navigation, HMR, docs-template, mounter, and lifecycle tests.
 8. Update preview documentation to distinguish compile-time MDX config, runtime `docsTemplate`, export-level demos, the browser-only overview hook, and the reserved site-shell boundary.
 

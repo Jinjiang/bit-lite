@@ -3,29 +3,32 @@ import { loadConfig, resolveEnvs } from "./config.js";
 import { BitLiteError } from "./utils/errors.js";
 import { componentIdFromDir, discoverComponentDirs, matchPattern } from "./utils/patterns.js";
 import type { ComponentRef, ComponentRuntime, SelectedEnvGroup, WorkspaceRuntime } from "./types/index.js";
-import { toPosixPath } from "./utils/path-utils.js";
+import { normalizeRelativePath, toPosixPath } from "./utils/path-utils.js";
 
 export async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceRuntime> {
   const absoluteRoot = path.resolve(workspaceRoot);
   const workspaceConfig = await loadConfig(absoluteRoot);
   const envs = resolveEnvs(workspaceConfig);
-  const patternEntries = Object.entries(workspaceConfig.components ?? {});
+  const explicitComponents = Array.isArray(workspaceConfig.components) ? workspaceConfig.components : undefined;
+  const patternEntries = explicitComponents ? [] : Object.entries(workspaceConfig.components ?? {});
   const componentDirs = await discoverComponentDirs(
     absoluteRoot,
-    patternEntries.map(([pattern]) => pattern)
+    explicitComponents?.map((component) => component.path) ?? patternEntries.map(([pattern]) => pattern)
   );
 
   const envNames = Object.keys(envs);
-  const components: ComponentRuntime[] = componentDirs.map((rootDir) => {
-    const relativeDir = toPosixPath(path.relative(absoluteRoot, rootDir));
-    const envName = resolveComponentEnv(relativeDir, patternEntries, envNames);
-    if (!envs[envName]) throw new BitLiteError(`component "${relativeDir}" resolved to unknown env "${envName}"`);
-    return {
-      id: componentIdFromDir(absoluteRoot, rootDir),
-      rootDir,
-      envName,
-    };
-  });
+  const components: ComponentRuntime[] = explicitComponents
+    ? createExplicitComponents(absoluteRoot, componentDirs, explicitComponents, envs)
+    : componentDirs.map((rootDir) => {
+        const relativeDir = toPosixPath(path.relative(absoluteRoot, rootDir));
+        const envName = resolveComponentEnv(relativeDir, patternEntries, envNames);
+        if (!envs[envName]) throw new BitLiteError(`component "${relativeDir}" resolved to unknown env "${envName}"`);
+        return {
+          id: componentIdFromDir(absoluteRoot, rootDir),
+          rootDir,
+          envName,
+        };
+      });
 
   const groups = Object.values(
     components.reduce<Record<string, WorkspaceRuntime["groups"][number]>>((acc, component) => {
@@ -56,6 +59,25 @@ export async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceRun
     components: components.sort((left, right) => left.id.localeCompare(right.id)),
     groups,
   };
+}
+
+function createExplicitComponents(
+  workspaceRoot: string,
+  discoveredDirs: string[],
+  entries: Array<{ path: string; id: string; envName: string }>,
+  envs: WorkspaceRuntime["envs"]
+) {
+  const discovered = new Set(discoveredDirs.map((rootDir) => path.resolve(rootDir)));
+  return entries.map<ComponentRuntime>((entry) => {
+    const rootDir = path.resolve(workspaceRoot, normalizeRelativePath(entry.path));
+    if (!discovered.has(rootDir)) {
+      throw new BitLiteError(`component "${entry.id}" path "${entry.path}" was not found or has no component marker`);
+    }
+    if (!envs[entry.envName]) {
+      throw new BitLiteError(`component "${entry.id}" resolved to unknown env "${entry.envName}"`);
+    }
+    return { id: entry.id, rootDir, envName: entry.envName };
+  });
 }
 
 export function groupSelectedComponentsByEnv(

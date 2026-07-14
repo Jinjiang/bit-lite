@@ -8,6 +8,16 @@ export type JsonObject = {
   [key: string]: JsonValue;
 };
 
+export type PreviewWorkspaceComponent = {
+  packageName: string;
+  sourceDir: string;
+};
+
+export type PreviewWorkspaceRuntime = {
+  rootDir: string;
+  components: PreviewWorkspaceComponent[];
+};
+
 export type PreviewPreparedRuntime = JsonObject & {
   server: {
     host: string;
@@ -19,6 +29,7 @@ export type PreviewPreparedRuntime = JsonObject & {
     entryFile: string;
     htmlFile: string;
   };
+  workspace: PreviewWorkspaceRuntime;
 };
 
 export type PreviewComponentManifest = {

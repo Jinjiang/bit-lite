@@ -1,7 +1,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { BitLiteError } from "./utils/errors.js";
-import type { EnvConfig, ResolvedEnvConfig, WorkspaceConfig } from "./types/index.js";
+import type {
+  EnvConfig,
+  ResolvedEnvConfig,
+  WorkspaceComponentConfig,
+  WorkspaceComponentsConfig,
+  WorkspaceConfig,
+} from "./types/index.js";
 
 const CONFIG_FILE = "bit-lite.json";
 
@@ -39,10 +45,6 @@ export function validateConfig(value: unknown): WorkspaceConfig {
   if (Object.keys(envs).length === 0) {
     throw new BitLiteError('config field "envs" must define at least one env');
   }
-  if (components !== undefined && !isStringMap(components)) {
-    throw new BitLiteError('config field "components" must be an object of pattern -> env name');
-  }
-
   const validatedEnvs: Record<string, EnvConfig> = {};
   for (const [name, env] of Object.entries(envs)) {
     if (!isObject(env)) throw new BitLiteError(`env "${name}" must be an object`);
@@ -60,15 +62,11 @@ export function validateConfig(value: unknown): WorkspaceConfig {
     };
   }
 
-  for (const [pattern, envName] of Object.entries(components ?? {})) {
-    if (!validatedEnvs[envName]) {
-      throw new BitLiteError(`component pattern "${pattern}" references unknown env "${envName}"`);
-    }
-  }
+  const validatedComponents = validateComponents(components, validatedEnvs);
 
   return {
     envs: validatedEnvs,
-    components: components ? { ...components } : {},
+    components: validatedComponents,
   };
 }
 
@@ -111,4 +109,48 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function isStringMap(value: unknown): value is Record<string, string> {
   if (!isObject(value)) return false;
   return Object.values(value).every((item) => typeof item === "string");
+}
+
+function validateComponents(
+  value: unknown,
+  envs: Record<string, EnvConfig>
+): WorkspaceComponentsConfig {
+  if (value === undefined) return {};
+  if (isStringMap(value)) {
+    for (const [pattern, envName] of Object.entries(value)) {
+      if (!envs[envName]) {
+        throw new BitLiteError(`component pattern "${pattern}" references unknown env "${envName}"`);
+      }
+    }
+    return { ...value };
+  }
+  if (!Array.isArray(value)) {
+    throw new BitLiteError(
+      'config field "components" must be an array of component records or an object of pattern -> env name'
+    );
+  }
+
+  const paths = new Set<string>();
+  const ids = new Set<string>();
+  return value.map((entry, index) => {
+    if (!isObject(entry)) throw new BitLiteError(`component entry at index ${index} must be an object`);
+    const component = {
+      path: readRequiredString(entry.path, `component entry at index ${index} field "path"`),
+      id: readRequiredString(entry.id, `component entry at index ${index} field "id"`),
+      envName: readRequiredString(entry.envName, `component entry at index ${index} field "envName"`),
+    } satisfies WorkspaceComponentConfig;
+    if (!envs[component.envName]) {
+      throw new BitLiteError(`component "${component.id}" references unknown env "${component.envName}"`);
+    }
+    if (paths.has(component.path)) throw new BitLiteError(`component path "${component.path}" is duplicated`);
+    if (ids.has(component.id)) throw new BitLiteError(`component id "${component.id}" is duplicated`);
+    paths.add(component.path);
+    ids.add(component.id);
+    return component;
+  });
+}
+
+function readRequiredString(value: unknown, label: string) {
+  if (typeof value !== "string" || value.length === 0) throw new BitLiteError(`${label} must be a non-empty string`);
+  return value;
 }

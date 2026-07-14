@@ -17,6 +17,8 @@ export type {
   PreviewOverviewRenderer,
   PreviewPreparedRuntime,
   PreviewRuntimeController,
+  PreviewWorkspaceComponent,
+  PreviewWorkspaceRuntime,
   StartPreviewOptions,
 } from "./types.js";
 export {

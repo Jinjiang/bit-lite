@@ -22,8 +22,8 @@ export const meta: VendorDefinition = {
 export default async function startVitePreviewVendor(
   runtime: VendorRuntime<Record<string, unknown>, PreviewServiceResult, never, PreviewVendorRuntime>
 ): Promise<VendorStartResult<PreviewServiceResult>> {
-  const workspaceRoot = runtime.data.context?.workspaceRoot ?? process.cwd();
   const previewRuntime = readPreviewRuntime(runtime.data.runtime);
+  const workspaceRoot = previewRuntime.workspace.rootDir;
   const configFile = readPreviewConfigFile(runtime.data.config);
   let server: ViteDevServer | undefined;
   let stopped = false;
@@ -40,10 +40,15 @@ export default async function startVitePreviewVendor(
     const html = await readFile(previewRuntime.prepared.htmlFile, "utf8");
     server = await createServer({
       root: workspaceRoot,
+      cacheDir: createVitePreviewCacheDir(previewRuntime),
       configFile,
       base: previewRuntime.server.basePath,
       appType: "custom",
       plugins: [createPreparedPreviewVitePlugin(previewRuntime, html)],
+      resolve: { alias: createViteWorkspaceAliases(previewRuntime) },
+      optimizeDeps: {
+        entries: [previewRuntime.prepared.entryFile],
+      },
       server: {
         host: previewRuntime.server.host,
         port: previewRuntime.server.port,
@@ -77,6 +82,22 @@ export default async function startVitePreviewVendor(
     })();
     return stopping;
   }
+}
+
+export function createViteWorkspaceAliases(runtime: PreviewVendorRuntime) {
+  return runtime.workspace.components.map(({ packageName, sourceDir }) => ({
+    find: packageName,
+    replacement: sourceDir,
+  }));
+}
+
+export function createVitePreviewCacheDir(runtime: PreviewVendorRuntime) {
+  return path.join(
+    runtime.workspace.rootDir,
+    ".bit-lite",
+    "vite-preview",
+    sanitizeFileName(runtime.server.basePath)
+  );
 }
 
 /**
@@ -144,4 +165,8 @@ function createHmrOptions(runtime: PreviewVendorRuntime) {
 
 function toPosixPath(value: string) {
   return value.split(path.sep).join("/");
+}
+
+function sanitizeFileName(value: string) {
+  return value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "env";
 }

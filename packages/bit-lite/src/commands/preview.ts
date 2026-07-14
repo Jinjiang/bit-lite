@@ -7,12 +7,14 @@ import {
   findAvailablePort,
   preparePreviewEnv,
   type PreparedPreviewEnv,
+  type PreviewComponentRef,
   type PreviewPreparedRuntime,
   type PreviewServerInfo,
   type PreviewSkippedEnv,
 } from "bit-lite-preview/node";
 import type { CliOptionValue, ParsedCliArgs, SelectedEnvGroup, WorkspaceRuntime } from "bit-lite-context";
 import type { JsonObject, VendorMessage, VendorTask, VendorTaskStartOptions } from "bit-lite-vendors";
+import { loadComponentPackageRegistry, type ComponentPackageRegistry } from "./link.js";
 
 export type PreviewVendorRuntime = PreviewPreparedRuntime;
 
@@ -26,7 +28,7 @@ export type PreviewServiceResult = JsonObject & {
 
 export type PreviewTaskSpec = {
   envName: string;
-  components: SelectedEnvGroup["components"];
+  components: PreviewComponentRef[];
   serviceConfig: unknown;
   taskOptions: VendorTaskStartOptions;
 };
@@ -41,7 +43,8 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
   const workspace = await loadWorkspace(parsed.workspaceRoot);
   const components = selectComponentRefs(workspace.components, parsed.componentFilters);
   const groups = groupSelectedComponentsByEnv(workspace, components);
-  const { tasks, skipped } = createPreviewTaskSpecs(workspace, groups, parsed);
+  const componentPackages = await loadComponentPackageRegistry(workspace.workspaceRoot);
+  const { tasks, skipped } = createPreviewTaskSpecs(workspace, groups, parsed, componentPackages);
 
   if (tasks.length === 0) {
     printNoPreviewTasks(groups);
@@ -102,7 +105,12 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
   }
 }
 
-function createPreviewTaskSpecs(workspace: WorkspaceRuntime, groups: SelectedEnvGroup[], parsed: ParsedCliArgs) {
+function createPreviewTaskSpecs(
+  workspace: WorkspaceRuntime,
+  groups: SelectedEnvGroup[],
+  parsed: ParsedCliArgs,
+  componentPackages: ComponentPackageRegistry
+) {
   const tasks: PreviewTaskSpec[] = [];
   const skipped: PreviewSkippedEnv[] = [];
   for (const group of groups) {
@@ -115,13 +123,24 @@ function createPreviewTaskSpecs(workspace: WorkspaceRuntime, groups: SelectedEnv
       });
       continue;
     }
+    const components = group.components.map((component) => {
+      const componentPackage = componentPackages.byId.get(component.id);
+      if (!componentPackage) {
+        throw new BitLiteError(`preview component "${component.id}" has no workspace package`);
+      }
+      return {
+        id: component.id,
+        rootDir: component.rootDir,
+        packageName: componentPackage.packageName,
+      };
+    });
     tasks.push({
       envName: group.envName,
-      components: group.components,
+      components,
       serviceConfig,
       taskOptions: {
         envName: group.envName,
-        components: group.components,
+        components,
         args: parsed.args,
         context: workspace,
         serviceConfig,
@@ -164,6 +183,7 @@ export async function preparePreviewTasks(
       taskOptions.push({
         ...task.taskOptions,
         components: [],
+        context: createPreparedVendorContext(workspaceRoot),
         serviceConfig: prepared.serviceConfig,
         runtime: prepared.runtime,
       });
@@ -173,6 +193,16 @@ export async function preparePreviewTasks(
     }
   }
   return { taskOptions, preparedEnvs, failures };
+}
+
+function createPreparedVendorContext(workspaceRoot: string): WorkspaceRuntime {
+  return {
+    workspaceRoot,
+    config: { envs: {}, components: {} },
+    envs: {},
+    components: [],
+    groups: [],
+  };
 }
 
 function attachPreviewTaskListeners(proxyServer: PreviewProxyServer, tasks: VendorTask<unknown, PreviewServiceResult>[]) {

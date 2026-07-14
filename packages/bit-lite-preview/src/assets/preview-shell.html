@@ -139,6 +139,18 @@
         origin.textContent = manifest.proxy.origin;
         app.className = "";
         app.innerHTML = renderManifest(manifest);
+        if (manifest.envs.some((env) => !isTerminalStatus(env.status))) {
+          setTimeout(() => loadManifest().catch(renderManifestError), 1500);
+        }
+      }
+
+      function isTerminalStatus(status) {
+        return status === "ready" || status === "failed" || status === "error" || status === "stopped"
+          || status.startsWith("exited ");
+      }
+
+      function renderManifestError(error) {
+        app.textContent = error instanceof Error ? error.message : String(error);
       }
 
       function renderManifest(manifest) {
@@ -199,10 +211,7 @@
         })[character]);
       }
 
-      loadManifest().catch((error) => {
-        app.textContent = error instanceof Error ? error.message : String(error);
-      });
-      setInterval(loadManifest, 1500);
+      loadManifest().catch(renderManifestError);
     </script>
   </body>
 </html>

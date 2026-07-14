@@ -12,6 +12,7 @@ const previewHtmlTemplate = readFileSync(new URL("./assets/preview-entry.html", 
 export type PreviewComponentRef = {
   id: string;
   rootDir: string;
+  packageName: string;
 };
 
 export type PreparedPreviewDocs = {
@@ -62,6 +63,7 @@ type PreparePreviewEnvOptions = {
 
 export async function preparePreviewEnv(options: PreparePreviewEnvOptions): Promise<PreparedPreviewEnv> {
   const components = await discoverPreviewComponents(options.components);
+  const workspace = createPreviewWorkspaceRuntime(options.workspaceRoot, options.components);
   const { serviceConfig, config } = await resolvePreviewServiceConfig(
     options.serviceConfig,
     options.workspaceRoot,
@@ -87,7 +89,7 @@ export async function preparePreviewEnv(options: PreparePreviewEnvOptions): Prom
       createPreviewEntrySource({ components, config, entryFile, browserModulePath }),
       "utf8"
     );
-    await writeFile(htmlFile, createPreviewHtml(options.server.basePath), "utf8");
+    await writeFile(htmlFile, createPreviewHtml(), "utf8");
   } catch (error) {
     await rm(tempDir, { recursive: true, force: true });
     throw error;
@@ -101,6 +103,7 @@ export async function preparePreviewEnv(options: PreparePreviewEnvOptions): Prom
     runtime: {
       server: options.server,
       prepared: { entryFile, htmlFile },
+      workspace,
     },
     tempDir,
     async cleanup() {
@@ -108,6 +111,30 @@ export async function preparePreviewEnv(options: PreparePreviewEnvOptions): Prom
       cleaned = true;
       await rm(tempDir, { recursive: true, force: true });
     },
+  };
+}
+
+function createPreviewWorkspaceRuntime(workspaceRoot: string, components: PreviewComponentRef[]) {
+  const seenPackageNames = new Set<string>();
+  const aliases = [...components]
+    .sort((left, right) => left.packageName.localeCompare(right.packageName) || left.id.localeCompare(right.id))
+    .map((component) => {
+      if (component.packageName.length === 0) {
+        throw new PreviewPreparationError(`preview component "${component.id}" packageName must be a non-empty string`);
+      }
+      if (seenPackageNames.has(component.packageName)) {
+        throw new PreviewPreparationError(`preview component packageName "${component.packageName}" is duplicated`);
+      }
+      seenPackageNames.add(component.packageName);
+      return {
+        packageName: component.packageName,
+        sourceDir: path.resolve(component.rootDir),
+      };
+    });
+
+  return {
+    rootDir: path.resolve(workspaceRoot),
+    components: aliases,
   };
 }
 
@@ -195,9 +222,8 @@ export function createPreviewEntrySource(options: {
   ].join("\n");
 }
 
-export function createPreviewHtml(basePath: string) {
-  const scriptPath = `${ensureTrailingSlash(basePath)}__bit-lite/preview.js`;
-  return previewHtmlTemplate.replace("{{PREVIEW_SCRIPT_PATH}}", escapeHtml(scriptPath));
+export function createPreviewHtml() {
+  return previewHtmlTemplate.replace("{{PREVIEW_SCRIPT_PATH}}", "./__bit-lite/preview.js");
 }
 
 async function discoverPreviewComponent(component: PreviewComponentRef): Promise<PreparedPreviewComponent> {
@@ -356,10 +382,6 @@ function stringLiteral(value: string) {
 
 function sanitizeFileName(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "env";
-}
-
-function ensureTrailingSlash(value: string) {
-  return value.endsWith("/") ? value : `${value}/`;
 }
 
 function readDocsTitle(source: string) {

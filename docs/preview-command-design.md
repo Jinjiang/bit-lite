@@ -14,11 +14,11 @@
 
 对每个选中的 env，命令依次完成：
 
-1. 仅扫描本次选中的 component roots。
+1. 仅扫描本次选中的 component roots，并为这些 component 准备 `{ packageName, sourceDir }` alias descriptors。
 2. 稳定排序 component 和文件；第一个 `*.docs.md(x)` 是 docs。命令用 TypeScript parser 静态读取每个 `*.demo.*` 的 runtime value exports，每个 export 各自形成一个 composition，全程不在 Node 中执行 demo module。
 3. 从 workspace 解析 `configFile`、可选 `mounter` 和可选 `docsTemplate`。只有 env 实际含 demo 时才要求 `mounter`。
 4. 在 workspace 的 `.bit-lite/preview-<env>-*` 下生成一个 HTML 和一个 JavaScript entry。
-5. 启动 vendor，并在正常退出、准备失败或 vendor 启动失败时删除命令创建的临时目录。
+5. vendor 用自己的 native config 合并当前 env 的 workspace source aliases，然后启动 dev server；命令在正常退出、准备失败或 vendor 启动失败时删除临时目录。
 
 一个 env 准备失败不会阻止其他 env 启动。失败原因会保留在 proxy manifest；如果全部 env 都失败，命令关闭 proxy 并返回错误。
 
@@ -60,7 +60,7 @@ export const MySecondDemo = { component: Card, props: { title: "Second card" } }
 
 ## Minimal vendor contract
 
-vendor runtime 只包含 server 坐标和预生成文件路径：
+vendor runtime 包含 server 坐标、预生成文件路径，以及当前 env 可以安全按源码处理的 workspace package aliases：
 
 ```ts
 type PreviewPreparedRuntime = {
@@ -74,10 +74,19 @@ type PreviewPreparedRuntime = {
     entryFile: string;
     htmlFile: string;
   };
+  workspace: {
+    rootDir: string;
+    components: Array<{
+      packageName: string;
+      sourceDir: string;
+    }>;
+  };
 };
 ```
 
-它是 JSON-only 的；raw components、browser manifest、MDX options 和 dev-server config 内容都不属于这个 runtime。
+它是 JSON-only 的；raw components、browser manifest、MDX options 和 dev-server config 内容都不属于这个 runtime。Vite/Webpack vendor 必须把 descriptors 转成自己的 native alias config；同 package 的 generated alias 优先，其他用户 alias 保留。
+
+alias 范围刻意限制在当前 env，因为不同 env 的 loader/plugin 配置可能无法正确处理彼此的源码。跨 env 的 workspace package import 不做 source alias，而是继续通过 package manifest 读取编译后的 `dist`。因此包含跨 env 组件依赖的 workspace 必须先运行 `bit-lite compile`，再运行 `bit-lite preview`。未来只有在 preview vendor 与 resolved config 都相同的情况下，才可以安全扩大共享 alias 的范围。
 
 Vite adapter 读取已解析的 `configFile`，服务 prepared HTML，并把稳定的 `__bit-lite/preview.js` URL 转换到 prepared entry。Webpack adapter 同样读取 `configFile`，只编译一个 logical entry，并让 docs/demo dynamic imports 形成 lazy chunks。二者都保持原有 ready/result/error/shutdown protocol，并把 HMR 的 public path 指向 proxy 下的 env base。
 

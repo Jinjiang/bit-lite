@@ -40,16 +40,22 @@ export type ResolvedEnvConfig = {
   services: Record<string, unknown>;
 };
 
+export type WorkspaceComponentConfig = {
+  path: string;
+  id: string;
+  envName: string;
+};
+
+export type WorkspaceComponentsConfig = Record<string, string> | WorkspaceComponentConfig[];
+
 export type WorkspaceConfig = {
   envs: Record<string, EnvConfig>;
-  // TODO: should be 1v1 map instead of wildcard patterns
-  components?: Record<string, string>;
+  components?: WorkspaceComponentsConfig;
 };
 
 export type ResolvedWorkspaceConfig = {
   envs: Record<string, ResolvedEnvConfig>;
-  // TODO: should be 1v1 map instead of wildcard patterns
-  components: Record<string, string>;
+  components: WorkspaceComponentsConfig;
 };
 
 // Runtime interface

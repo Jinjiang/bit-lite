@@ -21,6 +21,7 @@ export default async function mountStaticComposition(
 }
 
 function applyResult(root: HTMLElement, result: unknown) {
+  if (result === undefined) return undefined;
   if (typeof result === "function") return result as () => void;
   if (typeof result === "string") {
     root.innerHTML = result;
