@@ -3,6 +3,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { parseCliArguments } from "bit-lite-context";
+import { createPreviewHtml } from "bit-lite-preview/node";
 import { describe, expect, it } from "vitest";
 import startVitePreviewVendor from "./vite/index.js";
 import startWebpackPreviewVendor from "./webpack/index.js";
@@ -57,11 +58,7 @@ async function createFixture(configSource: string) {
   await Promise.all([
     writeFile(configFile, configSource, "utf8"),
     writeFile(entryFile, 'globalThis.__preview_marker = "prepared-entry-ran";\n', "utf8"),
-    writeFile(
-      htmlFile,
-      '<!doctype html><html><body><div id="preview-root"></div><script type="module" src="/env/test/__bit-lite/preview.js"></script></body></html>',
-      "utf8"
-    ),
+    writeFile(htmlFile, createPreviewHtml("/env/test/"), "utf8"),
   ]);
   return { root, configFile, entryFile, htmlFile };
 }

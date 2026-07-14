@@ -41,7 +41,6 @@ export type PreviewBrowserDocs = {
 
 export type PreviewBrowserComposition = {
   id: string;
-  title: string;
   route: string;
   load: () => Promise<PreviewCompositionModule>;
 };
@@ -79,7 +78,6 @@ export type PreviewOverviewProps = {
   };
   compositions: Array<{
     id: string;
-    title: string;
     route: string;
   }>;
 };

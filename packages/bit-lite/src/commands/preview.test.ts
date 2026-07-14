@@ -2,8 +2,8 @@ import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseCliArguments } from "bit-lite-context";
+import { PreviewProxyServer } from "bit-lite-preview/node";
 import { describe, expect, it } from "vitest";
-import { PreviewProxyServer } from "./preview-proxy.js";
 import { preparePreviewTasks, type PreviewTaskSpec } from "./preview.js";
 
 describe("preview command preparation isolation", () => {

@@ -35,7 +35,7 @@ describe("preview browser runtime", () => {
       await controller.refresh();
     });
 
-    expect(document.querySelector('[data-preview-state="overview"]')?.textContent).toContain("Primary");
+    expect(document.querySelector('[data-preview-state="overview"]')?.textContent).toContain("primary");
     expect(docsLoad).not.toHaveBeenCalled();
     expect(demoLoad).not.toHaveBeenCalled();
   });
@@ -66,7 +66,7 @@ describe("preview browser runtime", () => {
     expect(document.querySelector("[data-custom-overview]")?.textContent).toBe("ui/button");
     expect(props?.docs).toEqual({ title: "Button", route: "#ui%2Fbutton?preview=docs" });
     expect(props?.compositions).toEqual([
-      { id: "primary", title: "Primary", route: "#ui%2Fbutton?preview=compositions&name=primary" },
+      { id: "primary", route: "#ui%2Fbutton?preview=compositions&name=primary" },
     ]);
     expect(props?.docs).not.toHaveProperty("load");
     expect(props?.compositions[0]).not.toHaveProperty("load");
@@ -90,7 +90,6 @@ describe("preview browser runtime", () => {
     const entry = component({});
     entry.compositions.push({
       id: "secondary",
-      title: "Secondary",
       route: "#ui%2Fbutton?preview=compositions&name=secondary",
       load: async () => ({ default: "secondary" }),
     });
@@ -218,7 +217,6 @@ function component(options: {
     compositions: [
       {
         id: "primary",
-        title: "Primary",
         route: "#ui%2Fbutton?preview=compositions&name=primary",
         load: options.demoLoad ?? (async () => ({ default: "primary" })),
       },

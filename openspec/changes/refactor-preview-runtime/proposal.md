@@ -4,7 +4,7 @@ Preview vendors currently rediscover component files, parse docs, generate bundl
 
 ## What Changes
 
-- Move component preview discovery, metadata normalization, config resolution, route metadata, and generated-entry preparation into the `preview` command before vendor tasks start.
+- Move component preview discovery, metadata normalization, config resolution, route metadata, and generated-entry preparation into a command-owned Node API in `bit-lite-preview`, invoked by the `preview` command before vendor tasks start.
 - Define a serializable prepared-preview contract so a vendor receives explicit files and one generated browser entry instead of deriving preview inputs from `runtime.data.components`.
 - Replace per-component server routes and per-composition Webpack bundles with one HTML document and one browser entry per env; the browser runtime selects the component, preview kind, and composition from `location.hash` and reacts to `hashchange`.
 - Generate browser-only component records whose docs and demo entries each carry a statically analyzable `load: () => import(...)` function. `startPreview` consumes these records directly instead of receiving top-level `loadDocs` or `loadComposition` callbacks; the functions exist in generated source and never enter serialized vendor data.
@@ -33,7 +33,7 @@ None. This repository does not yet have main OpenSpec capability specs for previ
 
 ## Impact
 
-- Affects `packages/bit-lite` preview orchestration and proxy manifests, both demo preview vendors, demo preview config modules, and preview tests/documentation; `bit-lite-env` retains the existing `docsTemplate` field.
+- Affects `packages/bit-lite` preview orchestration, the Node preparation/proxy exports in `packages/bit-lite-preview`, both demo preview vendors, demo preview config modules, and preview tests/documentation; `bit-lite-env` retains the existing `docsTemplate` field.
 - Adds `demo-utils` for reusable build-time MDX options and a shared preview preparation/browser-runtime boundary; package installation and lockfile updates must use `pnpm`.
 - Removes duplicated discovery, Markdown rendering, route matching, HTML/CSS generation, and Webpack per-composition entry generation from vendor code.
 - Requires demo Vite/Webpack configs to consume the shared MDX utility and requires any third-party preview vendor implementing the current runtime shape to adopt prepared inputs.

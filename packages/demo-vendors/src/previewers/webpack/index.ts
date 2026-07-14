@@ -12,8 +12,8 @@ import type { Configuration, Stats } from "webpack";
 import {
   createPreviewServiceResult,
   isShutdownMessage,
+  readPreviewConfigFile,
   readPreviewRuntime,
-  readPreviewVendorConfig,
   withPreviewVendorContext,
   type PreviewServiceResult,
   type PreviewVendorRuntime,
@@ -47,7 +47,7 @@ export default async function startWebpackPreviewVendor(
 ): Promise<VendorStartResult<PreviewServiceResult>> {
   const workspaceRoot = runtime.data.context?.workspaceRoot ?? process.cwd();
   const previewRuntime = readPreviewRuntime(runtime.data.runtime);
-  const vendorConfig = readPreviewVendorConfig(runtime.data.config);
+  const configFile = readPreviewConfigFile(runtime.data.config);
   let server: Server | undefined;
   let middleware: WebpackPreviewMiddleware | undefined;
   let hotMiddleware: WebpackHotMiddleware | undefined;
@@ -64,7 +64,7 @@ export default async function startWebpackPreviewVendor(
   try {
     const [html, userConfig] = await Promise.all([
       readFile(previewRuntime.prepared.htmlFile, "utf8"),
-      importWebpackConfig(vendorConfig.configFile),
+      importWebpackConfig(configFile),
     ]);
     const compiler = webpack(createWebpackConfig(userConfig, workspaceRoot, previewRuntime));
     if (!compiler) throw new Error("Webpack did not create a compiler");

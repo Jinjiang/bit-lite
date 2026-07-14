@@ -296,24 +296,6 @@ importers:
       bit-lite:
         specifier: workspace:*
         version: link:../bit-lite
-      bit-lite-preview:
-        specifier: workspace:*
-        version: link:../bit-lite-preview
-      demo-config:
-        specifier: workspace:*
-        version: link:../demo-config
-      demo-vendors:
-        specifier: workspace:*
-        version: link:../demo-vendors
-      react:
-        specifier: ^19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: ^19.2.7
-        version: 19.2.7(react@19.2.7)
-      vue:
-        specifier: ^3.5.38
-        version: 3.5.39(typescript@6.0.3)
 
 packages:
 

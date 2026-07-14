@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>bit-lite preview</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f8fafc;
+        color: #111827;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      }
+
+      main {
+        width: min(1120px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 32px 0 48px;
+      }
+
+      header {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 28px;
+      }
+
+      .origin {
+        color: #4b5563;
+        font-size: 14px;
+      }
+
+      .env {
+        margin: 14px 0;
+        overflow: hidden;
+        background: #fff;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+      }
+
+      .env-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 16px;
+        background: #f3f4f6;
+        border-bottom: 1px solid #d1d5db;
+      }
+
+      .env-name {
+        font-weight: 700;
+      }
+
+      .status {
+        color: #374151;
+        font-size: 13px;
+      }
+
+      .error {
+        padding: 10px 16px;
+        color: #991b1b;
+        background: #fef2f2;
+      }
+
+      .component {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        padding: 13px 16px;
+        border-top: 1px solid #e5e7eb;
+      }
+
+      .component:first-child {
+        border-top: 0;
+      }
+
+      .component-id {
+        overflow-wrap: anywhere;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 13px;
+      }
+
+      .links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: end;
+      }
+
+      a {
+        color: #0f766e;
+        font-weight: 600;
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      .skipped {
+        margin-top: 24px;
+        padding: 16px;
+        background: #fffbeb;
+        border: 1px solid #f59e0b;
+        border-radius: 8px;
+      }
+
+      .empty {
+        padding: 18px 0;
+        color: #6b7280;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>bit-lite preview</h1>
+          <div class="origin" id="origin"></div>
+        </div>
+        <a href="/__bit-lite/manifest.json">manifest</a>
+      </header>
+      <section id="app" class="empty">Loading preview manifest...</section>
+    </main>
+    <script>
+      const app = document.getElementById("app");
+      const origin = document.getElementById("origin");
+
+      async function loadManifest() {
+        const response = await fetch("/__bit-lite/manifest.json", { cache: "no-store" });
+        const manifest = await response.json();
+        origin.textContent = manifest.proxy.origin;
+        app.className = "";
+        app.innerHTML = renderManifest(manifest);
+      }
+
+      function renderManifest(manifest) {
+        const envs = manifest.envs.map(renderEnv).join("")
+          || '<div class="empty">No preview envs are running.</div>';
+        const skipped = manifest.skipped.length > 0
+          ? '<section class="skipped"><strong>Skipped envs</strong>'
+            + manifest.skipped.map(renderSkipped).join("")
+            + "</section>"
+          : "";
+        return envs + skipped;
+      }
+
+      function renderEnv(env) {
+        const server = env.server ? ` · ${escapeHtml(env.server.origin)}` : "";
+        const error = env.error ? `<div class="error">${escapeHtml(env.error)}</div>` : "";
+        const components = env.components.map(renderComponent).join("");
+        return `
+          <article class="env">
+            <div class="env-head">
+              <span class="env-name">${escapeHtml(env.envName)}</span>
+              <span class="status">${escapeHtml(env.vendor)} · ${escapeHtml(env.status)}${server}</span>
+            </div>
+            ${error}
+            <div class="components">${components}</div>
+          </article>
+        `;
+      }
+
+      function renderComponent(component) {
+        const docs = component.docsRoute
+          ? `<a href="${escapeHtml(component.docsRoute)}">docs</a>`
+          : "";
+        const demos = component.compositions
+          .map((item) => `<a href="${escapeHtml(item.route)}">${escapeHtml(item.id)}</a>`)
+          .join("");
+        return `
+          <div class="component">
+            <a class="component-id" href="${escapeHtml(component.overviewRoute)}">
+              ${escapeHtml(component.componentId)}
+            </a>
+            <span class="links">${docs}${demos}</span>
+          </div>
+        `;
+      }
+
+      function renderSkipped(env) {
+        return `<p><strong>${escapeHtml(env.envName)}</strong>: ${escapeHtml(env.reason)} (${env.components.map(escapeHtml).join(", ")})</p>`;
+      }
+
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, (character) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        })[character]);
+      }
+
+      loadManifest().catch((error) => {
+        app.textContent = error instanceof Error ? error.message : String(error);
+      });
+      setInterval(loadManifest, 1500);
+    </script>
+  </body>
+</html>

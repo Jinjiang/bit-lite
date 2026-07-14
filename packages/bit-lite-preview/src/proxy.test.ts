@@ -1,6 +1,6 @@
 import http from "node:http";
 import { describe, expect, it } from "vitest";
-import { PreviewProxyServer } from "./preview-proxy.js";
+import { PreviewProxyServer } from "./proxy.js";
 
 describe("preview proxy", () => {
   it("publishes overview, docs, and named-demo hash routes and failed env state", async () => {
@@ -29,7 +29,6 @@ describe("preview proxy", () => {
         compositions: [
           {
             id: "primary state",
-            title: "Primary",
             filePath: "/workspace/primary.demo.tsx",
             route: "#scope%2Fbutton?preview=compositions&name=primary%20state",
           },
@@ -45,7 +44,6 @@ describe("preview proxy", () => {
       compositions: [
         {
           id: "primary state",
-          title: "Primary",
           route: "/env/react%20env/#scope%2Fbutton?preview=compositions&name=primary%20state",
         },
       ],

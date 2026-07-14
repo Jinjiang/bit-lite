@@ -1,12 +1,17 @@
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatCompositionRoute, formatDocsRoute, formatOverviewRoute } from "bit-lite-preview";
-import { BitLiteError } from "../utils/errors.js";
-import type { ComponentRef } from "bit-lite-context";
-import type { PreviewServiceConfig } from "bit-lite-env";
-import type { PreviewPreparedRuntime } from "bit-lite-preview";
+import { formatCompositionRoute, formatDocsRoute, formatOverviewRoute } from "./routes.js";
+import type { PreviewPreparedRuntime } from "./types.js";
+
+const previewHtmlTemplate = readFileSync(new URL("./assets/preview-entry.html", import.meta.url), "utf8");
+
+export type PreviewComponentRef = {
+  id: string;
+  rootDir: string;
+};
 
 export type PreparedPreviewDocs = {
   title: string;
@@ -16,7 +21,6 @@ export type PreparedPreviewDocs = {
 
 export type PreparedPreviewComposition = {
   id: string;
-  title: string;
   filePath: string;
   route: string;
 };
@@ -27,7 +31,7 @@ export type PreparedPreviewComponent = {
   compositions: PreparedPreviewComposition[];
 };
 
-export type ResolvedPreviewServiceConfig = PreviewServiceConfig & {
+export type ResolvedPreviewServiceConfig = Record<string, unknown> & {
   configFile: string;
   mounter?: string;
   docsTemplate?: string;
@@ -46,7 +50,7 @@ export type PreviewServerRuntime = PreviewPreparedRuntime["server"];
 
 type PreparePreviewEnvOptions = {
   envName: string;
-  components: ComponentRef[];
+  components: PreviewComponentRef[];
   serviceConfig: unknown;
   workspaceRoot: string;
   server: PreviewServerRuntime;
@@ -61,7 +65,7 @@ export async function preparePreviewEnv(options: PreparePreviewEnvOptions): Prom
     options.envName
   );
   if (components.some((component) => component.compositions.length > 0) && !config.mounter) {
-    throw new BitLiteError(
+    throw new PreviewPreparationError(
       `preview env "${options.envName}" config.mounter is required because the selected components contain demos`
     );
   }
@@ -104,7 +108,7 @@ export async function preparePreviewEnv(options: PreparePreviewEnvOptions): Prom
   };
 }
 
-export async function discoverPreviewComponents(components: ComponentRef[]): Promise<PreparedPreviewComponent[]> {
+export async function discoverPreviewComponents(components: PreviewComponentRef[]): Promise<PreparedPreviewComponent[]> {
   const sorted = [...components].sort((left, right) => left.id.localeCompare(right.id));
   return Promise.all(sorted.map(discoverPreviewComponent));
 }
@@ -114,9 +118,9 @@ export async function resolvePreviewServiceConfig(
   workspaceRoot: string,
   envName: string
 ): Promise<{ serviceConfig: Record<string, unknown>; config: ResolvedPreviewServiceConfig }> {
-  if (!isRecord(serviceConfig)) throw new BitLiteError(`preview env "${envName}" service config must be an object`);
+  if (!isRecord(serviceConfig)) throw new PreviewPreparationError(`preview env "${envName}" service config must be an object`);
   if (!isRecord(serviceConfig.config)) {
-    throw new BitLiteError(`preview env "${envName}" service config must define a config object`);
+    throw new PreviewPreparationError(`preview env "${envName}" service config must define a config object`);
   }
 
   const config = serviceConfig.config;
@@ -190,24 +194,10 @@ export function createPreviewEntrySource(options: {
 
 export function createPreviewHtml(basePath: string) {
   const scriptPath = `${ensureTrailingSlash(basePath)}__bit-lite/preview.js`;
-  return [
-    "<!doctype html>",
-    '<html lang="en">',
-    "<head>",
-    '  <meta charset="utf-8">',
-    '  <meta name="viewport" content="width=device-width, initial-scale=1">',
-    "  <title>bit-lite preview</title>",
-    "</head>",
-    "<body>",
-    '  <div id="preview-root"></div>',
-    `  <script type="module" src=${stringLiteral(scriptPath)}></script>`,
-    "</body>",
-    "</html>",
-    "",
-  ].join("\n");
+  return previewHtmlTemplate.replace("{{PREVIEW_SCRIPT_PATH}}", escapeHtml(scriptPath));
 }
 
-async function discoverPreviewComponent(component: ComponentRef): Promise<PreparedPreviewComponent> {
+async function discoverPreviewComponent(component: PreviewComponentRef): Promise<PreparedPreviewComponent> {
   const entries = await readdir(component.rootDir, { withFileTypes: true });
   const fileNames = entries
     .filter((entry) => entry.isFile())
@@ -243,11 +233,9 @@ async function createCompositionEntry(
   fileName: string
 ): Promise<PreparedPreviewComposition> {
   const id = readCompositionId(fileName);
-  if (!id) throw new BitLiteError(`invalid demo file name: ${fileName}`);
-  const source = await readFile(filePath, "utf8");
+  if (!id) throw new PreviewPreparationError(`invalid demo file name: ${fileName}`);
   return {
     id,
-    title: readCompositionTitle(source) ?? titleFromId(id),
     filePath,
     route: formatCompositionRoute(componentId, id),
   };
@@ -267,7 +255,6 @@ function createBrowserComponentSource(component: PreparedPreviewComponent, entry
     [
       "      {",
       `        id: ${stringLiteral(composition.id)},`,
-      `        title: ${stringLiteral(composition.title)},`,
       `        route: ${stringLiteral(composition.route)},`,
       `        load: () => import(${stringLiteral(relativeImport(entryDir, composition.filePath))}),`,
       "      },",
@@ -287,7 +274,7 @@ function createBrowserComponentSource(component: PreparedPreviewComponent, entry
 async function resolvePreviewModule(specifier: string, workspaceRoot: string, envName: string, field: string) {
   const candidate = await tryResolvePreviewModule(specifier, workspaceRoot);
   if (candidate) return candidate;
-  throw new BitLiteError(`preview env "${envName}" config.${field} could not be resolved: ${specifier}`);
+  throw new PreviewPreparationError(`preview env "${envName}" config.${field} could not be resolved: ${specifier}`);
 }
 
 async function tryResolvePreviewModule(specifier: string, workspaceRoot: string) {
@@ -316,9 +303,9 @@ async function tryResolvePreviewModule(specifier: string, workspaceRoot: string)
 async function resolvePreviewBrowserModule() {
   const resolved = await tryResolvePreviewModule("bit-lite-preview/browser", process.cwd());
   if (resolved) return resolved;
-  const monorepoSource = fileURLToPath(new URL("../../../bit-lite-preview/src/browser/index.tsx", import.meta.url));
+  const monorepoSource = fileURLToPath(new URL("./browser/index.tsx", import.meta.url));
   if (await isFile(monorepoSource)) return monorepoSource;
-  throw new BitLiteError("bit-lite-preview/browser could not be resolved for generated preview entry");
+  throw new PreviewPreparationError("bit-lite-preview/browser could not be resolved for generated preview entry");
 }
 
 async function isFile(filePath: string) {
@@ -331,7 +318,7 @@ async function isFile(filePath: string) {
 
 function readRequiredSpecifier(value: unknown, envName: string, field: string) {
   if (typeof value !== "string" || value.length === 0) {
-    throw new BitLiteError(`preview env "${envName}" config.${field} must be a non-empty string`);
+    throw new PreviewPreparationError(`preview env "${envName}" config.${field} must be a non-empty string`);
   }
   return value;
 }
@@ -372,18 +359,6 @@ function readCompositionId(fileName: string) {
   return /^(.*)\.demo\.[^.]+$/.exec(fileName)?.[1];
 }
 
-function readCompositionTitle(source: string) {
-  return /export\s+const\s+title\s*=\s*["']([^"']+)["']/.exec(source)?.[1];
-}
-
-function titleFromId(id: string) {
-  return id
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
-    .join(" ");
-}
-
 function isFileUrl(value: string) {
   try {
     return new URL(value).protocol === "file:";
@@ -398,6 +373,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function toPosixPath(value: string) {
   return value.split(path.sep).join("/");
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => {
+    switch (character) {
+      case "&": return "&amp;";
+      case "<": return "&lt;";
+      case ">": return "&gt;";
+      case '"': return "&quot;";
+      case "'": return "&#39;";
+      default: return character;
+    }
+  });
+}
+
+export class PreviewPreparationError extends Error {
+  override name = "PreviewPreparationError";
 }
 
 export function createPreparedOverviewRoute(componentId: string) {

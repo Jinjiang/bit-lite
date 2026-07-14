@@ -2,11 +2,10 @@ import { access, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises
 import { createRequire } from "node:module";
 import path from "node:path";
 import { parseCliArguments } from "bit-lite-context";
+import { PreviewProxyServer, findAvailablePort, preparePreviewEnv } from "bit-lite-preview/node";
 import startVitePreviewVendor from "demo-vendors/previewers/vite";
 import startWebpackPreviewVendor from "demo-vendors/previewers/webpack";
 import { describe, expect, it } from "vitest";
-import { PreviewProxyServer, findAvailablePort } from "./preview-proxy.js";
-import { preparePreviewEnv } from "./preview-prepare.js";
 import type { PreviewServiceResult, PreviewVendorRuntime } from "./preview.js";
 import type { VendorMessage, VendorRuntime } from "bit-lite-vendors";
 
@@ -19,7 +18,7 @@ describe("prepared preview end-to-end", () => {
       startVendor: startVitePreviewVendor,
       configFile: "demo-config/previewers/vite-static",
       demoFile: "primary.demo.ts",
-      demoSource: 'export const title = "Primary"; export default function demo(root) { root.textContent = "Vite demo"; }\n',
+      demoSource: 'export default function demo(root) { root.textContent = "Vite demo"; }\n',
     },
     {
       name: "webpack",
@@ -27,7 +26,7 @@ describe("prepared preview end-to-end", () => {
       configFile: "demo-config/previewers/webpack-react",
       demoFile: "primary.demo.tsx",
       demoSource:
-        'import { createElement } from "react"; export const title = "Primary"; export default () => createElement("p", null, "Webpack demo");\n',
+        'import { createElement } from "react"; export default () => createElement("p", null, "Webpack demo");\n',
     },
   ])("serves one $name document and logical entry with lazy docs/demo modules and HMR", async (variant) => {
     const repoRoot = path.resolve(process.cwd(), "../..");

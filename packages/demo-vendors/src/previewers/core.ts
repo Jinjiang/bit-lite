@@ -18,21 +18,15 @@ export type PreviewServiceResult = JsonObject & {
   server: PreviewServerInfo;
 };
 
-export type PreviewVendorConfig = {
-  configFile: string;
-};
-
-export function readPreviewVendorConfig(config: Record<string, unknown>): PreviewVendorConfig {
+export function readPreviewConfigFile(config: Record<string, unknown>) {
   const configFile = config.configFile;
   if (typeof configFile !== "string" || configFile.length === 0) {
     throw new Error('preview vendor config must define a resolved non-empty "configFile" string');
   }
-  return { configFile };
+  return configFile;
 }
 
-export function readPreviewRuntime(runtime: JsonObject | undefined): PreviewVendorRuntime {
-  return readPreviewPreparedRuntime(runtime);
-}
+export { readPreviewPreparedRuntime as readPreviewRuntime };
 
 export function createPreviewServiceResult(
   runtime: PreviewVendorRuntime,

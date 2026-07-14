@@ -1,7 +1,5 @@
 import { add } from "./index.js";
 
-export const title = "Interactive operands";
-
 export default function mount(root: HTMLElement) {
   let left = 2;
   let right = 3;

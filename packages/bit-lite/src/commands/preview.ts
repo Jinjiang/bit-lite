@@ -1,15 +1,16 @@
 import { groupSelectedComponentsByEnv, loadWorkspace, selectComponentRefs } from "bit-lite-context";
 import { watchVendorTasks } from "bit-lite-vendors";
-import type { PreviewPreparedRuntime } from "bit-lite-preview";
 import { BitLiteError } from "../utils/errors.js";
 import {
   PreviewProxyServer,
   encodeRouteSegment,
   findAvailablePort,
+  preparePreviewEnv,
+  type PreparedPreviewEnv,
+  type PreviewPreparedRuntime,
   type PreviewServerInfo,
   type PreviewSkippedEnv,
-} from "./preview-proxy.js";
-import { preparePreviewEnv, type PreparedPreviewEnv } from "./preview-prepare.js";
+} from "bit-lite-preview/node";
 import type { CliOptionValue, ParsedCliArgs, SelectedEnvGroup, WorkspaceRuntime } from "bit-lite-context";
 import type { JsonObject, VendorMessage, VendorTask, VendorTaskStartOptions } from "bit-lite-vendors";
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-`bit-lite preview` 是准备者和编排者；preview vendor 只是 dev-server adapter。命令先把选中的 components 转换为浏览器可以执行的输入，再把一个最小的 JSON contract 交给 Vite 或 Webpack vendor。
+`bit-lite preview` 是准备者和编排者；preview vendor 只是 dev-server adapter。命令通过 `bit-lite-preview/node` 的可复用 Node API，把选中的 components 转换为浏览器可以执行的输入，再把一个最小的 JSON contract 交给 Vite 或 Webpack vendor。
 
 这条边界有三个目的：
 
@@ -34,7 +34,6 @@ const components = [{
   },
   compositions: [{
     id: "primary",
-    title: "Primary",
     route: "#components%2Fui%2Fbutton?preview=compositions&name=primary",
     load: () => import("../../components/ui/button/primary.demo.tsx")
   }]
@@ -108,11 +107,17 @@ type StartPreviewOptions = {
 type PreviewOverviewProps = {
   component: { id: string };
   docs?: { title?: string; route: string };
-  compositions: Array<{ id: string; title: string; route: string }>;
+  compositions: Array<{ id: string; route: string }>;
 };
 ```
 
 这个接口允许未来替换首页 renderer，但不是一个通用 extension system。
+
+## Node package boundary and HTML assets
+
+准备与代理的实现位于 `bit-lite-preview/node`，但策略所有权仍在命令：`bit-lite` 决定选择哪些 env、何时准备、何时启动 vendor，以及何时清理。Node API 只接受结构化 component/config 输入，不反向依赖 `bit-lite`、`bit-lite-context` 或 `bit-lite-env`，因此不会形成 package cycle。
+
+prepared entry HTML、proxy shell 和状态页都是 `bit-lite-preview/src/assets` 下的独立 HTML 文件。Node 代码通过文件读取获取模板，package build 会把它们复制到 `dist/assets`；这样 HTML/CSS/脚本可以按正常文件 review，而不是藏在一行 TypeScript 字符串中。
 
 ## MDX compile options vs. DocsTemplate
 

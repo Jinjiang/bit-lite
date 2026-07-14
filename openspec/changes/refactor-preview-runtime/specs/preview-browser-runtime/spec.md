@@ -31,7 +31,7 @@ The browser runtime SHALL recognize `#<component-id>` and `#<component-id>?previ
 - **THEN** the runtime renders the named demo for that component
 
 ### Requirement: Every env has a shared default overview renderer
-The browser package SHALL provide one default overview renderer and `startPreview` SHALL accept an optional `renderOverview` function that replaces it for that browser invocation. Both renderers SHALL receive normalized component metadata, an optional docs descriptor with its route, and demo descriptors with their IDs, titles, and routes. The runtime SHALL strip content-local `load` functions from these props. The function SHALL NOT be configurable through `PreviewServiceConfig`, supplied by a vendor, or included in serialized runtime data.
+The browser package SHALL provide one default overview renderer and `startPreview` SHALL accept an optional `renderOverview` function that replaces it for that browser invocation. Both renderers SHALL receive normalized component metadata, an optional docs descriptor with its route, and demo descriptors with their file-level IDs and routes. The runtime SHALL strip content-local `load` functions from these props. The function SHALL NOT be configurable through `PreviewServiceConfig`, supplied by a vendor, or included in serialized runtime data.
 
 #### Scenario: Generated entry omits the optional renderer
 - **WHEN** the current command-generated entry calls `startPreview` without `renderOverview`

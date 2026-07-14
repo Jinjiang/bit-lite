@@ -6,13 +6,13 @@ import {
   discoverPreviewComponents,
   preparePreviewEnv,
   resolvePreviewServiceConfig,
-} from "./preview-prepare.js";
+} from "./preparation.js";
 
 describe("preview preparation", () => {
   it("discovers selected components and files deterministically", async () => {
     const workspaceRoot = await createWorkspace();
     const alphaRoot = await createComponent(workspaceRoot, "alpha", {
-      "zeta.demo.tsx": 'export const title = "Zeta demo";',
+      "zeta.demo.tsx": "export default {};",
       "alpha.docs.mdx": "---\ntitle: Alpha docs\n---\n# Ignored heading",
       "first.demo.tsx": "export default {};",
       "notes.txt": "not preview content",
@@ -28,10 +28,7 @@ describe("preview preparation", () => {
 
     expect(result.map((component) => component.component.id)).toEqual(["scope/alpha", "scope/zeta"]);
     expect(result[0]?.docs).toMatchObject({ title: "Alpha docs", route: "#scope%2Falpha?preview=docs" });
-    expect(result[0]?.compositions.map(({ id, title }) => ({ id, title }))).toEqual([
-      { id: "first", title: "First" },
-      { id: "zeta", title: "Zeta demo" },
-    ]);
+    expect(result[0]?.compositions.map(({ id }) => id)).toEqual(["first", "zeta"]);
     expect(result[1]?.docs?.title).toBe("Zeta documentation");
   });
 

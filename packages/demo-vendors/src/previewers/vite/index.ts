@@ -5,8 +5,8 @@ import type { VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lit
 import {
   createPreviewServiceResult,
   isShutdownMessage,
+  readPreviewConfigFile,
   readPreviewRuntime,
-  readPreviewVendorConfig,
   withPreviewVendorContext,
   type PreviewServiceResult,
   type PreviewVendorRuntime,
@@ -24,7 +24,7 @@ export default async function startVitePreviewVendor(
 ): Promise<VendorStartResult<PreviewServiceResult>> {
   const workspaceRoot = runtime.data.context?.workspaceRoot ?? process.cwd();
   const previewRuntime = readPreviewRuntime(runtime.data.runtime);
-  const vendorConfig = readPreviewVendorConfig(runtime.data.config);
+  const configFile = readPreviewConfigFile(runtime.data.config);
   let server: ViteDevServer | undefined;
   let stopped = false;
   let stopping: Promise<void> | undefined;
@@ -40,10 +40,10 @@ export default async function startVitePreviewVendor(
     const html = await readFile(previewRuntime.prepared.htmlFile, "utf8");
     server = await createServer({
       root: workspaceRoot,
-      configFile: vendorConfig.configFile,
+      configFile,
       base: previewRuntime.server.basePath,
       appType: "custom",
-      plugins: [createPreparedPreviewPlugin(previewRuntime, html)],
+      plugins: [createPreparedPreviewVitePlugin(previewRuntime, html)],
       server: {
         host: previewRuntime.server.host,
         port: previewRuntime.server.port,
@@ -79,7 +79,13 @@ export default async function startVitePreviewVendor(
   }
 }
 
-function createPreparedPreviewPlugin(runtime: PreviewVendorRuntime, html: string): Plugin {
+/**
+ * Maps the stable public preview URLs to the command-prepared files, while
+ * still passing both files through Vite's HTML and module transform pipelines.
+ * Those transforms are what inject the Vite client, apply user plugins, and
+ * connect the generated entry to HMR.
+ */
+function createPreparedPreviewVitePlugin(runtime: PreviewVendorRuntime, html: string): Plugin {
   const entryRoute = `${runtime.server.basePath}__bit-lite/preview.js`;
   const entryRoutes = new Set([entryRoute, "/__bit-lite/preview.js"]);
   const htmlRoutes = new Set([runtime.server.basePath, `${runtime.server.basePath}index.html`, "/", "/index.html"]);

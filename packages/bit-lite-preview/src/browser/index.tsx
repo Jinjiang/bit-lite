@@ -125,7 +125,7 @@ export function startPreview(options: StartPreviewOptions): PreviewRuntimeContro
             },
           }
         : {}),
-      compositions: entry.compositions.map(({ id, title, route }) => ({ id, title, route })),
+      compositions: entry.compositions.map(({ id, route }) => ({ id, route })),
     };
     renderReact((options.renderOverview ?? renderDefaultOverview)(props));
   }
@@ -162,7 +162,7 @@ export function startPreview(options: StartPreviewOptions): PreviewRuntimeContro
       return;
     }
 
-    renderReact(renderState("loading", "Loading demo", composition.title));
+    renderReact(renderState("loading", "Loading demo", composition.id));
     const compositionModule = await composition.load();
     if (stopped || version !== requestedVersion) return;
     await disposeSurface();
@@ -219,7 +219,7 @@ export function renderDefaultOverview(props: PreviewOverviewProps): ReactNode {
     createElement(
       "li",
       { key: composition.id },
-      createElement("a", { href: composition.route }, composition.title)
+      createElement("a", { href: composition.route }, composition.id)
     )
   );
   return createElement(

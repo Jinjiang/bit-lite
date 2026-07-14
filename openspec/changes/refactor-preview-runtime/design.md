@@ -14,7 +14,7 @@ bit-lite does not need Bit's aspect or artifact machinery, but it can preserve t
 
 **Goals:**
 
-- Make the `preview` command the owner of file discovery, normalized metadata, generated entry files, and temporary-file lifecycle.
+- Make the `preview` command the owner of file discovery policy, normalized metadata, generated entry files, and temporary-file lifecycle, using reusable Node APIs exported by `bit-lite-preview`.
 - Give each env vendor one prepared browser entry and one HTML document to serve.
 - Route a shared component overview, docs, and selected demos inside the browser from a documented hash grammar.
 - Expose a narrow optional `renderOverview` function on `startPreview` while retaining a shared default overview renderer.
@@ -37,11 +37,11 @@ bit-lite does not need Bit's aspect or artifact machinery, but it can preserve t
 
 ### 1. The command produces a minimal prepared preview workspace per env
 
-Add command-owned preparation modules alongside `packages/bit-lite/src/commands/preview.ts`. For every selected env, preparation will:
+Add command-owned preparation APIs to the explicit `bit-lite-preview/node` export and invoke them from `packages/bit-lite/src/commands/preview.ts`. For every selected env, preparation will:
 
 1. Validate the existing preview service config.
 2. Discover the selected components' docs and demo files with deterministic ordering.
-3. Derive display metadata and stable IDs.
+3. Derive docs display metadata and stable file-level demo IDs.
 4. Resolve the existing `configFile`, mounter, and `docsTemplate` module specifiers relative to the workspace.
 5. Create an env-scoped temporary directory containing one generated browser entry and one HTML file.
 6. Return only the paths and server values the vendor needs.
@@ -194,7 +194,6 @@ type PreviewOverviewProps = {
   };
   compositions: Array<{
     id: string;
-    title: string;
     route: string;
   }>;
 };
@@ -225,7 +224,6 @@ type PreviewBrowserDocs = {
 
 type PreviewBrowserComposition = {
   id: string;
-  title: string;
   route: string;
   load: () => Promise<PreviewCompositionModule>;
 };
@@ -263,7 +261,6 @@ startPreview({
       compositions: [
         {
           id: "basic",
-          title: "Basic",
           route: "#ui/button?preview=compositions&name=basic",
           load: () => import("<resolved-basic-demo>"),
         },
@@ -296,7 +293,7 @@ Use two different package boundaries because they serve different lifecycles:
 - The shared preview runtime package contains JSON-compatible protocol types plus the browser-only component record types, bootstrap, optional renderer contracts, and default renderers used by generated entries. It may later own or import the fixed site presentation.
 - `demo-utils` contains build-time utilities such as MDX compiler options that demo Vite and Webpack configs import directly.
 
-Command-side filesystem discovery and temp-file generation stay in `bit-lite`. Preview vendors depend on the shared protocol/runtime package but not on command internals. Browser exports are explicit so bundlers do not pull filesystem or worker code into the browser.
+Command-side filesystem discovery, temp-file generation, proxy serving, and their reviewable HTML templates are implemented behind the explicit `bit-lite-preview/node` export. `bit-lite` still owns when those APIs run, selected-env policy, task startup, and cleanup. The Node implementation uses structural component/config inputs and does not depend back on `bit-lite`, `bit-lite-context`, or `bit-lite-env`, avoiding package cycles. Preview vendors depend on the shared protocol/runtime package but not on command internals. Browser exports remain explicit so bundlers do not pull filesystem, HTTP proxy, or worker code into the browser. Package builds copy the HTML assets beside the emitted Node modules.
 
 ## Risks / Trade-offs
 
@@ -306,6 +303,7 @@ Command-side filesystem discovery and temp-file generation stay in `bit-lite`. P
 - [One entry graph can become large as component counts grow] → Generate lazy module loaders so bundlers split inactive docs and demos into chunks while retaining one logical entry.
 - [Vite and Webpack transform dynamic imports differently] → Generate only literal import specifiers, test the same browser component fixture through both toolchains, and treat the resolved module promise as the shared runtime contract.
 - [Temp paths or source paths can produce invalid generated code] → Resolve paths before generation, serialize every literal, use deterministic filenames, and test spaces, quotes, and cross-platform separators.
+- [Node HTML templates can be omitted from a built package] → Keep templates under the preview package and copy them into `dist/assets` in the package build lifecycle, with built-output verification.
 - [Different UI frameworks can compete for the same DOM] → Give a composition mounter a dedicated host whose descendants only it owns, and run its cleanup before the browser runtime removes that host.
 - [The initial component overview is intentionally sparse] → Keep its inputs as component and route descriptors so the centrally maintained browser package can evolve it without changing env or vendor contracts.
 - [Hash URLs change existing bookmarks] → Keep readable links in the proxy manifest and document the grammar rather than maintaining two routing implementations.
@@ -315,7 +313,7 @@ Command-side filesystem discovery and temp-file generation stay in `bit-lite`. P
 
 1. Add the shared preview runtime/browser package, browser component record types, three optional renderer fields, docs/overview defaults, and the `demo-utils` MDX options export with focused tests.
 2. Preserve `docsTemplate` in env config validation and define its docs-only browser runtime contract.
-3. Add command-side discovery, module resolution, JSON manifest generation, browser component record generation with content-local dynamic imports, entry generation, and cleanup behind the minimal prepared runtime type.
+3. Add the command-owned Node discovery, module resolution, JSON manifest generation, browser component record generation with content-local dynamic imports, entry generation, proxy, and cleanup APIs to `bit-lite-preview/node`, then invoke them from the command behind the minimal prepared runtime type.
 4. Update demo Vite and Webpack configs to install their native MDX integrations using the same `demo-utils` options.
 5. Convert Vite and Webpack vendors to the prepared single-entry contract and remove vendor-owned discovery, routing, rendering, and per-composition entry generation.
 6. Add the default component overview and optional overview callback, make overview the default hash surface, change proxy manifest links to hash URLs, and update navigation, HMR, docs-template, mounter, and lifecycle tests.

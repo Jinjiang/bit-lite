@@ -1,6 +1,36 @@
 import type { JsonObject, PreviewPreparedRuntime } from "./types.js";
 
 export type { PreviewPreparedRuntime } from "./types.js";
+export {
+  createPreparedOverviewRoute,
+  createPreviewEntrySource,
+  createPreviewHtml,
+  discoverPreviewComponents,
+  preparePreviewEnv,
+  PreviewPreparationError,
+  resolvePreviewServiceConfig,
+} from "./preparation.js";
+export type {
+  PreparedPreviewComponent,
+  PreparedPreviewComposition,
+  PreparedPreviewDocs,
+  PreparedPreviewEnv,
+  PreviewComponentRef,
+  PreviewServerRuntime,
+  ResolvedPreviewServiceConfig,
+} from "./preparation.js";
+export {
+  encodeRouteSegment,
+  findAvailablePort,
+  PreviewProxyServer,
+} from "./proxy.js";
+export type {
+  PreviewEnvState,
+  PreviewProxyComponent,
+  PreviewProxyManifest,
+  PreviewServerInfo,
+  PreviewSkippedEnv,
+} from "./proxy.js";
 
 export function readPreviewPreparedRuntime(runtime: JsonObject | undefined): PreviewPreparedRuntime {
   if (!isRecord(runtime)) throw new Error("preview vendor runtime is missing");

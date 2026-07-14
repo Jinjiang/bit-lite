@@ -7,7 +7,7 @@
 
 ## 2. Command-Side Preview Preparation
 
-- [x] 2.1 Move deterministic docs/demo discovery and metadata derivation into command-owned preview preparation modules, preserving selected-component scope and file-level demo IDs.
+- [x] 2.1 Move deterministic docs/demo discovery and metadata derivation into command-owned preview preparation APIs exported from `bit-lite-preview/node`, preserving selected-component scope and file-level demo IDs.
 - [x] 2.2 Resolve `configFile`, `mounter`, and `docsTemplate` relative to the workspace before vendor startup, requiring a mounter only when the selected env has demos.
 - [x] 2.3 Generate one env-scoped HTML file and one safe JavaScript entry containing `PreviewBrowserComponent[]`; attach a literal `load: () => import("<resolved-path>")` to each docs/demo record, conditionally include configured `mounter` and `docsTemplate` imports, omit `renderOverview`, and expose no top-level loader callbacks.
 - [x] 2.4 Build JSON-only `PreviewPreparedRuntime` payloads containing server coordinates plus `prepared.entryFile` and `prepared.htmlFile`, and stop passing raw components, manifests, config files, or MDX options through vendor runtime data.
@@ -52,3 +52,12 @@
 - [x] 7.1 Rewrite `docs/preview-command-design.md` to distinguish command-owned JSON preparation, generated browser component records with content-local imports, the minimal vendor contract, the three hash surfaces, all-optional renderer inputs, build-time MDX options, runtime docs templates, the narrow browser-only `renderOverview` hook, and the otherwise private future site-shell boundary.
 - [x] 7.2 Update package READMEs and example config snippets with `pnpm` commands and migration guidance for prepared vendor inputs and path-to-hash preview URLs, explicitly documenting that `docsTemplate` remains supported.
 - [x] 7.3 Run targeted package tests, the full `pnpm` test suite, typechecks, and builds; resolve failures and record any intentionally deferred homepage or site-design work.
+
+## 8. Review Follow-up
+
+- [x] 8.1 Restore per-component demo-workspace configuration and keep its root package manifest limited to `bit-lite`; component dependencies remain owned by `bit-lite install`.
+- [x] 8.2 Remove composition `title` from prepared, proxy, and browser contracts and stop exporting demo titles from fixtures.
+- [x] 8.3 Move reusable preparation and proxy implementations into `bit-lite-preview/node` without introducing package cycles.
+- [x] 8.4 Replace production inline HTML documents with package asset files that are copied into built output.
+- [x] 8.5 Simplify the resolved config-file guard and document the Vite-specific prepared-entry transform bridge.
+- [x] 8.6 Update tests, documentation, lockfile, and verify the affected packages plus the full workspace.

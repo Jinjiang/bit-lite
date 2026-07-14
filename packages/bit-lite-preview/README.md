@@ -5,7 +5,8 @@ Shared preview contracts and browser runtime.
 Exports:
 
 - `bit-lite-preview`: JSON contracts and hash route helpers.
-- `bit-lite-preview/node`: validation for the minimal prepared vendor runtime.
+- `bit-lite-preview/node`: prepared-entry discovery/generation, preview proxy,
+  HTML assets, and validation for the minimal prepared vendor runtime.
 - `bit-lite-preview/browser`: `startPreview()`, default overview/docs renderers,
   mounter and renderer types.
 

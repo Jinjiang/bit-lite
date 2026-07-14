@@ -1,7 +1,5 @@
 import Card from "./index.vue";
 
-export const title = "Primary";
-
 export default {
   component: Card,
   props: {

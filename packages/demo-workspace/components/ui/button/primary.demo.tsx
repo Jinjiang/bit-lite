@@ -1,8 +1,6 @@
 import { createElement, useState } from "react";
 import { Button } from "./index.js";
 
-export const title = "Primary";
-
 export default function ButtonDemo() {
   const [count, setCount] = useState(0);
 
