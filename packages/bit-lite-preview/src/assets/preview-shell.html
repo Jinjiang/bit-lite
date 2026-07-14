@@ -173,7 +173,7 @@
           ? `<a href="${escapeHtml(component.docsRoute)}">docs</a>`
           : "";
         const demos = component.compositions
-          .map((item) => `<a href="${escapeHtml(item.route)}">${escapeHtml(item.id)}</a>`)
+          .map((item) => `<a href="${escapeHtml(item.route)}">${escapeHtml(item.name)}</a>`)
           .join("");
         return `
           <div class="component">

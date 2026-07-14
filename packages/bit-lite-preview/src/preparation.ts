@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { formatCompositionRoute, formatDocsRoute, formatOverviewRoute } from "./routes.js";
 import type { PreviewPreparedRuntime } from "./types.js";
 
@@ -21,6 +22,8 @@ export type PreparedPreviewDocs = {
 
 export type PreparedPreviewComposition = {
   id: string;
+  exportName: string;
+  name: string;
   filePath: string;
   route: string;
 };
@@ -204,13 +207,20 @@ async function discoverPreviewComponent(component: PreviewComponentRef): Promise
     .map((entry) => entry.name)
     .sort((left, right) => left.localeCompare(right));
   const docsFileName = fileNames.find((fileName) => fileName.endsWith(".docs.md") || fileName.endsWith(".docs.mdx"));
-  const demoFileNames = fileNames.filter((fileName) => readCompositionId(fileName) !== undefined);
+  const demoFiles = fileNames.flatMap((fileName) => {
+    const fileId = readDemoFileId(fileName);
+    return fileId === undefined ? [] : [{ fileId, fileName }];
+  });
   const docs = docsFileName
     ? await createDocsEntry(component.id, path.join(component.rootDir, docsFileName))
     : undefined;
-  const compositions = await Promise.all(
-    demoFileNames.map((fileName) => createCompositionEntry(component.id, path.join(component.rootDir, fileName), fileName))
-  );
+  const compositions = (
+    await Promise.all(
+      demoFiles.map(({ fileId, fileName }) =>
+        createCompositionEntries(component.id, path.join(component.rootDir, fileName), fileId)
+      )
+    )
+  ).flat();
   return {
     component: { id: component.id },
     ...(docs ? { docs } : {}),
@@ -227,18 +237,22 @@ async function createDocsEntry(componentId: string, filePath: string): Promise<P
   };
 }
 
-async function createCompositionEntry(
+async function createCompositionEntries(
   componentId: string,
   filePath: string,
-  fileName: string
-): Promise<PreparedPreviewComposition> {
-  const id = readCompositionId(fileName);
-  if (!id) throw new PreviewPreparationError(`invalid demo file name: ${fileName}`);
-  return {
-    id,
-    filePath,
-    route: formatCompositionRoute(componentId, id),
-  };
+  fileId: string
+): Promise<PreparedPreviewComposition[]> {
+  const source = await readFile(filePath, "utf8");
+  return discoverRuntimeExportNames(source, filePath).map((exportName) => {
+    const id = `${fileId}/${exportName}`;
+    return {
+      id,
+      exportName,
+      name: derivePreviewCompositionName(exportName),
+      filePath,
+      route: formatCompositionRoute(componentId, id),
+    };
+  });
 }
 
 function createBrowserComponentSource(component: PreparedPreviewComponent, entryDir: string) {
@@ -255,8 +269,11 @@ function createBrowserComponentSource(component: PreparedPreviewComponent, entry
     [
       "      {",
       `        id: ${stringLiteral(composition.id)},`,
+      `        exportName: ${stringLiteral(composition.exportName)},`,
+      `        name: ${stringLiteral(composition.name)},`,
       `        route: ${stringLiteral(composition.route)},`,
-      `        load: () => import(${stringLiteral(relativeImport(entryDir, composition.filePath))}),`,
+      `        load: () => import(${stringLiteral(relativeImport(entryDir, composition.filePath))})`,
+      `          .then((module) => module[${stringLiteral(composition.exportName)}]),`,
       "      },",
     ].join("\n")
   );
@@ -355,8 +372,187 @@ function stripFrontmatter(source: string) {
   return source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
 }
 
-function readCompositionId(fileName: string) {
+function readDemoFileId(fileName: string) {
   return /^(.*)\.demo\.[^.]+$/.exec(fileName)?.[1];
+}
+
+function discoverRuntimeExportNames(source: string, filePath: string) {
+  const sourceFile = ts.createSourceFile(
+    filePath,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    readScriptKind(filePath)
+  );
+  const parseDiagnostics = (
+    sourceFile as ts.SourceFile & { parseDiagnostics?: readonly ts.DiagnosticWithLocation[] }
+  ).parseDiagnostics;
+  if (parseDiagnostics && parseDiagnostics.length > 0) {
+    const diagnostic = parseDiagnostics[0];
+    const message = diagnostic ? ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n") : "unknown parse error";
+    throw new PreviewPreparationError(`could not parse demo file ${filePath}: ${message}`);
+  }
+
+  const localTypes = collectLocalTypeOnlyNames(sourceFile);
+  const localValues = collectLocalValueNames(sourceFile);
+  const exportNames: string[] = [];
+  const seen = new Set<string>();
+  const add = (exportName: string) => {
+    if (seen.has(exportName)) return;
+    seen.add(exportName);
+    exportNames.push(exportName);
+  };
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isExportAssignment(statement)) {
+      if (!statement.isExportEquals) add("default");
+      continue;
+    }
+
+    if (ts.isExportDeclaration(statement)) {
+      if (statement.isTypeOnly) continue;
+      if (!statement.exportClause) {
+        throw new PreviewPreparationError(
+          `demo file ${filePath} uses unsupported unresolved export *; use explicit named exports instead`
+        );
+      }
+      if (ts.isNamespaceExport(statement.exportClause)) {
+        add(statement.exportClause.name.text);
+        continue;
+      }
+      for (const element of statement.exportClause.elements) {
+        if (element.isTypeOnly) continue;
+        const localName = element.propertyName?.text ?? element.name.text;
+        if (!statement.moduleSpecifier && localTypes.has(localName) && !localValues.has(localName)) continue;
+        add(element.name.text);
+      }
+      continue;
+    }
+
+    if (!hasModifier(statement, ts.SyntaxKind.ExportKeyword)) continue;
+    if (isTypeOnlyDeclaration(statement) || hasModifier(statement, ts.SyntaxKind.DeclareKeyword)) continue;
+    if (hasModifier(statement, ts.SyntaxKind.DefaultKeyword)) {
+      add("default");
+      continue;
+    }
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        for (const name of readBindingNames(declaration.name)) add(name);
+      }
+      continue;
+    }
+    if (
+      (ts.isFunctionDeclaration(statement) ||
+        ts.isClassDeclaration(statement) ||
+        ts.isEnumDeclaration(statement) ||
+        ts.isModuleDeclaration(statement)) &&
+      statement.name
+    ) {
+      add(statement.name.text);
+    }
+  }
+
+  return exportNames;
+}
+
+export function derivePreviewCompositionName(exportName: string) {
+  if (exportName === "default") return "Default";
+  const words = exportName
+    .replace(/[_$-]+/g, " ")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .trim();
+  return words.length === 0 ? exportName : `${words[0]?.toUpperCase() ?? ""}${words.slice(1)}`;
+}
+
+function collectLocalTypeOnlyNames(sourceFile: ts.SourceFile) {
+  const names = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
+      names.add(statement.name.text);
+      continue;
+    }
+    if (!ts.isImportDeclaration(statement) || !statement.importClause) continue;
+    const { importClause } = statement;
+    if (importClause.isTypeOnly) {
+      if (importClause.name) names.add(importClause.name.text);
+      if (importClause.namedBindings) {
+        for (const name of readImportBindingNames(importClause.namedBindings)) names.add(name);
+      }
+      continue;
+    }
+    if (importClause.namedBindings && ts.isNamedImports(importClause.namedBindings)) {
+      for (const element of importClause.namedBindings.elements) {
+        if (element.isTypeOnly) names.add(element.name.text);
+      }
+    }
+  }
+  return names;
+}
+
+function collectLocalValueNames(sourceFile: ts.SourceFile) {
+  const names = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (hasModifier(statement, ts.SyntaxKind.DeclareKeyword)) continue;
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        for (const name of readBindingNames(declaration.name)) names.add(name);
+      }
+      continue;
+    }
+    if (
+      (ts.isFunctionDeclaration(statement) ||
+        ts.isClassDeclaration(statement) ||
+        ts.isEnumDeclaration(statement) ||
+        ts.isModuleDeclaration(statement)) &&
+      statement.name
+    ) {
+      names.add(statement.name.text);
+      continue;
+    }
+    if (!ts.isImportDeclaration(statement) || !statement.importClause || statement.importClause.isTypeOnly) continue;
+    const { importClause } = statement;
+    if (importClause.name) names.add(importClause.name.text);
+    if (!importClause.namedBindings) continue;
+    if (ts.isNamespaceImport(importClause.namedBindings)) {
+      names.add(importClause.namedBindings.name.text);
+    } else {
+      for (const element of importClause.namedBindings.elements) {
+        if (!element.isTypeOnly) names.add(element.name.text);
+      }
+    }
+  }
+  return names;
+}
+
+function readBindingNames(name: ts.BindingName): string[] {
+  if (ts.isIdentifier(name)) return [name.text];
+  return name.elements.flatMap((element) => (ts.isOmittedExpression(element) ? [] : readBindingNames(element.name)));
+}
+
+function readImportBindingNames(bindings: ts.NamedImportBindings) {
+  return ts.isNamespaceImport(bindings)
+    ? [bindings.name.text]
+    : bindings.elements.map((element) => element.name.text);
+}
+
+function isTypeOnlyDeclaration(statement: ts.Statement) {
+  return ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement);
+}
+
+function hasModifier(node: ts.Node, kind: ts.SyntaxKind) {
+  return ts.canHaveModifiers(node) && ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) === true;
+}
+
+function readScriptKind(filePath: string) {
+  switch (path.extname(filePath).toLowerCase()) {
+    case ".tsx": return ts.ScriptKind.TSX;
+    case ".jsx": return ts.ScriptKind.JSX;
+    case ".js":
+    case ".mjs":
+    case ".cjs": return ts.ScriptKind.JS;
+    default: return ts.ScriptKind.TS;
+  }
 }
 
 function isFileUrl(value: string) {

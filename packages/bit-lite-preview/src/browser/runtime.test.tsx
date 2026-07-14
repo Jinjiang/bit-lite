@@ -27,7 +27,7 @@ describe("preview browser runtime", () => {
 
   it("starts with all renderers omitted and keeps content lazy on overview", async () => {
     const docsLoad = vi.fn(async () => ({ default: () => createElement("p", undefined, "Docs") }));
-    const demoLoad = vi.fn(async () => ({ default: () => "demo" }));
+    const demoLoad = vi.fn(async () => "demo");
     window.history.replaceState(null, "", "/#ui%2Fbutton");
 
     await act(async () => {
@@ -35,7 +35,7 @@ describe("preview browser runtime", () => {
       await controller.refresh();
     });
 
-    expect(document.querySelector('[data-preview-state="overview"]')?.textContent).toContain("primary");
+    expect(document.querySelector('[data-preview-state="overview"]')?.textContent).toContain("Primary Demo");
     expect(docsLoad).not.toHaveBeenCalled();
     expect(demoLoad).not.toHaveBeenCalled();
   });
@@ -66,15 +66,20 @@ describe("preview browser runtime", () => {
     expect(document.querySelector("[data-custom-overview]")?.textContent).toBe("ui/button");
     expect(props?.docs).toEqual({ title: "Button", route: "#ui%2Fbutton?preview=docs" });
     expect(props?.compositions).toEqual([
-      { id: "primary", route: "#ui%2Fbutton?preview=compositions&name=primary" },
+      {
+        id: "primary/PrimaryDemo",
+        exportName: "PrimaryDemo",
+        name: "Primary Demo",
+        route: "#ui%2Fbutton?preview=compositions&name=primary%2FPrimaryDemo",
+      },
     ]);
     expect(props?.docs).not.toHaveProperty("load");
     expect(props?.compositions[0]).not.toHaveProperty("load");
   });
 
   it("renders a controlled error without loading a demo when mounter is missing", async () => {
-    const demoLoad = vi.fn(async () => ({ default: () => "demo" }));
-    window.history.replaceState(null, "", "/#ui%2Fbutton?preview=compositions&name=primary");
+    const demoLoad = vi.fn(async () => "demo");
+    window.history.replaceState(null, "", "/#ui%2Fbutton?preview=compositions&name=primary%2FPrimaryDemo");
 
     await act(async () => {
       controller = startPreview({ components: [component({ demoLoad })] });
@@ -82,16 +87,39 @@ describe("preview browser runtime", () => {
     });
 
     expect(document.querySelector('[data-preview-state="missing-mounter"]')).not.toBeNull();
+    expect(document.querySelector('[data-preview-state="missing-mounter"]')?.textContent).toContain("Primary Demo");
     expect(demoLoad).not.toHaveBeenCalled();
+  });
+
+  it("passes the selected export value to the mounter without default unwrapping", async () => {
+    const selectedValue = { default: "nested default is data", marker: "selected export" };
+    const mounter = vi.fn();
+    window.history.replaceState(null, "", "/#ui%2Fbutton?preview=compositions&name=primary%2FPrimaryDemo");
+
+    await act(async () => {
+      controller = startPreview({
+        components: [component({ demoLoad: async () => selectedValue })],
+        mounter,
+      });
+      await controller.refresh();
+    });
+
+    expect(mounter).toHaveBeenCalledWith(
+      selectedValue,
+      expect.any(HTMLElement),
+      { componentId: "ui/button", compositionId: "primary/PrimaryDemo" }
+    );
   });
 
   it("awaits mounter cleanup before mounting the next demo", async () => {
     const events: string[] = [];
     const entry = component({});
     entry.compositions.push({
-      id: "secondary",
-      route: "#ui%2Fbutton?preview=compositions&name=secondary",
-      load: async () => ({ default: "secondary" }),
+      id: "primary/SecondaryDemo",
+      exportName: "SecondaryDemo",
+      name: "Secondary Demo",
+      route: "#ui%2Fbutton?preview=compositions&name=primary%2FSecondaryDemo",
+      load: async () => "secondary",
     });
     const mounter = vi.fn(async (value: unknown, root: HTMLElement) => {
       const label = String(value);
@@ -102,13 +130,13 @@ describe("preview browser runtime", () => {
         events.push(`cleanup:${label}`);
       };
     });
-    window.history.replaceState(null, "", "/#ui%2Fbutton?preview=compositions&name=primary");
+    window.history.replaceState(null, "", "/#ui%2Fbutton?preview=compositions&name=primary%2FPrimaryDemo");
 
     await act(async () => {
       controller = startPreview({ components: [entry], mounter });
       await controller.refresh();
     });
-    window.history.replaceState(null, "", "/#ui%2Fbutton?preview=compositions&name=secondary");
+    window.history.replaceState(null, "", "/#ui%2Fbutton?preview=compositions&name=primary%2FSecondaryDemo");
     await act(async () => {
       await controller?.refresh();
     });
@@ -182,7 +210,7 @@ describe("preview browser runtime", () => {
       root.dataset.frameworkOwned = "";
       return cleanup;
     });
-    window.history.replaceState(null, "", "/#ui%2Fbutton?preview=compositions&name=primary");
+    window.history.replaceState(null, "", "/#ui%2Fbutton?preview=compositions&name=primary%2FPrimaryDemo");
     await act(async () => {
       controller = startPreview({ components: [component({})], mounter });
       await controller.refresh();
@@ -216,9 +244,11 @@ function component(options: {
     },
     compositions: [
       {
-        id: "primary",
-        route: "#ui%2Fbutton?preview=compositions&name=primary",
-        load: options.demoLoad ?? (async () => ({ default: "primary" })),
+        id: "primary/PrimaryDemo",
+        exportName: "PrimaryDemo",
+        name: "Primary Demo",
+        route: "#ui%2Fbutton?preview=compositions&name=primary%2FPrimaryDemo",
+        load: options.demoLoad ?? (async () => "primary"),
       },
     ],
   };

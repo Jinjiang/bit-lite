@@ -31,7 +31,7 @@ export type PreviewDocsModule = {
   [exportName: string]: unknown;
 };
 
-export type PreviewCompositionModule = unknown;
+export type PreviewComposition = unknown;
 
 export type PreviewBrowserDocs = {
   title?: string;
@@ -41,8 +41,10 @@ export type PreviewBrowserDocs = {
 
 export type PreviewBrowserComposition = {
   id: string;
+  exportName: string;
+  name: string;
   route: string;
-  load: () => Promise<PreviewCompositionModule>;
+  load: () => Promise<PreviewComposition>;
 };
 
 export type PreviewBrowserComponent = {
@@ -65,7 +67,7 @@ export type PreviewMounterContext = {
 export type PreviewMounterCleanup = () => void | Promise<void>;
 
 export type PreviewMounter = (
-  composition: unknown,
+  composition: PreviewComposition,
   root: HTMLElement,
   context: PreviewMounterContext
 ) => void | PreviewMounterCleanup | Promise<void | PreviewMounterCleanup>;
@@ -78,6 +80,8 @@ export type PreviewOverviewProps = {
   };
   compositions: Array<{
     id: string;
+    exportName: string;
+    name: string;
     route: string;
   }>;
 };

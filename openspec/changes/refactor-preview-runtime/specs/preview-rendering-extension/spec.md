@@ -23,11 +23,11 @@ The shared browser package SHALL provide the default overview renderer used when
 - **THEN** overview routes use the shared default renderer
 
 ### Requirement: The overview receives component-level descriptors
-`PreviewOverviewProps` SHALL contain normalized component metadata, an optional docs descriptor with its route, and demo descriptors with file-level IDs and routes. The browser runtime SHALL derive those props from `PreviewBrowserComponent` while omitting every content record's `load` function. The default and custom overview renderers SHALL receive descriptors rather than eagerly loaded docs or demo modules.
+`PreviewOverviewProps` SHALL contain normalized component metadata, an optional docs descriptor with its route, and export-level demo descriptors with `id`, `exportName`, derived `name`, and `route`. The browser runtime SHALL derive those props from `PreviewBrowserComponent` while omitting every content record's `load` function. The default and custom overview renderers SHALL receive descriptors rather than eagerly loaded docs or demo values.
 
 #### Scenario: Overview renders its initial implementation
 - **WHEN** a component with multiple demos opens the default overview route
-- **THEN** the page renders a simple demo list from the supplied descriptors and links each item to its named-demo route
+- **THEN** the page renders a simple demo list using each descriptor's derived name and links each item to its composite-ID named-demo route
 
 #### Scenario: Overview does not eagerly execute content
 - **WHEN** a component overview opens

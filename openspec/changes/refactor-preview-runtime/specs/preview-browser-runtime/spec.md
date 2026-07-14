@@ -12,7 +12,7 @@ Each prepared env SHALL expose one HTML document and one logical browser entry g
 - **THEN** every surface is rendered from the same prepared HTML and browser entry while active content is requested through its record's dynamic import
 
 ### Requirement: Hash routes select exactly three preview surfaces
-The browser runtime SHALL recognize `#<component-id>` and `#<component-id>?preview=overview` as the component overview, `#<component-id>?preview=docs` as docs, and `#<component-id>?preview=compositions&name=<demo-id>` as one selected demo. Component and demo identifiers SHALL be percent-encoded in generated URLs and decoded exactly once by the runtime.
+The browser runtime SHALL recognize `#<component-id>` and `#<component-id>?preview=overview` as the component overview, `#<component-id>?preview=docs` as docs, and `#<component-id>?preview=compositions&name=<demo-id>` as one selected demo. Every demo ID SHALL be the composite `<demo-file-id>/<export-name>`. Component and complete composite demo identifiers SHALL be percent-encoded in generated URLs and decoded exactly once by the runtime.
 
 #### Scenario: Preview parameter is absent
 - **WHEN** the document loads with a known component ID and no `preview` parameter
@@ -30,12 +30,16 @@ The browser runtime SHALL recognize `#<component-id>` and `#<component-id>?previ
 - **WHEN** the document loads with `preview=compositions` and a valid `name`
 - **THEN** the runtime renders the named demo for that component
 
+#### Scenario: Hash selects one export from a multi-export file
+- **WHEN** the document loads with `name=primary%2FMySecondDemo`
+- **THEN** the runtime resolves the `primary/MySecondDemo` record and does not select another export from `primary.demo.*`
+
 ### Requirement: Every env has a shared default overview renderer
-The browser package SHALL provide one default overview renderer and `startPreview` SHALL accept an optional `renderOverview` function that replaces it for that browser invocation. Both renderers SHALL receive normalized component metadata, an optional docs descriptor with its route, and demo descriptors with their file-level IDs and routes. The runtime SHALL strip content-local `load` functions from these props. The function SHALL NOT be configurable through `PreviewServiceConfig`, supplied by a vendor, or included in serialized runtime data.
+The browser package SHALL provide one default overview renderer and `startPreview` SHALL accept an optional `renderOverview` function that replaces it for that browser invocation. Both renderers SHALL receive normalized component metadata, an optional docs descriptor with its route, and export-level demo descriptors containing `id`, `exportName`, derived `name`, and `route`. The runtime SHALL strip content-local `load` functions from these props. The function SHALL NOT be configurable through `PreviewServiceConfig`, supplied by a vendor, or included in serialized runtime data.
 
 #### Scenario: Generated entry omits the optional renderer
 - **WHEN** the current command-generated entry calls `startPreview` without `renderOverview`
-- **THEN** the shared default renderer displays a demo list whose links target the corresponding named-demo hash routes
+- **THEN** the shared default renderer displays each demo's derived name and links it to the corresponding composite-ID hash route
 
 #### Scenario: Browser caller supplies a custom renderer
 - **WHEN** `startPreview` receives a `renderOverview` function and an overview route becomes active
@@ -68,11 +72,15 @@ For a docs route, the browser runtime SHALL call the selected component's `docs.
 - **THEN** the built-in minimal docs template renders the module returned by `docs.load()` with the same docs-only contract
 
 ### Requirement: The mounter owns selected demo rendering
-For a named-demo route, the browser runtime SHALL call only the selected demo record's `load()`, create a dedicated host, and pass the resolved module and host to the optional env mounter. The overview renderer and docs template MUST NOT render the demo module themselves.
+For a named-demo route, the browser runtime SHALL call only the selected export-level demo record's `load()`, create a dedicated host, and pass the resolved export value and host to the optional env mounter. The browser runtime and mounter MUST NOT apply default-export selection to that value, and the overview renderer and docs template MUST NOT render the demo themselves.
 
 #### Scenario: Demo route is active
 - **WHEN** a valid named-demo route is selected
 - **THEN** the mounter exclusively owns the descendants of the dedicated demo host until its cleanup completes
+
+#### Scenario: Named export demo is active
+- **WHEN** `primary/MySecondDemo` is selected
+- **THEN** the mounter receives the value of `module["MySecondDemo"]`, not the whole module namespace or `module.default`
 
 #### Scenario: Runtime leaves a demo route
 - **WHEN** navigation, HMR, or shutdown disposes an active demo
@@ -116,7 +124,7 @@ The proxy manifest SHALL generate overview, docs, and named-demo links from the 
 - **THEN** the server receives the stable env document path and the browser runtime receives the fragment
 
 ### Requirement: Active preview modules support development updates
-The generated entry SHALL attach a literal dynamic-import `load()` function to each prepared docs and demo record, and a supported vendor SHALL connect module updates to rerendering the active hash route without generating a new entry file. It SHALL NOT require top-level `loadDocs` or `loadComposition` callbacks.
+The generated entry SHALL attach a literal dynamic-import `load()` function to each prepared docs and export-level demo record, and a supported vendor SHALL connect module updates to rerendering the active hash route without generating a new entry file. It SHALL NOT require top-level `loadDocs` or `loadComposition` callbacks. Ordinary edits to an existing export SHALL retain HMR behavior; adding or removing export declarations MAY require restarting preview to regenerate the composition catalog.
 
 #### Scenario: Active docs file changes under Vite or Webpack
 - **WHEN** the dev-server toolchain reports an accepted update for the active docs module
@@ -125,3 +133,7 @@ The generated entry SHALL attach a literal dynamic-import `load()` function to e
 #### Scenario: Inactive demo exists
 - **WHEN** the env starts on an overview or docs route
 - **THEN** inactive demo modules are not required to execute before the initial surface renders
+
+#### Scenario: Existing named export changes
+- **WHEN** HMR updates the implementation of an active `MySecondDemo` export without removing it
+- **THEN** the runtime reloads that selected export and remounts it through the existing composition lifecycle

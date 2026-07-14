@@ -1,6 +1,6 @@
 import { add } from "./index.js";
 
-export default function mount(root: HTMLElement) {
+export function InteractiveOperands(root: HTMLElement) {
   let left = 2;
   let right = 3;
 

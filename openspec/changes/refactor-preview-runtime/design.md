@@ -17,6 +17,7 @@ bit-lite does not need Bit's aspect or artifact machinery, but it can preserve t
 - Make the `preview` command the owner of file discovery policy, normalized metadata, generated entry files, and temporary-file lifecycle, using reusable Node APIs exported by `bit-lite-preview`.
 - Give each env vendor one prepared browser entry and one HTML document to serve.
 - Route a shared component overview, docs, and selected demos inside the browser from a documented hash grammar.
+- Treat every runtime value export of every selected `*.demo.*` file as an independently addressable demo, with deterministic identity and a derived readable name.
 - Expose a narrow optional `renderOverview` function on `startPreview` while retaining a shared default overview renderer.
 - Represent browser docs and demos as component-local records with literal dynamic-import functions instead of top-level loader callbacks.
 - Provide reusable MDX compilation options that different Vite and Webpack dev-server configs can import and compose.
@@ -31,7 +32,8 @@ bit-lite does not need Bit's aspect or artifact machinery, but it can preserve t
 - Define the final site design, header, global component library, theme, or layout in this change.
 - Define a general-purpose rendering-extension system beyond the narrow overview function, or expose per-env style/layout configuration.
 - Serialize MDX plugins or compiler options into `PreviewPreparedRuntime`.
-- Discover named compositions inside one demo module; the existing file-level `*.demo.*` model remains.
+- Infer whether a runtime export is a helper rather than a demo; demo files must keep non-demo helpers unexported.
+- Recursively expand `export *` declarations during preparation or update the composition catalog when exports are added or removed without restarting preview.
 
 ## Decisions
 
@@ -41,7 +43,7 @@ Add command-owned preparation APIs to the explicit `bit-lite-preview/node` expor
 
 1. Validate the existing preview service config.
 2. Discover the selected components' docs and demo files with deterministic ordering.
-3. Derive docs display metadata and stable file-level demo IDs.
+3. Statically discover demo-file runtime exports and derive docs display metadata plus stable export-level demo IDs and names.
 4. Resolve the existing `configFile`, mounter, and `docsTemplate` module specifiers relative to the workspace.
 5. Create an env-scoped temporary directory containing one generated browser entry and one HTML file.
 6. Return only the paths and server values the vendor needs.
@@ -65,7 +67,7 @@ type PreviewPreparedRuntime = JsonObject & {
 
 The existing `PreviewServiceConfig.configFile` remains the Vite or Webpack dev-server/toolchain config. Command-side preparation resolves that value in the standard vendor config data; it is not a generated preview artifact and is therefore not duplicated in `PreviewPreparedRuntime.prepared`.
 
-The command retains the normalized JSON component manifest and temp-directory handle for proxy state and cleanup rather than sending them merely because they exist. The generated entry derives browser-only component records from that manifest. Each docs or demo record contains its display descriptors plus a safely encoded, statically analyzable `load: () => import("<resolved-path>")` function. The entry conditionally imports configured `mounter` and `docsTemplate` modules and calls the fixed browser bootstrap. Values inserted into generated source are emitted with JSON stringification rather than raw interpolation.
+The command retains the normalized JSON component manifest and temp-directory handle for proxy state and cleanup rather than sending them merely because they exist. The generated entry derives browser-only component records from that manifest. Each docs record contains its descriptors plus a safely encoded, statically analyzable `load: () => import("<resolved-path>")` function. Each demo record contains `id`, `exportName`, derived `name`, and route descriptors plus a loader that imports its containing file and resolves only `module[exportName]`. The entry conditionally imports configured `mounter` and `docsTemplate` modules and calls the fixed browser bootstrap. Values inserted into generated source are emitted with JSON stringification rather than raw interpolation.
 
 These `load` functions are generated JavaScript, not worker-protocol data or a DevServer-specific API. Vite preserves each dynamic import as an on-demand browser module request, while Webpack compiles it into an async chunk boundary. Both remain inside one logical entry graph and delay module evaluation until the corresponding route is active.
 
@@ -73,7 +75,54 @@ Vendors neither scan component roots nor create or delete generated preview entr
 
 Alternative considered: put discovery and entry generation in a shared vendor helper. Rejected because these operations define vendor input and must be complete before vendor startup.
 
-### 2. MDX options are a reusable build-time utility
+### 2. Every demo-file runtime export is one composition
+
+Preparation uses syntax-aware JavaScript/TypeScript source analysis and never imports or evaluates a demo module in Node. It recognizes `default` and named runtime value exports, including exported declarations and explicit export lists, while excluding type-only declarations. A bare `export *` is rejected with file context because its names cannot be determined from one file without recursive module resolution. This is intentionally parser-based rather than regular-expression-based so comments, multiline declarations, aliases, TypeScript syntax, and type-only exports cannot corrupt the manifest.
+
+Each discovered export becomes a normalized demo descriptor:
+
+```ts
+type PreparedPreviewComposition = {
+  id: string;
+  exportName: string;
+  name: string;
+  filePath: string;
+  route: string;
+};
+```
+
+The file ID is the part before `.demo.<extension>`. The stable composition ID is `<file-id>/<export-name>`, so `primary.demo.ts` produces `primary/default` and `primary/MySecondDemo`. This prevents collisions when several files export `default` or reuse the same named export. The complete composite ID is percent-encoded as the existing hash route's `name` value and decoded exactly once by the browser runtime.
+
+Display names are derived, not author-configured:
+
+- `default` becomes `Default`. Default exports remain supported for compatibility but examples and documentation discourage them.
+- Identifier separators such as `_` become spaces.
+- Boundaries from lower-case letters or digits to upper-case letters are split.
+- Acronym-to-word boundaries are split while preserving the acronym, so `XMLCard` becomes `XML Card`.
+- The first word is capitalized when necessary, so both `mySecondDemo` and `MySecondDemo` become `My Second Demo`.
+
+Files remain sorted deterministically and exports retain deterministic source declaration order within each file. Every runtime value export in a demo file is treated as a demo; authors must keep helper values unexported. Duplicate export names within one module remain a JavaScript syntax error, while identical export names across files remain valid because the file ID is part of the composition ID.
+
+The generated browser record resolves the selected value lazily:
+
+```ts
+{
+  id: "primary/MySecondDemo",
+  exportName: "MySecondDemo",
+  name: "My Second Demo",
+  route: "#ui/button?preview=compositions&name=primary%2FMySecondDemo",
+  load: () => import("<resolved-primary-demo>")
+    .then((module) => module["MySecondDemo"]),
+}
+```
+
+The literal import stays analyzable by both Vite and Webpack. Multiple records from one file may share the same lazy chunk and browser module instance, but each loader resolves a different export. The browser runtime passes that selected export value directly to the mounter; the mounter does not select a default export and its public lifecycle contract otherwise remains unchanged. If HMR removes an active export, the loader renders the existing controlled error state. Adding or removing export declarations changes the catalog and requires restarting preview in this change.
+
+Alternative considered: load each demo module eagerly in the browser and enumerate `Object.keys(module)`. Rejected because it evaluates every demo at startup, removes descriptor availability from the proxy manifest, and weakens route-level laziness.
+
+Alternative considered: use only the export name as the composition ID. Rejected because separate files commonly reuse names such as `default`, `Primary`, or `Basic`.
+
+### 3. MDX options are a reusable build-time utility
 
 Create a `demo-utils` workspace package with an MDX options export, for example:
 
@@ -113,7 +162,7 @@ The Vite and Webpack preview vendors simply load the resolved `configFile`; they
 
 Alternative considered: define a serializable `PreviewMdxOptions` service field and have vendors rebuild plugins from module descriptors. Rejected because MDX options belong to bundler configuration, function serialization is unnecessary, and the abstraction duplicates the native Vite/Webpack integration points.
 
-### 3. `docsTemplate` receives only the compiled docs module
+### 4. `docsTemplate` receives only the compiled docs module
 
 Keep the existing preview service shape:
 
@@ -151,7 +200,7 @@ This keeps compilation and rendering separate:
 
 The command does not add `mdxOptions`, `mdxComponents`, or user-configurable layout fields to `PreviewServiceConfig`.
 
-### 4. Vendors are thin bundler and dev-server adapters
+### 5. Vendors are thin bundler and dev-server adapters
 
 The vendor receives the prepared entry and HTML through preview runtime data, the existing resolved `configFile` through service config data, and the assigned network paths. Its responsibilities are limited to:
 
@@ -164,7 +213,7 @@ Webpack changes from an `EntryObject` with one entry per composition to one entr
 
 Alternative considered: precompile every MDX file in the command. Rejected because emitted modules with relative imports need source-relative bundler resolution, which the existing config files already provide naturally.
 
-### 5. One hash grammar selects three distinct browser surfaces
+### 6. One hash grammar selects three distinct browser surfaces
 
 Each env is served from one document at `/env/<encoded-env-name>/`. The fragment is client-only and follows this grammar:
 
@@ -179,7 +228,7 @@ The routes map to three renderers with deliberately separate inputs:
 
 - `overview`, including an omitted `preview` parameter, calls the optional `startPreview.renderOverview` function or falls back to the shared default renderer.
 - `docs` calls the selected component's `docs.load()` and passes only `{ docs }` to `options.docsTemplate ?? DefaultDocsTemplate`.
-- `compositions&name=...` calls the selected demo record's `load()` and passes the resolved module to the optional env `mounter` in an isolated host.
+- `compositions&name=...` calls the selected export-level demo record's `load()` and passes the resolved export value to the optional env `mounter` in an isolated host.
 
 `preview=compositions` without `name` is not a fourth list surface; it is an invalid route. The runtime uses `URLSearchParams`, validates the requested component and composition against the generated browser component records, renders controlled missing-content states, and listens for `hashchange` without reloading the document.
 
@@ -194,6 +243,8 @@ type PreviewOverviewProps = {
   };
   compositions: Array<{
     id: string;
+    exportName: string;
+    name: string;
     route: string;
   }>;
 };
@@ -211,7 +262,7 @@ Proxy manifest links use the public env base URL plus the fragment. Since fragme
 
 Alternative considered: retain server path routing and merely share HTML helpers. Rejected because it preserves duplicated route interpretation and prevents a stable, single-entry runtime.
 
-### 6. `startPreview` consumes component-local imports and optional renderers
+### 7. `startPreview` consumes component-local imports and optional renderers
 
 The shared browser package models generated content separately from the JSON command/proxy manifest:
 
@@ -222,10 +273,14 @@ type PreviewBrowserDocs = {
   load: () => Promise<PreviewDocsModule>;
 };
 
+type PreviewComposition = unknown;
+
 type PreviewBrowserComposition = {
   id: string;
+  exportName: string;
+  name: string;
   route: string;
-  load: () => Promise<PreviewCompositionModule>;
+  load: () => Promise<PreviewComposition>;
 };
 
 type PreviewBrowserComponent = {
@@ -260,9 +315,12 @@ startPreview({
       },
       compositions: [
         {
-          id: "basic",
-          route: "#ui/button?preview=compositions&name=basic",
-          load: () => import("<resolved-basic-demo>"),
+          id: "basic/Basic",
+          exportName: "Basic",
+          name: "Basic",
+          route: "#ui/button?preview=compositions&name=basic%2FBasic",
+          load: () => import("<resolved-basic-demo>")
+            .then((module) => module["Basic"]),
         },
       ],
     },
@@ -272,7 +330,7 @@ startPreview({
 });
 ```
 
-An env without a configured mounter or `docsTemplate` omits those properties. No top-level `loadDocs` or `loadComposition` dispatcher is exposed: after route selection, the runtime finds the component record and invokes exactly the selected docs or demo record's `load()` function.
+An env without a configured mounter or `docsTemplate` omits those properties. No top-level `loadDocs` or `loadComposition` dispatcher is exposed: after route selection, the runtime finds the component record and invokes exactly the selected docs or export-level demo record's `load()` function. That demo loader resolves the selected export value rather than returning the whole module namespace.
 
 When an overview route is active, the runtime evaluates `options.renderOverview ?? renderDefaultOverview` and passes the resulting function `PreviewOverviewProps`. Returning `React.ReactNode` keeps React root creation, error handling, route transitions, and HMR lifecycle inside the browser runtime rather than introducing another mounter-style lifecycle contract.
 
@@ -286,7 +344,7 @@ Alternative considered: expose configurable global styles and layout modules now
 
 Alternative considered: expose top-level `loadDocs(componentId)` and `loadComposition(componentId, compositionId)` callbacks. Rejected because they duplicate lookup already expressed by the component records and obscure the fact that every lazy boundary is a literal dynamic import generated for one content item. Eager static imports were also rejected because they execute every docs and demo module at startup and weaken code-splitting and route-level HMR boundaries.
 
-### 7. Shared runtime and demo utilities remain separate
+### 8. Shared runtime and demo utilities remain separate
 
 Use two different package boundaries because they serve different lifecycles:
 
@@ -301,7 +359,10 @@ Command-side filesystem discovery, temp-file generation, proxy serving, and thei
 - [The future site presentation is coupled to the shared browser package version] → Treat that coupling as intentional central maintenance and avoid per-vendor overrides.
 - [The narrow overview hook may not cover every future site-shell requirement] → Publish only descriptor-based overview props now and evolve the browser API additively rather than exposing speculative layout or theme contracts.
 - [One entry graph can become large as component counts grow] → Generate lazy module loaders so bundlers split inactive docs and demos into chunks while retaining one logical entry.
-- [Vite and Webpack transform dynamic imports differently] → Generate only literal import specifiers, test the same browser component fixture through both toolchains, and treat the resolved module promise as the shared runtime contract.
+- [Static export discovery can drift from dev-server module semantics] → Use a syntax-aware JavaScript/TypeScript parser, exclude type-only exports explicitly, reject unresolved `export *`, and cover identical fixtures through both maintained toolchains.
+- [Several demo records can import the same file] → Rely on bundler chunk deduplication and the browser module cache while resolving each record's selected export after the shared import promise.
+- [Adding or removing an export does not regenerate the prepared catalog during the current process] → Document preview restart as required for export-set changes; ordinary edits to an existing export continue through HMR.
+- [Vite and Webpack transform dynamic imports differently] → Generate only literal import specifiers, test the same browser component fixture through both toolchains, and treat docs module promises plus selected demo export promises as the shared runtime contracts.
 - [Temp paths or source paths can produce invalid generated code] → Resolve paths before generation, serialize every literal, use deterministic filenames, and test spaces, quotes, and cross-platform separators.
 - [Node HTML templates can be omitted from a built package] → Keep templates under the preview package and copy them into `dist/assets` in the package build lifecycle, with built-output verification.
 - [Different UI frameworks can compete for the same DOM] → Give a composition mounter a dedicated host whose descendants only it owns, and run its cleanup before the browser runtime removes that host.
@@ -314,10 +375,11 @@ Command-side filesystem discovery, temp-file generation, proxy serving, and thei
 1. Add the shared preview runtime/browser package, browser component record types, three optional renderer fields, docs/overview defaults, and the `demo-utils` MDX options export with focused tests.
 2. Preserve `docsTemplate` in env config validation and define its docs-only browser runtime contract.
 3. Add the command-owned Node discovery, module resolution, JSON manifest generation, browser component record generation with content-local dynamic imports, entry generation, proxy, and cleanup APIs to `bit-lite-preview/node`, then invoke them from the command behind the minimal prepared runtime type.
-4. Update demo Vite and Webpack configs to install their native MDX integrations using the same `demo-utils` options.
-5. Convert Vite and Webpack vendors to the prepared single-entry contract and remove vendor-owned discovery, routing, rendering, and per-composition entry generation.
-6. Add the default component overview and optional overview callback, make overview the default hash surface, change proxy manifest links to hash URLs, and update navigation, HMR, docs-template, mounter, and lifecycle tests.
-7. Update preview documentation to distinguish compile-time MDX config, runtime `docsTemplate`, the browser-only overview hook, and the reserved site-shell boundary.
+4. Replace file-level demos with syntax-aware export discovery, composite IDs, derived names, and generated loaders that resolve one selected export value.
+5. Update demo Vite and Webpack configs to install their native MDX integrations using the same `demo-utils` options.
+6. Convert Vite and Webpack vendors to the prepared single-entry contract and remove vendor-owned discovery, routing, rendering, and per-composition entry generation.
+7. Add the default component overview and optional overview callback, make overview the default hash surface, change proxy manifest links to hash URLs, and update navigation, HMR, docs-template, mounter, and lifecycle tests.
+8. Update preview documentation to distinguish compile-time MDX config, runtime `docsTemplate`, export-level demos, the browser-only overview hook, and the reserved site-shell boundary.
 
 Rollback is a source revert because no persisted user data is migrated.
 

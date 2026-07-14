@@ -1,7 +1,7 @@
 import { createElement, useState } from "react";
 import { Button } from "./index.js";
 
-export default function ButtonDemo() {
+export function InteractiveButton() {
   const [count, setCount] = useState(0);
 
   return createElement(

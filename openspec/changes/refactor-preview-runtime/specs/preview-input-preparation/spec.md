@@ -12,15 +12,46 @@ The `preview` command SHALL discover, normalize, and generate every selected env
 - **THEN** it receives explicit prepared entry and HTML paths and does not scan `runtime.data.components` for preview files
 
 ### Requirement: Discovery is deterministic and command-owned
-The command SHALL inspect only the selected components, SHALL sort component and file inputs deterministically, SHALL select the first sorted `.docs.md` or `.docs.mdx` file per component, and SHALL include every sorted `*.demo.*` file as a file-level composition.
+The command SHALL inspect only the selected components, SHALL sort component and file inputs deterministically, SHALL select the first sorted `.docs.md` or `.docs.mdx` file per component, and SHALL statically discover every runtime value export from every sorted `*.demo.*` file without importing or evaluating those modules in Node. It SHALL recognize default exports, named exported declarations, and explicit export lists, SHALL exclude type-only exports, and SHALL preserve deterministic source declaration order within each file.
 
 #### Scenario: Component has multiple matching files
 - **WHEN** a selected component contains multiple docs files and multiple demo files
-- **THEN** the prepared manifest contains the first sorted docs file and all demo files in stable filename order
+- **THEN** the prepared manifest contains the first sorted docs file and every runtime export from all demo files in stable file and source declaration order
+
+#### Scenario: Demo file contains default and named exports
+- **WHEN** `primary.demo.ts` exports `default` and `MySecondDemo`
+- **THEN** preparation creates two demos without evaluating the module or its framework imports
+
+#### Scenario: Demo file contains type-only exports
+- **WHEN** a TypeScript demo file exports interfaces or types alongside runtime values
+- **THEN** only the runtime value exports become demos
+
+#### Scenario: Demo file contains an unresolved star export
+- **WHEN** a demo file contains `export * from "./other.js"`
+- **THEN** preparation fails with the demo file and unsupported export form instead of producing an incomplete manifest
 
 #### Scenario: Component has no preview files
 - **WHEN** a selected component has neither a docs file nor a demo file
 - **THEN** the component remains in the manifest with absent docs and an empty compositions array so its overview route remains addressable
+
+### Requirement: Demo exports have composite IDs and derived names
+Each discovered demo export SHALL have `exportName`, derived `name`, and a stable composite `id` formatted as `<demo-file-id>/<export-name>`. The demo file ID SHALL be the filename portion before `.demo.<extension>`. The `default` export SHALL be supported with export name `default` and display name `Default`, although maintained examples and documentation SHALL discourage default demo exports. Named exports SHALL derive readable names by splitting identifier separators, lower-or-digit to upper-case boundaries, and acronym-to-word boundaries, then capitalizing the first word when necessary. Authors SHALL NOT provide a separate demo title.
+
+#### Scenario: Named export uses PascalCase
+- **WHEN** `primary.demo.ts` exports `MySecondDemo`
+- **THEN** its descriptor has ID `primary/MySecondDemo`, export name `MySecondDemo`, and name `My Second Demo`
+
+#### Scenario: Demo file uses a default export
+- **WHEN** `primary.demo.ts` has a default export
+- **THEN** its descriptor has ID `primary/default`, export name `default`, and name `Default`
+
+#### Scenario: Separate files reuse an export name
+- **WHEN** `primary.demo.ts` and `secondary.demo.ts` both export `DefaultState`
+- **THEN** their IDs are `primary/DefaultState` and `secondary/DefaultState` and do not collide
+
+#### Scenario: Named export contains an acronym
+- **WHEN** a demo file exports `XMLCard`
+- **THEN** its derived name is `XML Card`
 
 ### Requirement: Vendor runtime data is minimal and serializable
 The command SHALL pass a JSON-serializable `PreviewPreparedRuntime` containing only server coordinates and the prepared entry and HTML paths required by the vendor. The command SHALL retain the normalized component manifest and temp-directory lifecycle state, and the existing preview service config SHALL carry the resolved dev-server `configFile`. Loaded modules, callbacks, MDX options, plugin functions, and raw component inputs MUST NOT cross the vendor worker boundary.
@@ -34,11 +65,15 @@ The command SHALL pass a JSON-serializable `PreviewPreparedRuntime` containing o
 - **THEN** it uses the command-resolved module path encoded as a safe JavaScript string literal
 
 ### Requirement: Generated browser records own their lazy imports
-The command SHALL generate a browser-only `PreviewBrowserComponent` array separately from the JSON manifest. Each docs and demo record SHALL contain its own literal `load: () => import("<resolved-path>")` function. The generated entry MUST NOT expose top-level `loadDocs` or `loadComposition` dispatch callbacks.
+The command SHALL generate a browser-only `PreviewBrowserComponent` array separately from the JSON manifest. Each docs record SHALL contain its own literal `load: () => import("<resolved-path>")` function. Each export-level demo record SHALL contain a literal dynamic import of its containing file followed by selection of `module[exportName]`, so its `load()` resolves the selected export value rather than the module namespace. The generated entry MUST NOT expose top-level `loadDocs` or `loadComposition` dispatch callbacks.
 
 #### Scenario: Component has docs and demos
 - **WHEN** the command generates that component's browser record
-- **THEN** its docs record and every demo record contain separate literal dynamic imports that the dev-server toolchain can analyze
+- **THEN** its docs record and every export-level demo record contain literal dynamic imports that the dev-server toolchain can analyze
+
+#### Scenario: One demo file has multiple exports
+- **WHEN** a file contributes `default` and `MySecondDemo` records
+- **THEN** both records import the same literal file path but resolve `module["default"]` and `module["MySecondDemo"]` respectively
 
 #### Scenario: Generated entry crosses the vendor boundary
 - **WHEN** the command starts the vendor with the prepared entry path

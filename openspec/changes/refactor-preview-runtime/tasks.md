@@ -7,7 +7,7 @@
 
 ## 2. Command-Side Preview Preparation
 
-- [x] 2.1 Move deterministic docs/demo discovery and metadata derivation into command-owned preview preparation APIs exported from `bit-lite-preview/node`, preserving selected-component scope and file-level demo IDs.
+- [x] 2.1 Move deterministic docs/demo-file discovery and metadata derivation into command-owned preview preparation APIs exported from `bit-lite-preview/node`, preserving selected-component scope and demo-file identity for normalized records.
 - [x] 2.2 Resolve `configFile`, `mounter`, and `docsTemplate` relative to the workspace before vendor startup, requiring a mounter only when the selected env has demos.
 - [x] 2.3 Generate one env-scoped HTML file and one safe JavaScript entry containing `PreviewBrowserComponent[]`; attach a literal `load: () => import("<resolved-path>")` to each docs/demo record, conditionally include configured `mounter` and `docsTemplate` imports, omit `renderOverview`, and expose no top-level loader callbacks.
 - [x] 2.4 Build JSON-only `PreviewPreparedRuntime` payloads containing server coordinates plus `prepared.entryFile` and `prepared.htmlFile`, and stop passing raw components, manifests, config files, or MDX options through vendor runtime data.
@@ -61,3 +61,13 @@
 - [x] 8.4 Replace production inline HTML documents with package asset files that are copied into built output.
 - [x] 8.5 Simplify the resolved config-file guard and document the Vite-specific prepared-entry transform bridge.
 - [x] 8.6 Update tests, documentation, lockfile, and verify the affected packages plus the full workspace.
+
+## 9. Export-Level Demo Follow-up
+
+- [x] 9.1 Extend prepared, proxy, overview, and browser composition contracts with composite `id`, original `exportName`, derived `name`, and a selected export value loader; add the syntax-aware JavaScript/TypeScript parser dependency with `pnpm`.
+- [x] 9.2 Replace one-file-one-demo discovery with deterministic runtime export discovery that excludes type-only exports, rejects unresolved `export *`, derives `<file-id>/<export-name>` IDs, and implements the agreed `Default`, camel/Pascal case, separator, digit, and acronym name conversion rules.
+- [x] 9.3 Generate one lazy record per demo export using a literal import followed by `module[exportName]`; update hash routing and the browser runtime to select the composite ID and pass the resolved export value directly to the mounter without default-export unwrapping.
+- [x] 9.4 Update default/custom overview props, proxy manifests, shell links, loading states, and controlled errors to expose and display derived demo names while retaining encoded composite routes.
+- [x] 9.5 Update maintained demo fixtures so at least one file exports both a discouraged default demo and a named demo such as `MySecondDemo`, while other maintained examples prefer named exports.
+- [x] 9.6 Add preparation, naming, route, browser lifecycle, proxy, Vite, Webpack, HMR, same-file chunk, duplicate-cross-file export-name, type-only export, and unsupported star-export coverage for export-level demos.
+- [x] 9.7 Update preview documentation and package READMEs with export-level authoring and restart semantics, update the lockfile with `pnpm`, then run targeted tests, the full workspace tests, typechecks, builds, and strict OpenSpec validation.

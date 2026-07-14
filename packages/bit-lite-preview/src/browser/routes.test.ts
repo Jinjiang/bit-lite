@@ -17,10 +17,10 @@ describe("preview hash routes", () => {
 
   it("parses docs and named demos", () => {
     expect(parsePreviewHash("#ui%2Fbutton?preview=docs")).toEqual({ kind: "docs", componentId: "ui/button" });
-    expect(parsePreviewHash("#ui%2Fbutton?preview=compositions&name=primary%20demo")).toEqual({
+    expect(parsePreviewHash("#ui%2Fbutton?preview=compositions&name=primary%2FMySecondDemo")).toEqual({
       kind: "composition",
       componentId: "ui/button",
-      compositionId: "primary demo",
+      compositionId: "primary/MySecondDemo",
     });
   });
 
@@ -37,8 +37,8 @@ describe("preview hash routes", () => {
     expect(formatOverviewRoute("ui/button")).toBe("#ui%2Fbutton");
     expect(formatOverviewRoute("ui/button", true)).toBe("#ui%2Fbutton?preview=overview");
     expect(formatDocsRoute("ui/button")).toBe("#ui%2Fbutton?preview=docs");
-    expect(formatCompositionRoute("ui/button", "primary demo")).toBe(
-      "#ui%2Fbutton?preview=compositions&name=primary%20demo"
+    expect(formatCompositionRoute("ui/button", "primary/MySecondDemo")).toBe(
+      "#ui%2Fbutton?preview=compositions&name=primary%2FMySecondDemo"
     );
   });
 });

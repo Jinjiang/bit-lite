@@ -15,7 +15,7 @@
 对每个选中的 env，命令依次完成：
 
 1. 仅扫描本次选中的 component roots。
-2. 稳定排序 component 和文件；第一个 `*.docs.md(x)` 是 docs，所有 `*.demo.*` 各自形成一个 file-level composition。
+2. 稳定排序 component 和文件；第一个 `*.docs.md(x)` 是 docs。命令用 TypeScript parser 静态读取每个 `*.demo.*` 的 runtime value exports，每个 export 各自形成一个 composition，全程不在 Node 中执行 demo module。
 3. 从 workspace 解析 `configFile`、可选 `mounter` 和可选 `docsTemplate`。只有 env 实际含 demo 时才要求 `mounter`。
 4. 在 workspace 的 `.bit-lite/preview-<env>-*` 下生成一个 HTML 和一个 JavaScript entry。
 5. 启动 vendor，并在正常退出、准备失败或 vendor 启动失败时删除命令创建的临时目录。
@@ -33,14 +33,30 @@ const components = [{
     load: () => import("../../components/ui/button/button.docs.mdx")
   },
   compositions: [{
-    id: "primary",
-    route: "#components%2Fui%2Fbutton?preview=compositions&name=primary",
+    id: "primary/MySecondDemo",
+    exportName: "MySecondDemo",
+    name: "My Second Demo",
+    route: "#components%2Fui%2Fbutton?preview=compositions&name=primary%2FMySecondDemo",
     load: () => import("../../components/ui/button/primary.demo.tsx")
+      .then((module) => module["MySecondDemo"])
   }]
 }];
 ```
 
 每一项内容拥有自己的 literal dynamic import。不存在顶层 `loadDocs` 或 `loadComposition` callback，也不把函数放进 JSON runtime。
+
+### Export-level demo authoring
+
+一个 demo 文件可以导出多个 demo。稳定 ID 是 `<demo-file-id>/<export-name>`，因此 `primary.demo.ts` 中的 `MySecondDemo` 对应 `primary/MySecondDemo`。display name 由 export name 生成：camel/Pascal case、数字到大写字母边界、下划线等分隔符以及 acronym-to-word 边界会被拆分，例如 `mySecondDemo` → `My Second Demo`、`XMLCard` → `XML Card`。不再支持单独的 title export。
+
+```ts
+import Card from "./index.vue";
+
+export const Primary = { component: Card, props: { title: "Primary card" } };
+export const MySecondDemo = { component: Card, props: { title: "Second card" } };
+```
+
+`default` export 仍兼容，ID 和名称分别为 `primary/default` 与 `Default`，但不推荐新代码使用。每个 runtime value export 都会被当作 demo，因此 helper 必须保持未导出；type-only exports 会被忽略。无法静态确定名称的裸 `export *` 会在 preparation 阶段报错，请改用显式 named exports。
 
 ## Minimal vendor contract
 
@@ -75,14 +91,14 @@ Vite adapter 读取已解析的 `configFile`，服务 prepared HTML，并把稳�
 /env/react/#components%2Fui%2Fbutton
 /env/react/#components%2Fui%2Fbutton?preview=overview
 /env/react/#components%2Fui%2Fbutton?preview=docs
-/env/react/#components%2Fui%2Fbutton?preview=compositions&name=primary
+/env/react/#components%2Fui%2Fbutton?preview=compositions&name=primary%2FMySecondDemo
 ```
 
 - overview：默认界面和 component 首页；当前实现显示 docs 链接与 demo 列表。
 - docs：调用所选 component record 的 `docs.load()`，然后交给 docs template。
 - named demo：调用所选 composition record 的 `load()`，然后交给 env mounter。
 
-缺少 component、docs、demo 或 mounter，以及 loader/render 错误，都显示受控状态。`hashchange` 和接受的 HMR update 只重绘当前 surface，不重新生成 entry 或重新加载 HTML。demo 切换、HMR replacement 和 shutdown 前会先等待 mounter cleanup，并为新的 framework mount 使用新的 host ownership boundary。
+缺少 component、docs、demo 或 mounter，以及 loader/render 错误，都显示受控状态。`hashchange` 和接受的 HMR update 只重绘当前 surface，不重新生成 entry 或重新加载 HTML。demo 切换、HMR replacement 和 shutdown 前会先等待 mounter cleanup，并为新的 framework mount 使用新的 host ownership boundary。已有 export 的实现变化保留 HMR；新增、删除或重命名 export 会改变 preparation catalog，本次设计要求重启 `bit-lite preview`。
 
 ## Browser renderer inputs
 
@@ -107,7 +123,12 @@ type StartPreviewOptions = {
 type PreviewOverviewProps = {
   component: { id: string };
   docs?: { title?: string; route: string };
-  compositions: Array<{ id: string; route: string }>;
+  compositions: Array<{
+    id: string;
+    exportName: string;
+    name: string;
+    route: string;
+  }>;
 };
 ```
 

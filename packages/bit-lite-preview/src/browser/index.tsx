@@ -27,7 +27,7 @@ export type {
   PreviewBrowserComposition,
   PreviewBrowserDocs,
   PreviewComponentManifest,
-  PreviewCompositionModule,
+  PreviewComposition,
   PreviewDocsModule,
   PreviewDocsTemplate,
   PreviewDocsTemplateProps,
@@ -125,7 +125,7 @@ export function startPreview(options: StartPreviewOptions): PreviewRuntimeContro
             },
           }
         : {}),
-      compositions: entry.compositions.map(({ id, route }) => ({ id, route })),
+      compositions: entry.compositions.map(({ id, exportName, name, route }) => ({ id, exportName, name, route })),
     };
     renderReact((options.renderOverview ?? renderDefaultOverview)(props));
   }
@@ -157,13 +157,17 @@ export function startPreview(options: StartPreviewOptions): PreviewRuntimeContro
     }
     if (!options.mounter) {
       renderReact(
-        renderState("missing-mounter", "Preview mounter missing", "This preview invocation did not provide a mounter.")
+        renderState(
+          "missing-mounter",
+          "Preview mounter missing",
+          `${composition.name} cannot be rendered because this preview invocation did not provide a mounter.`
+        )
       );
       return;
     }
 
-    renderReact(renderState("loading", "Loading demo", composition.id));
-    const compositionModule = await composition.load();
+    renderReact(renderState("loading", "Loading demo", composition.name));
+    const compositionValue = await composition.load();
     if (stopped || version !== requestedVersion) return;
     await disposeSurface();
     if (stopped || version !== requestedVersion) return;
@@ -172,7 +176,7 @@ export function startPreview(options: StartPreviewOptions): PreviewRuntimeContro
     host.dataset.previewCompositionHost = "";
     container.replaceChildren(host);
     activeCompositionHost = host;
-    const cleanup = await options.mounter(readDefaultExport(compositionModule), host, {
+    const cleanup = await options.mounter(compositionValue, host, {
       componentId: entry.component.id,
       compositionId: composition.id,
     });
@@ -219,7 +223,7 @@ export function renderDefaultOverview(props: PreviewOverviewProps): ReactNode {
     createElement(
       "li",
       { key: composition.id },
-      createElement("a", { href: composition.route }, composition.id)
+      createElement("a", { href: composition.route }, composition.name)
     )
   );
   return createElement(
@@ -266,15 +270,6 @@ function renderState(kind: string, title: string, detail: string) {
     createElement("h1", undefined, title),
     createElement("p", undefined, detail)
   );
-}
-
-function readDefaultExport(module: unknown) {
-  if (isRecord(module) && "default" in module && module.default !== undefined) return module.default;
-  return module;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function formatError(error: unknown) {

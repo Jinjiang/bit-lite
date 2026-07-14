@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { parseCliArguments } from "bit-lite-context";
@@ -18,15 +18,21 @@ describe("prepared preview end-to-end", () => {
       startVendor: startVitePreviewVendor,
       configFile: "demo-config/previewers/vite-static",
       demoFile: "primary.demo.ts",
-      demoSource: 'export default function demo(root) { root.textContent = "Vite demo"; }\n',
+      demoSource: [
+        'export function Primary(root) { root.textContent = "Vite demo"; }',
+        'export function MySecondDemo(root) { root.textContent = "Vite second demo"; }',
+      ].join("\n"),
     },
     {
       name: "webpack",
       startVendor: startWebpackPreviewVendor,
       configFile: "demo-config/previewers/webpack-react",
       demoFile: "primary.demo.tsx",
-      demoSource:
-        'import { createElement } from "react"; export default () => createElement("p", null, "Webpack demo");\n',
+      demoSource: [
+        'import { createElement } from "react";',
+        'export const Primary = () => createElement("p", null, "Webpack demo");',
+        'export const MySecondDemo = () => createElement("p", null, "Webpack second demo");',
+      ].join("\n"),
     },
   ])("serves one $name document and logical entry with lazy docs/demo modules and HMR", async (variant) => {
     const repoRoot = path.resolve(process.cwd(), "../..");
@@ -78,6 +84,10 @@ describe("prepared preview end-to-end", () => {
         proxyOrigin: proxy.origin,
       },
     });
+    const generatedEntry = await readFile(prepared.runtime.prepared.entryFile, "utf8");
+    expect(generatedEntry.match(new RegExp(variant.demoFile.replaceAll(".", "\\."), "g"))).toHaveLength(2);
+    expect(generatedEntry).toContain('.then((module) => module["Primary"])');
+    expect(generatedEntry).toContain('.then((module) => module["MySecondDemo"])');
     proxy.updatePreparedComponents(variant.name, prepared.runtime.server.basePath, prepared.components);
     const harness = createHarness(variant.name, workspaceRoot, prepared);
     let handle;
@@ -116,6 +126,7 @@ describe("prepared preview end-to-end", () => {
       } else {
         const chunkFiles = readWebpackLazyChunkFiles(entry);
         expect(chunkFiles.length).toBeGreaterThanOrEqual(2);
+        expect(chunkFiles.filter((file) => file.includes("demo"))).toHaveLength(1);
         for (const chunkFile of chunkFiles) {
           expect((await fetch(`${base}__bit-lite/${chunkFile}`)).status).toBe(200);
         }
@@ -125,7 +136,20 @@ describe("prepared preview end-to-end", () => {
       const component = proxy.manifest().envs[0]?.components[0];
       expect(component?.overviewRoute).toBe(`/env/${variant.name}/#components%2Fsample`);
       expect(component?.docsRoute).toContain("?preview=docs");
-      expect(component?.compositions[0]?.route).toContain("?preview=compositions&name=primary");
+      expect(component?.compositions).toEqual([
+        {
+          id: "primary/Primary",
+          exportName: "Primary",
+          name: "Primary",
+          route: `/env/${variant.name}/#components%2Fsample?preview=compositions&name=primary%2FPrimary`,
+        },
+        {
+          id: "primary/MySecondDemo",
+          exportName: "MySecondDemo",
+          name: "My Second Demo",
+          route: `/env/${variant.name}/#components%2Fsample?preview=compositions&name=primary%2FMySecondDemo`,
+        },
+      ]);
       expect(harness.messages).toContainEqual(expect.objectContaining({ type: "status", status: "ready" }));
     } finally {
       await handle?.stop?.();

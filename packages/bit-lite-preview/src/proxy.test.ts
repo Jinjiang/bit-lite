@@ -28,9 +28,11 @@ describe("preview proxy", () => {
         },
         compositions: [
           {
-            id: "primary state",
+            id: "primary/MySecondDemo",
+            exportName: "MySecondDemo",
+            name: "My Second Demo",
             filePath: "/workspace/primary.demo.tsx",
-            route: "#scope%2Fbutton?preview=compositions&name=primary%20state",
+            route: "#scope%2Fbutton?preview=compositions&name=primary%2FMySecondDemo",
           },
         ],
       },
@@ -43,8 +45,10 @@ describe("preview proxy", () => {
       docsRoute: "/env/react%20env/#scope%2Fbutton?preview=docs",
       compositions: [
         {
-          id: "primary state",
-          route: "/env/react%20env/#scope%2Fbutton?preview=compositions&name=primary%20state",
+          id: "primary/MySecondDemo",
+          exportName: "MySecondDemo",
+          name: "My Second Demo",
+          route: "/env/react%20env/#scope%2Fbutton?preview=compositions&name=primary%2FMySecondDemo",
         },
       ],
     });

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  derivePreviewCompositionName,
   discoverPreviewComponents,
   preparePreviewEnv,
   resolvePreviewServiceConfig,
@@ -12,9 +13,9 @@ describe("preview preparation", () => {
   it("discovers selected components and files deterministically", async () => {
     const workspaceRoot = await createWorkspace();
     const alphaRoot = await createComponent(workspaceRoot, "alpha", {
-      "zeta.demo.tsx": "export default {};",
+      "zeta.demo.tsx": "export const XMLCard = {}; export type Hidden = string;",
       "alpha.docs.mdx": "---\ntitle: Alpha docs\n---\n# Ignored heading",
-      "first.demo.tsx": "export default {};",
+      "first.demo.tsx": "export default {}; export const MySecondDemo = {};",
       "notes.txt": "not preview content",
     });
     const zetaRoot = await createComponent(workspaceRoot, "zeta", {
@@ -28,15 +29,78 @@ describe("preview preparation", () => {
 
     expect(result.map((component) => component.component.id)).toEqual(["scope/alpha", "scope/zeta"]);
     expect(result[0]?.docs).toMatchObject({ title: "Alpha docs", route: "#scope%2Falpha?preview=docs" });
-    expect(result[0]?.compositions.map(({ id }) => id)).toEqual(["first", "zeta"]);
+    expect(result[0]?.compositions).toEqual([
+      {
+        id: "first/default",
+        exportName: "default",
+        name: "Default",
+        filePath: path.join(alphaRoot, "first.demo.tsx"),
+        route: "#scope%2Falpha?preview=compositions&name=first%2Fdefault",
+      },
+      {
+        id: "first/MySecondDemo",
+        exportName: "MySecondDemo",
+        name: "My Second Demo",
+        filePath: path.join(alphaRoot, "first.demo.tsx"),
+        route: "#scope%2Falpha?preview=compositions&name=first%2FMySecondDemo",
+      },
+      {
+        id: "zeta/XMLCard",
+        exportName: "XMLCard",
+        name: "XML Card",
+        filePath: path.join(alphaRoot, "zeta.demo.tsx"),
+        route: "#scope%2Falpha?preview=compositions&name=zeta%2FXMLCard",
+      },
+    ]);
     expect(result[1]?.docs?.title).toBe("Zeta documentation");
+  });
+
+  it("discovers runtime export forms in source order and derives readable names", async () => {
+    const workspaceRoot = await createWorkspace();
+    const componentRoot = await createComponent(workspaceRoot, "exports", {
+      "primary.demo.ts": [
+        "interface LocalType {}",
+        "export type PublicType = string;",
+        "export { LocalType };",
+        "const separated_demo = {};",
+        "export default {};",
+        "export const mySecondDemo = {};",
+        "export function XMLCard() {}",
+        "export const demo2State = {};",
+        "export { separated_demo };",
+      ].join("\n"),
+      "secondary.demo.ts": "export const mySecondDemo = {};",
+    });
+
+    const [component] = await discoverPreviewComponents([{ id: "scope/exports", rootDir: componentRoot }]);
+
+    expect(component?.compositions.map(({ id, exportName, name }) => ({ id, exportName, name }))).toEqual([
+      { id: "primary/default", exportName: "default", name: "Default" },
+      { id: "primary/mySecondDemo", exportName: "mySecondDemo", name: "My Second Demo" },
+      { id: "primary/XMLCard", exportName: "XMLCard", name: "XML Card" },
+      { id: "primary/demo2State", exportName: "demo2State", name: "Demo2 State" },
+      { id: "primary/separated_demo", exportName: "separated_demo", name: "Separated demo" },
+      { id: "secondary/mySecondDemo", exportName: "mySecondDemo", name: "My Second Demo" },
+    ]);
+    expect(derivePreviewCompositionName("PascalCaseDemo")).toBe("Pascal Case Demo");
+  });
+
+  it("rejects unresolved runtime star exports with file context", async () => {
+    const workspaceRoot = await createWorkspace();
+    const componentRoot = await createComponent(workspaceRoot, "star", {
+      "primary.demo.ts": 'export * from "./other.js";\n',
+    });
+
+    await expect(discoverPreviewComponents([{ id: "scope/star", rootDir: componentRoot }])).rejects.toThrow(
+      `demo file ${path.join(componentRoot, "primary.demo.ts")} uses unsupported unresolved export *`
+    );
   });
 
   it("resolves config modules before generating one safe entry and HTML document", async () => {
     const workspaceRoot = await createWorkspace();
     const componentRoot = await createComponent(workspaceRoot, "quoted", {
       "quoted.docs.mdx": "# Docs",
-      "primary.demo.tsx": "export default {};",
+      "primary.demo.tsx": "export default {}; export const MySecondDemo = {};",
     });
     const configFile = await createFile(workspaceRoot, "config/vite.ts", "export default {};");
     const mounter = await createFile(workspaceRoot, "config/mounter.ts", "export default () => {};\n");
@@ -71,7 +135,12 @@ describe("preview preparation", () => {
       config: { configFile, mounter, docsTemplate },
     });
     expect(source).toContain('component: { id: "scope/\\\"quoted\\\"" }');
-    expect(source.match(/load: \(\) => import\(/g)).toHaveLength(2);
+    expect(source.match(/load: \(\) => import\(/g)).toHaveLength(3);
+    expect(source.match(/primary\.demo\.tsx/g)).toHaveLength(2);
+    expect(source).toContain('.then((module) => module["default"])');
+    expect(source).toContain('.then((module) => module["MySecondDemo"])');
+    expect(source).toContain('id: "primary/MySecondDemo"');
+    expect(source).toContain('name: "My Second Demo"');
     expect(source).toContain("mounter: previewMounter");
     expect(source).toContain("docsTemplate: PreviewDocsTemplate");
     expect(source).not.toContain("renderOverview");
@@ -93,7 +162,7 @@ describe("preview preparation", () => {
       "docs-only.docs.md": "# Docs only",
     });
     const withDemoRoot = await createComponent(workspaceRoot, "with-demo", {
-      "primary.demo.ts": "export default {};",
+      "primary.demo.ts": "export const Primary = {};",
     });
     await createFile(workspaceRoot, "config/vite.ts", "export default {};\n");
     const browserModulePath = await createFile(workspaceRoot, "runtime/browser.ts", "export const startPreview = () => ({});\n");

@@ -6,7 +6,7 @@ export type {
   PreviewBrowserComposition,
   PreviewBrowserDocs,
   PreviewComponentManifest,
-  PreviewCompositionModule,
+  PreviewComposition,
   PreviewDocsModule,
   PreviewDocsTemplate,
   PreviewDocsTemplateProps,

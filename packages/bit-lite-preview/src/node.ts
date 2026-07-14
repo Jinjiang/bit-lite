@@ -5,6 +5,7 @@ export {
   createPreparedOverviewRoute,
   createPreviewEntrySource,
   createPreviewHtml,
+  derivePreviewCompositionName,
   discoverPreviewComponents,
   preparePreviewEnv,
   PreviewPreparationError,

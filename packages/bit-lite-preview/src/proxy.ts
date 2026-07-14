@@ -20,7 +20,7 @@ export type PreviewProxyComponent = {
   componentId: string;
   overviewRoute: string;
   docsRoute?: string;
-  compositions: Array<{ id: string; route: string }>;
+  compositions: Array<{ id: string; exportName: string; name: string; route: string }>;
 };
 
 export type PreviewEnvState = {
@@ -271,6 +271,8 @@ function createProxyComponent(basePath: string, component: PreparedPreviewCompon
     ...(component.docs ? { docsRoute: `${basePath}${component.docs.route}` } : {}),
     compositions: component.compositions.map((composition) => ({
       id: composition.id,
+      exportName: composition.exportName,
+      name: composition.name,
       route: `${basePath}${composition.route}`,
     })),
   };
