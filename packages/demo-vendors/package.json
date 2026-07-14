@@ -74,15 +74,18 @@
   },
   "dependencies": {
     "bit-lite-context": "workspace:*",
+    "bit-lite-preview": "workspace:*",
     "bit-lite-vendors": "workspace:*",
     "jest": "^30.4.2",
     "vite": "^8.1.2",
     "webpack": "^5.0.0",
     "webpack-dev-middleware": "^7.0.0",
+    "webpack-hot-middleware": "^2.26.1",
     "vitest": "^4.1.8"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "@types/webpack-hot-middleware": "^2.25.10",
     "typescript": "^6.0.3"
   }
 }

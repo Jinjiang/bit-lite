@@ -1,44 +1,32 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import http from "node:http";
-import os from "node:os";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import webpack from "webpack";
 import webpackDevMiddleware from "webpack-dev-middleware";
+import webpackHotMiddleware from "webpack-hot-middleware";
 import type { Server } from "node:http";
 import type { VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
-import type { Configuration, EntryObject, Stats } from "webpack";
+import type { Configuration, Stats } from "webpack";
 import {
   createPreviewServiceResult,
-  discoverPreviewEntries,
   isShutdownMessage,
-  matchPreviewRoute,
   readPreviewRuntime,
   readPreviewVendorConfig,
-  renderCompositionHostPage,
-  renderCompositionsPage,
-  renderDocsPage,
-  renderMessagePage,
-  toWebpackImportSpecifier,
-  type PreviewComponentEntry,
-  type PreviewCompositionEntry,
+  withPreviewVendorContext,
   type PreviewServiceResult,
-  type PreviewVendorConfig,
   type PreviewVendorRuntime,
 } from "../core.js";
+
+const require = createRequire(import.meta.url);
+const webpackHotClient = require.resolve("webpack-hot-middleware/client");
 
 export const meta: VendorDefinition = {
   id: "webpack-preview",
   label: "Webpack Preview",
-  hint: "Serve component docs and compositions with Webpack",
+  hint: "Serve a command-prepared preview entry with Webpack",
   moduleUrl: import.meta.url,
-};
-
-type WebpackPreviewBundle = {
-  componentId: string;
-  compositionId: string;
-  entryName: string;
-  scriptRoute: string;
 };
 
 type WebpackPreviewMiddleware = ReturnType<typeof webpackDevMiddleware> & {
@@ -52,15 +40,17 @@ type WebpackPreviewMiddlewareHandler = (
   next: () => void
 ) => void;
 
+type WebpackHotMiddleware = ReturnType<typeof webpackHotMiddleware> & { close(): void };
+
 export default async function startWebpackPreviewVendor(
   runtime: VendorRuntime<Record<string, unknown>, PreviewServiceResult, never, PreviewVendorRuntime>
 ): Promise<VendorStartResult<PreviewServiceResult>> {
   const workspaceRoot = runtime.data.context?.workspaceRoot ?? process.cwd();
   const previewRuntime = readPreviewRuntime(runtime.data.runtime);
-  const vendorConfig = readPreviewVendorConfig(runtime.data.config, workspaceRoot);
-  let tempDir: string | undefined;
+  const vendorConfig = readPreviewVendorConfig(runtime.data.config);
   let server: Server | undefined;
   let middleware: WebpackPreviewMiddleware | undefined;
+  let hotMiddleware: WebpackHotMiddleware | undefined;
   let stopped = false;
   let stopping: Promise<void> | undefined;
 
@@ -72,22 +62,21 @@ export default async function startWebpackPreviewVendor(
   runtime.postMessage({ type: "status", status: "building" });
 
   try {
-    if (!vendorConfig.mounter) {
-      throw new Error('webpack preview vendor config must define a non-empty "mounter" string');
-    }
-
-    const entries = await discoverPreviewEntries(runtime.data.components);
-    tempDir = await mkdtemp(path.join(os.tmpdir(), "bit-lite-webpack-preview-"));
-    const generated = await createWebpackEntries(entries, previewRuntime, vendorConfig, tempDir);
-    const userConfig = await importWebpackConfig(vendorConfig.configFile);
-    const compiler = webpack(createWebpackConfig(userConfig, workspaceRoot, previewRuntime, tempDir, generated.entries));
+    const [html, userConfig] = await Promise.all([
+      readFile(previewRuntime.prepared.htmlFile, "utf8"),
+      importWebpackConfig(vendorConfig.configFile),
+    ]);
+    const compiler = webpack(createWebpackConfig(userConfig, workspaceRoot, previewRuntime));
     if (!compiler) throw new Error("Webpack did not create a compiler");
 
     middleware = webpackDevMiddleware(compiler, {
       publicPath: webpackPublicPath(previewRuntime),
       stats: "errors-warnings",
     }) as WebpackPreviewMiddleware;
-
+    hotMiddleware = webpackHotMiddleware(compiler, {
+      path: webpackHotPath(previewRuntime),
+      log: false,
+    }) as WebpackHotMiddleware;
     server = http.createServer((request, response) => {
       if (request.method !== "GET" || request.url === undefined) {
         response.statusCode = 405;
@@ -95,39 +84,21 @@ export default async function startWebpackPreviewVendor(
         return;
       }
 
-      const route = matchPreviewRoute(request.url, previewRuntime.basePath, entries);
-      if (!route) {
+      const pathname = new URL(request.url, "http://bit-lite-preview.local").pathname;
+      if (pathname === previewRuntime.server.basePath || pathname === `${previewRuntime.server.basePath}index.html`) {
+        sendHtml(response, 200, html);
+        return;
+      }
+
+      (hotMiddleware as WebpackPreviewMiddlewareHandler | undefined)?.(request, response, () => {
         (middleware as WebpackPreviewMiddlewareHandler | undefined)?.(request, response, () => {
           response.statusCode = 404;
           response.end("Not found");
         });
-        return;
-      }
-
-      if (route.kind === "docs") {
-        sendHtml(response, route.entry.docs ? 200 : 404, renderDocsPage(route.entry, previewRuntime));
-        return;
-      }
-
-      if (route.kind === "compositions-list") {
-        sendHtml(response, 200, renderCompositionsPage(route.entry, previewRuntime));
-        return;
-      }
-
-      const composition = route.entry.compositions.find((candidate) => candidate.id === route.compositionId);
-      const bundle = generated.bundles.find((candidate) => {
-        return candidate.componentId === route.entry.component.id && candidate.compositionId === route.compositionId;
       });
-      sendHtml(
-        response,
-        composition && bundle ? 200 : 404,
-        composition && bundle
-          ? renderWebpackCompositionPage(route.entry, composition, previewRuntime, bundle)
-          : renderMessagePage("Composition not found", `${route.entry.component.id}/${route.compositionId}`)
-      );
     });
 
-    await listen(server, previewRuntime.host, previewRuntime.port);
+    await listen(server, previewRuntime.server.host, previewRuntime.server.port);
     await waitUntilValid(middleware);
 
     const data = createPreviewServiceResult(previewRuntime, runtime.data.envName, meta.id);
@@ -137,7 +108,7 @@ export default async function startWebpackPreviewVendor(
   } catch (error) {
     runtime.postMessage({ type: "status", status: "error" });
     await stop().catch(() => undefined);
-    throw error;
+    throw withPreviewVendorContext(error, runtime.data.envName, meta.id);
   }
 
   async function stop() {
@@ -147,13 +118,13 @@ export default async function startWebpackPreviewVendor(
       stopped = true;
       const activeServer = server;
       const activeMiddleware = middleware;
-      const activeTempDir = tempDir;
+      const activeHotMiddleware = hotMiddleware;
       server = undefined;
       middleware = undefined;
-      tempDir = undefined;
+      hotMiddleware = undefined;
+      activeHotMiddleware?.close();
       await closeMiddleware(activeMiddleware);
       await closeServer(activeServer);
-      if (activeTempDir) await rm(activeTempDir, { recursive: true, force: true });
       runtime.postMessage({ type: "status", status: "stopped" });
       unsubscribe();
     })();
@@ -161,76 +132,34 @@ export default async function startWebpackPreviewVendor(
   }
 }
 
-async function createWebpackEntries(
-  entries: PreviewComponentEntry[],
-  runtime: PreviewVendorRuntime,
-  vendorConfig: PreviewVendorConfig,
-  tempDir: string
-) {
-  const webpackEntries: EntryObject = {};
-  const bundles: WebpackPreviewBundle[] = [];
-  let index = 0;
-
-  for (const entry of entries) {
-    for (const composition of entry.compositions) {
-      const entryName = `composition-${index}`;
-      const entryFile = path.join(tempDir, `${entryName}.mjs`);
-      await writeFile(entryFile, createWebpackEntrySource(entry, composition, vendorConfig.mounter ?? ""), "utf8");
-      webpackEntries[entryName] = entryFile;
-      bundles.push({
-        componentId: entry.component.id,
-        compositionId: composition.id,
-        entryName,
-        scriptRoute: `${webpackPublicPath(runtime)}${entryName}.js`,
-      });
-      index += 1;
-    }
-  }
-
-  return {
-    entries: webpackEntries,
-    bundles,
-  };
-}
-
-function createWebpackEntrySource(
-  entry: PreviewComponentEntry,
-  composition: PreviewCompositionEntry,
-  mounter: string
-) {
-  const context = JSON.stringify({ componentId: entry.component.id, compositionId: composition.id });
-
-  return `
-import * as compositionModule from ${JSON.stringify(toWebpackImportSpecifier(composition.filePath))};
-import mountPreviewComposition from ${JSON.stringify(toWebpackImportSpecifier(mounter))};
-
-const root = document.getElementById("preview-root");
-const composition = compositionModule.default ?? compositionModule;
-Promise.resolve(mountPreviewComposition(composition, root, ${context})).catch((error) => {
-  if (root) root.textContent = error instanceof Error ? error.stack ?? error.message : String(error);
-});
-`;
-}
-
 function createWebpackConfig(
   userConfig: Configuration,
   workspaceRoot: string,
-  runtime: PreviewVendorRuntime,
-  tempDir: string,
-  entries: EntryObject
+  runtime: PreviewVendorRuntime
 ): Configuration {
   return {
     ...userConfig,
     mode: userConfig.mode ?? "development",
     context: userConfig.context ?? workspaceRoot,
     devtool: userConfig.devtool ?? "eval-cheap-module-source-map",
-    entry: entries,
+    entry: {
+      preview: [
+        `${webpackHotClient}?path=${encodeURIComponent(webpackHotPath(runtime))}&reload=true`,
+        runtime.prepared.entryFile,
+      ],
+    },
     output: {
       ...(userConfig.output ?? {}),
-      path: path.join(tempDir, "dist"),
+      path: path.join(workspaceRoot, ".bit-lite", "webpack-preview", sanitizeFileName(runtime.server.basePath)),
       publicPath: webpackPublicPath(runtime),
       filename: "[name].js",
+      chunkFilename: "[name].[contenthash].js",
     },
+    optimization: {
+      ...(userConfig.optimization ?? {}),
+      runtimeChunk: false,
+    },
+    plugins: [...(userConfig.plugins ?? []), new webpack.HotModuleReplacementPlugin()],
   };
 }
 
@@ -242,22 +171,12 @@ async function importWebpackConfig(configFile: string): Promise<Configuration> {
   return config as Configuration;
 }
 
-function renderWebpackCompositionPage(
-  entry: PreviewComponentEntry,
-  composition: PreviewCompositionEntry,
-  runtime: PreviewVendorRuntime,
-  bundle: WebpackPreviewBundle
-) {
-  return renderCompositionHostPage(
-    entry,
-    composition,
-    runtime,
-    `<script defer src="${bundle.scriptRoute}"></script>`
-  );
+function webpackPublicPath(runtime: PreviewVendorRuntime) {
+  return `${runtime.server.basePath}__bit-lite/`;
 }
 
-function webpackPublicPath(runtime: PreviewVendorRuntime) {
-  return `${runtime.basePath}__bit-lite/webpack/`;
+function webpackHotPath(runtime: PreviewVendorRuntime) {
+  return `${runtime.server.basePath}__bit-lite/__webpack_hmr`;
 }
 
 function waitUntilValid(middleware: WebpackPreviewMiddleware) {
@@ -317,6 +236,10 @@ function sendHtml(response: http.ServerResponse, statusCode: number, html: strin
   response.statusCode = statusCode;
   response.setHeader("content-type", "text/html; charset=utf-8");
   response.end(html);
+}
+
+function sanitizeFileName(value: string) {
+  return value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "env";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -93,6 +93,22 @@ describe("bit-lite-env config", () => {
     ).toThrow('env service "preview" field "config.configFile" must be a non-empty string');
   });
 
+  it("validates optional preview runtime module specifiers", () => {
+    expect(() =>
+      validateEnvServiceConfig("preview", {
+        vendor: "vite-preview",
+        config: { configFile: "./vite.ts", mounter: 42 },
+      })
+    ).toThrow('env service "preview" field "config.mounter" must be a non-empty string');
+
+    expect(() =>
+      validateEnvServiceConfig("preview", {
+        vendor: "vite-preview",
+        config: { configFile: "./vite.ts", docsTemplate: "" },
+      })
+    ).toThrow('env service "preview" field "config.docsTemplate" must be a non-empty string');
+  });
+
   it("requires each service config to name a vendor", () => {
     expect(() => validateEnvServiceConfig("test", { config: {} })).toThrow(
       'env service "test" config must define a non-empty vendor'

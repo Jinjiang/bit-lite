@@ -1,27 +1,21 @@
-import { createServer, type ViteDevServer } from "vite";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { createServer, type Plugin, type ViteDevServer } from "vite";
 import type { VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
 import {
   createPreviewServiceResult,
-  discoverPreviewEntries,
   isShutdownMessage,
-  matchPreviewRoute,
   readPreviewRuntime,
   readPreviewVendorConfig,
-  renderCompositionHostPage,
-  renderCompositionsPage,
-  renderDocsPage,
-  renderMessagePage,
-  toBrowserImportSpecifier,
-  type PreviewComponentEntry,
+  withPreviewVendorContext,
   type PreviewServiceResult,
-  type PreviewVendorConfig,
   type PreviewVendorRuntime,
 } from "../core.js";
 
 export const meta: VendorDefinition = {
   id: "vite-preview",
   label: "Vite Preview",
-  hint: "Serve component docs and compositions with Vite",
+  hint: "Serve a command-prepared preview entry with Vite",
   moduleUrl: import.meta.url,
 };
 
@@ -30,7 +24,7 @@ export default async function startVitePreviewVendor(
 ): Promise<VendorStartResult<PreviewServiceResult>> {
   const workspaceRoot = runtime.data.context?.workspaceRoot ?? process.cwd();
   const previewRuntime = readPreviewRuntime(runtime.data.runtime);
-  const vendorConfig = readPreviewVendorConfig(runtime.data.config, workspaceRoot);
+  const vendorConfig = readPreviewVendorConfig(runtime.data.config);
   let server: ViteDevServer | undefined;
   let stopped = false;
   let stopping: Promise<void> | undefined;
@@ -43,22 +37,22 @@ export default async function startVitePreviewVendor(
   runtime.postMessage({ type: "status", status: "building" });
 
   try {
-    const entries = await discoverPreviewEntries(runtime.data.components);
+    const html = await readFile(previewRuntime.prepared.htmlFile, "utf8");
     server = await createServer({
       root: workspaceRoot,
       configFile: vendorConfig.configFile,
-      base: previewRuntime.basePath,
+      base: previewRuntime.server.basePath,
       appType: "custom",
+      plugins: [createPreparedPreviewPlugin(previewRuntime, html)],
       server: {
-        host: previewRuntime.host,
-        port: previewRuntime.port,
+        host: previewRuntime.server.host,
+        port: previewRuntime.server.port,
         strictPort: true,
+        preTransformRequests: false,
         hmr: createHmrOptions(previewRuntime),
       },
     });
-
-    installPreviewRoutes(server, previewRuntime, vendorConfig, entries);
-    await server.listen(previewRuntime.port);
+    await server.listen();
 
     const data = createPreviewServiceResult(previewRuntime, runtime.data.envName, meta.id);
     runtime.postMessage({ type: "result", data });
@@ -66,8 +60,8 @@ export default async function startVitePreviewVendor(
     return { stop };
   } catch (error) {
     runtime.postMessage({ type: "status", status: "error" });
-    await stop();
-    throw error;
+    await stop().catch(() => undefined);
+    throw withPreviewVendorContext(error, runtime.data.envName, meta.id);
   }
 
   async function stop() {
@@ -85,100 +79,63 @@ export default async function startVitePreviewVendor(
   }
 }
 
-function installPreviewRoutes(
-  server: ViteDevServer,
-  previewRuntime: PreviewVendorRuntime,
-  vendorConfig: PreviewVendorConfig,
-  entries: PreviewComponentEntry[]
-) {
-  server.middlewares.use(async (request, response, next) => {
-    if (request.method !== "GET" || request.url === undefined) {
-      next();
-      return;
-    }
+function createPreparedPreviewPlugin(runtime: PreviewVendorRuntime, html: string): Plugin {
+  const entryRoute = `${runtime.server.basePath}__bit-lite/preview.js`;
+  const entryRoutes = new Set([entryRoute, "/__bit-lite/preview.js"]);
+  const htmlRoutes = new Set([runtime.server.basePath, `${runtime.server.basePath}index.html`, "/", "/index.html"]);
 
-    const route = matchPreviewRoute(request.url, previewRuntime.basePath, entries);
-    if (!route) {
-      next();
-      return;
-    }
+  return {
+    name: "bit-lite-prepared-preview",
+    enforce: "pre",
+    configureServer(server) {
+      server.middlewares.use(async (request, response, next) => {
+        if (request.method !== "GET" || !request.url) {
+          next();
+          return;
+        }
+        const url = new URL(request.url, "http://bit-lite-preview.local");
+        if (entryRoutes.has(url.pathname)) {
+          try {
+            const result = await server.transformRequest(`/@fs${toPosixPath(runtime.prepared.entryFile)}${url.search}`);
+            if (!result) {
+              next();
+              return;
+            }
+            response.statusCode = 200;
+            response.setHeader("content-type", "text/javascript; charset=utf-8");
+            response.end(result.code);
+          } catch (error) {
+            next(error);
+          }
+          return;
+        }
+        if (!htmlRoutes.has(url.pathname)) {
+          next();
+          return;
+        }
 
-    if (route.kind === "docs") {
-      await sendPreviewHtml(
-        server,
-        request.url,
-        response,
-        route.entry.docs ? 200 : 404,
-        renderDocsPage(route.entry, previewRuntime)
-      );
-      return;
-    }
-
-    if (route.kind === "compositions-list") {
-      await sendPreviewHtml(server, request.url, response, 200, renderCompositionsPage(route.entry, previewRuntime));
-      return;
-    }
-
-    const composition = route.entry.compositions.find((candidate) => candidate.id === route.compositionId);
-    await sendPreviewHtml(
-      server,
-      request.url,
-      response,
-      composition && vendorConfig.mounter ? 200 : composition ? 500 : 404,
-      !composition
-        ? renderMessagePage("Composition not found", `${route.entry.component.id}/${route.compositionId}`)
-        : vendorConfig.mounter
-          ? renderViteCompositionPage(route.entry, composition, previewRuntime, vendorConfig.mounter)
-          : renderMessagePage("Preview mounter missing", "This env preview config must define config.mounter.")
-    );
-  });
-}
-
-async function sendPreviewHtml(
-  server: ViteDevServer,
-  url: string,
-  response: { statusCode: number; setHeader(name: string, value: string): void; end(content: string): void },
-  statusCode: number,
-  html: string
-) {
-  response.statusCode = statusCode;
-  response.setHeader("content-type", "text/html; charset=utf-8");
-  response.end(await server.transformIndexHtml(url, html));
-}
-
-function renderViteCompositionPage(
-  entry: PreviewComponentEntry,
-  composition: { id: string; title: string; filePath: string },
-  runtime: PreviewVendorRuntime,
-  mounter: string
-) {
-  const context = JSON.stringify({ componentId: entry.component.id, compositionId: composition.id });
-
-  return renderCompositionHostPage(
-    entry,
-    composition,
-    runtime,
-    `<script type="module">
-import * as compositionModule from ${JSON.stringify(toBrowserImportSpecifier(composition.filePath))};
-import mountPreviewComposition from ${JSON.stringify(toBrowserImportSpecifier(mounter))};
-const root = document.getElementById("preview-root");
-const composition = compositionModule.default ?? compositionModule;
-const cleanup = await mountPreviewComposition(composition, root, ${context});
-if (import.meta.hot) {
-  import.meta.hot.accept();
-  import.meta.hot.dispose(() => {
-    if (typeof cleanup === "function") cleanup();
-  });
-}
-</script>`
-  );
+        try {
+          response.statusCode = 200;
+          response.setHeader("content-type", "text/html; charset=utf-8");
+          response.end(await server.transformIndexHtml(request.url, html));
+        } catch (error) {
+          next(error);
+        }
+      });
+    },
+  };
 }
 
 function createHmrOptions(runtime: PreviewVendorRuntime) {
-  const proxy = new URL(runtime.proxyOrigin);
+  const proxy = new URL(runtime.server.proxyOrigin);
   return {
     host: proxy.hostname,
     clientPort: proxy.port ? Number(proxy.port) : proxy.protocol === "https:" ? 443 : 80,
-    protocol: proxy.protocol === "https:" ? "wss" as const : "ws" as const,
+    protocol: proxy.protocol === "https:" ? ("wss" as const) : ("ws" as const),
+    path: runtime.server.basePath,
   };
+}
+
+function toPosixPath(value: string) {
+  return value.split(path.sep).join("/");
 }

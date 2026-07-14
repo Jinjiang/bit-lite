@@ -3,7 +3,7 @@ import net from "node:net";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import type { Duplex } from "node:stream";
-import type { ComponentRef } from "bit-lite-context";
+import type { PreparedPreviewComponent } from "./preview-prepare.js";
 
 export type PreviewServerInfo = {
   origin: string;
@@ -14,8 +14,9 @@ export type PreviewServerInfo = {
 
 export type PreviewProxyComponent = {
   componentId: string;
-  docsRoute: string;
-  compositionsRoute: string;
+  overviewRoute: string;
+  docsRoute?: string;
+  compositions: Array<{ id: string; title: string; route: string }>;
 };
 
 export type PreviewEnvState = {
@@ -23,6 +24,7 @@ export type PreviewEnvState = {
   taskId: string;
   vendor: string;
   status: string;
+  error?: string | undefined;
   server?: PreviewServerInfo | undefined;
   components: PreviewProxyComponent[];
 };
@@ -53,7 +55,13 @@ export class PreviewProxyServer {
   #port = 0;
 
   constructor(options: {
-    envs: Array<{ envName: string; taskId: string; vendor: string; status: string; components: ComponentRef[] }>;
+    envs: Array<{
+      envName: string;
+      taskId: string;
+      vendor: string;
+      status: string;
+      components: Array<{ id: string }>;
+    }>;
     skipped: PreviewSkippedEnv[];
   }) {
     this.#skipped = options.skipped;
@@ -63,7 +71,11 @@ export class PreviewProxyServer {
         taskId: env.taskId,
         vendor: env.vendor,
         status: env.status,
-        components: env.components.map((component) => createProxyComponent(env.envName, component)),
+        components: env.components.map((component) => ({
+          componentId: component.id,
+          overviewRoute: `/env/${encodeRouteSegment(env.envName)}/#${encodeRouteSegment(component.id)}`,
+          compositions: [],
+        })),
       });
     }
   }
@@ -107,6 +119,20 @@ export class PreviewProxyServer {
     env.server = server;
   }
 
+  updatePreparedComponents(envName: string, basePath: string, components: PreparedPreviewComponent[]) {
+    const env = this.#envs.get(envName);
+    if (!env) return;
+    env.components = components.map((component) => createProxyComponent(basePath, component));
+  }
+
+  updatePreparationFailure(envName: string, error: unknown) {
+    const env = this.#envs.get(envName);
+    if (!env) return;
+    env.status = "failed";
+    env.error = formatError(error);
+    env.server = undefined;
+  }
+
   manifest(): PreviewProxyManifest {
     return {
       proxy: { origin: this.#origin, host: this.#host, port: this.#port },
@@ -147,7 +173,14 @@ export class PreviewProxyServer {
     }
     if (!env.server) {
       response.setHeader("Retry-After", "1");
-      sendHtml(response, 503, renderMessagePage("Preview is starting", `${env.envName} is ${env.status}.`));
+      sendHtml(
+        response,
+        503,
+        renderMessagePage(
+          env.status === "failed" ? "Preview preparation failed" : "Preview is starting",
+          env.error ?? `${env.envName} is ${env.status}.`
+        )
+      );
       return;
     }
 
@@ -227,13 +260,21 @@ function listen(server: http.Server | net.Server, host: string, port: number) {
   });
 }
 
-function createProxyComponent(envName: string, component: ComponentRef): PreviewProxyComponent {
-  const componentRoute = `/env/${encodeRouteSegment(envName)}/${encodeRouteSegment(component.id)}`;
+function createProxyComponent(basePath: string, component: PreparedPreviewComponent): PreviewProxyComponent {
   return {
-    componentId: component.id,
-    docsRoute: `${componentRoute}/docs`,
-    compositionsRoute: `${componentRoute}/compositions`,
+    componentId: component.component.id,
+    overviewRoute: `${basePath}${createHashRoute(component.component.id)}`,
+    ...(component.docs ? { docsRoute: `${basePath}${component.docs.route}` } : {}),
+    compositions: component.compositions.map((composition) => ({
+      id: composition.id,
+      title: composition.title,
+      route: `${basePath}${composition.route}`,
+    })),
   };
+}
+
+function createHashRoute(componentId: string) {
+  return `#${encodeURIComponent(componentId)}`;
 }
 
 function proxyHttpRequest(request: IncomingMessage, response: ServerResponse, server: PreviewServerInfo) {
@@ -317,7 +358,7 @@ function sendHtml(response: ServerResponse, statusCode: number, html: string) {
 }
 
 function renderShellHtml() {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>bit-lite preview</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:Inter,ui-sans-serif,system-ui,sans-serif}main{width:min(1120px,calc(100vw - 32px));margin:0 auto;padding:32px 0 48px}header{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:24px}h1{margin:0;font-size:28px}.origin{color:#4b5563;font-size:14px}.env{background:#fff;border:1px solid #d1d5db;border-radius:8px;margin:14px 0;overflow:hidden}.env-head{display:flex;justify-content:space-between;gap:12px;padding:14px 16px;background:#f3f4f6;border-bottom:1px solid #d1d5db}.env-name{font-weight:700}.status{font-size:13px;color:#374151}.component{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:13px 16px;border-top:1px solid #e5e7eb}.component:first-child{border-top:0}.component-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;overflow-wrap:anywhere}.links{display:flex;flex-wrap:wrap;gap:8px;justify-content:end}a{color:#0f766e;text-decoration:none;font-weight:600}a:hover{text-decoration:underline}.skipped{margin-top:24px;padding:16px;border:1px solid #f59e0b;border-radius:8px;background:#fffbeb}.empty{padding:18px 0;color:#6b7280}</style></head><body><main><header><div><h1>bit-lite preview</h1><div class="origin" id="origin"></div></div><a href="/__bit-lite/manifest.json">manifest</a></header><section id="app" class="empty">Loading preview manifest...</section></main><script>const app=document.getElementById("app");const origin=document.getElementById("origin");async function loadManifest(){const response=await fetch("/__bit-lite/manifest.json",{cache:"no-store"});const manifest=await response.json();origin.textContent=manifest.proxy.origin;app.className="";app.innerHTML=renderManifest(manifest)}function renderManifest(manifest){const envs=manifest.envs.map(renderEnv).join("")||'<div class="empty">No preview envs are running.</div>';const skipped=manifest.skipped.length>0?'<section class="skipped"><strong>Skipped envs</strong>'+manifest.skipped.map(renderSkipped).join("")+"</section>":"";return envs+skipped}function renderEnv(env){return '<article class="env"><div class="env-head"><span class="env-name">'+escapeHtml(env.envName)+'</span><span class="status">'+escapeHtml(env.vendor)+" · "+escapeHtml(env.status)+(env.server?" · "+escapeHtml(env.server.origin):"")+'</span></div><div class="components">'+env.components.map(renderComponent).join("")+"</div></article>"}function renderComponent(component){return '<div class="component"><span class="component-id">'+escapeHtml(component.componentId)+'</span><span class="links"><a href="'+component.docsRoute+'">docs</a><a href="'+component.compositionsRoute+'">compositions</a></span></div>'}function renderSkipped(env){return "<p><strong>"+escapeHtml(env.envName)+"</strong>: "+escapeHtml(env.reason)+" ("+env.components.map(escapeHtml).join(", ")+")</p>"}function escapeHtml(value){return String(value).replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]))}loadManifest().catch(error=>{app.textContent=error instanceof Error?error.message:String(error)});setInterval(loadManifest,1500)</script></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>bit-lite preview</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:Inter,ui-sans-serif,system-ui,sans-serif}main{width:min(1120px,calc(100vw - 32px));margin:0 auto;padding:32px 0 48px}header{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:24px}h1{margin:0;font-size:28px}.origin{color:#4b5563;font-size:14px}.env{background:#fff;border:1px solid #d1d5db;border-radius:8px;margin:14px 0;overflow:hidden}.env-head{display:flex;justify-content:space-between;gap:12px;padding:14px 16px;background:#f3f4f6;border-bottom:1px solid #d1d5db}.env-name{font-weight:700}.status{font-size:13px;color:#374151}.error{padding:10px 16px;color:#991b1b;background:#fef2f2}.component{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:13px 16px;border-top:1px solid #e5e7eb}.component:first-child{border-top:0}.component-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;overflow-wrap:anywhere}.links{display:flex;flex-wrap:wrap;gap:8px;justify-content:end}a{color:#0f766e;text-decoration:none;font-weight:600}a:hover{text-decoration:underline}.skipped{margin-top:24px;padding:16px;border:1px solid #f59e0b;border-radius:8px;background:#fffbeb}.empty{padding:18px 0;color:#6b7280}</style></head><body><main><header><div><h1>bit-lite preview</h1><div class="origin" id="origin"></div></div><a href="/__bit-lite/manifest.json">manifest</a></header><section id="app" class="empty">Loading preview manifest...</section></main><script>const app=document.getElementById("app");const origin=document.getElementById("origin");async function loadManifest(){const response=await fetch("/__bit-lite/manifest.json",{cache:"no-store"});const manifest=await response.json();origin.textContent=manifest.proxy.origin;app.className="";app.innerHTML=renderManifest(manifest)}function renderManifest(manifest){const envs=manifest.envs.map(renderEnv).join("")||'<div class="empty">No preview envs are running.</div>';const skipped=manifest.skipped.length>0?'<section class="skipped"><strong>Skipped envs</strong>'+manifest.skipped.map(renderSkipped).join("")+"</section>":"";return envs+skipped}function renderEnv(env){return '<article class="env"><div class="env-head"><span class="env-name">'+escapeHtml(env.envName)+'</span><span class="status">'+escapeHtml(env.vendor)+" · "+escapeHtml(env.status)+(env.server?" · "+escapeHtml(env.server.origin):"")+'</span></div>'+(env.error?'<div class="error">'+escapeHtml(env.error)+'</div>':'')+'<div class="components">'+env.components.map(renderComponent).join("")+"</div></article>"}function renderComponent(component){const docs=component.docsRoute?'<a href="'+escapeHtml(component.docsRoute)+'">docs</a>':'';const demos=component.compositions.map(item=>'<a href="'+escapeHtml(item.route)+'">'+escapeHtml(item.title)+'</a>').join('');return '<div class="component"><a class="component-id" href="'+escapeHtml(component.overviewRoute)+'">'+escapeHtml(component.componentId)+'</a><span class="links">'+docs+demos+'</span></div>'}function renderSkipped(env){return "<p><strong>"+escapeHtml(env.envName)+"</strong>: "+escapeHtml(env.reason)+" ("+env.components.map(escapeHtml).join(", ")+")</p>"}function escapeHtml(value){return String(value).replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]))}loadManifest().catch(error=>{app.textContent=error instanceof Error?error.message:String(error)});setInterval(loadManifest,1500)</script></body></html>`;
 }
 
 function renderMessagePage(title: string, message: string) {

@@ -1,10 +1,12 @@
 import { createRequire } from "node:module";
+import { mdxOptions } from "demo-utils";
+import type { Configuration } from "webpack";
 
 const require = createRequire(import.meta.url);
 
-export default {
+const config: Configuration = {
   resolve: {
-    extensions: [".tsx", ".ts", ".jsx", ".js", ".json"],
+    extensions: [".mdx", ".md", ".tsx", ".ts", ".jsx", ".js", ".json"],
     extensionAlias: {
       ".js": [".tsx", ".ts", ".js"],
       ".jsx": [".tsx", ".jsx"],
@@ -12,6 +14,13 @@ export default {
   },
   module: {
     rules: [
+      {
+        test: /\.docs\.mdx?$/,
+        use: {
+          loader: require.resolve("@mdx-js/loader"),
+          options: mdxOptions,
+        },
+      },
       {
         test: /\.[jt]sx?$/,
         exclude: /node_modules/,
@@ -35,3 +44,5 @@ export default {
     ],
   },
 };
+
+export default config;

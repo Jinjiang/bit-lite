@@ -1,0 +1,162 @@
+import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+  discoverPreviewComponents,
+  preparePreviewEnv,
+  resolvePreviewServiceConfig,
+} from "./preview-prepare.js";
+
+describe("preview preparation", () => {
+  it("discovers selected components and files deterministically", async () => {
+    const workspaceRoot = await createWorkspace();
+    const alphaRoot = await createComponent(workspaceRoot, "alpha", {
+      "zeta.demo.tsx": 'export const title = "Zeta demo";',
+      "alpha.docs.mdx": "---\ntitle: Alpha docs\n---\n# Ignored heading",
+      "first.demo.tsx": "export default {};",
+      "notes.txt": "not preview content",
+    });
+    const zetaRoot = await createComponent(workspaceRoot, "zeta", {
+      "zeta.docs.md": "# Zeta documentation",
+    });
+
+    const result = await discoverPreviewComponents([
+      { id: "scope/zeta", rootDir: zetaRoot },
+      { id: "scope/alpha", rootDir: alphaRoot },
+    ]);
+
+    expect(result.map((component) => component.component.id)).toEqual(["scope/alpha", "scope/zeta"]);
+    expect(result[0]?.docs).toMatchObject({ title: "Alpha docs", route: "#scope%2Falpha?preview=docs" });
+    expect(result[0]?.compositions.map(({ id, title }) => ({ id, title }))).toEqual([
+      { id: "first", title: "First" },
+      { id: "zeta", title: "Zeta demo" },
+    ]);
+    expect(result[1]?.docs?.title).toBe("Zeta documentation");
+  });
+
+  it("resolves config modules before generating one safe entry and HTML document", async () => {
+    const workspaceRoot = await createWorkspace();
+    const componentRoot = await createComponent(workspaceRoot, "quoted", {
+      "quoted.docs.mdx": "# Docs",
+      "primary.demo.tsx": "export default {};",
+    });
+    const configFile = await createFile(workspaceRoot, "config/vite.ts", "export default {};");
+    const mounter = await createFile(workspaceRoot, "config/mounter.ts", "export default () => {};\n");
+    const docsTemplate = await createFile(workspaceRoot, "config/docs-template.tsx", "export default () => null;\n");
+    const browserModulePath = await createFile(workspaceRoot, "runtime/browser.ts", "export const startPreview = () => ({});\n");
+
+    const prepared = await preparePreviewEnv({
+      envName: "react env",
+      components: [{ id: 'scope/"quoted"', rootDir: componentRoot }],
+      serviceConfig: {
+        vendor: "vite-preview",
+        config: {
+          configFile: "./config/vite.ts",
+          mounter: "./config/mounter.ts",
+          docsTemplate: "./config/docs-template.tsx",
+        },
+      },
+      workspaceRoot,
+      server: {
+        host: "127.0.0.1",
+        port: 6000,
+        basePath: "/env/react%20env/",
+        proxyOrigin: "http://127.0.0.1:4000",
+      },
+      browserModulePath,
+    });
+
+    const source = await readFile(prepared.runtime.prepared.entryFile, "utf8");
+    const html = await readFile(prepared.runtime.prepared.htmlFile, "utf8");
+    expect(prepared.serviceConfig).toMatchObject({
+      vendor: "vite-preview",
+      config: { configFile, mounter, docsTemplate },
+    });
+    expect(source).toContain('component: { id: "scope/\\\"quoted\\\"" }');
+    expect(source.match(/load: \(\) => import\(/g)).toHaveLength(2);
+    expect(source).toContain("mounter: previewMounter");
+    expect(source).toContain("docsTemplate: PreviewDocsTemplate");
+    expect(source).not.toContain("renderOverview");
+    expect(source).not.toContain("loadDocs");
+    expect(source).not.toContain("loadComposition");
+    expect(html).toContain('src="/env/react%20env/__bit-lite/preview.js"');
+    expect(Object.keys(prepared.runtime)).toEqual(["server", "prepared"]);
+    expect(JSON.parse(JSON.stringify(prepared.runtime))).toEqual(prepared.runtime);
+
+    const tempDir = prepared.tempDir;
+    await prepared.cleanup();
+    await prepared.cleanup();
+    await expect(access(tempDir)).rejects.toThrow();
+  });
+
+  it("omits optional renderer imports and only requires a mounter for envs with demos", async () => {
+    const workspaceRoot = await createWorkspace();
+    const docsOnlyRoot = await createComponent(workspaceRoot, "docs-only", {
+      "docs-only.docs.md": "# Docs only",
+    });
+    const withDemoRoot = await createComponent(workspaceRoot, "with-demo", {
+      "primary.demo.ts": "export default {};",
+    });
+    await createFile(workspaceRoot, "config/vite.ts", "export default {};\n");
+    const browserModulePath = await createFile(workspaceRoot, "runtime/browser.ts", "export const startPreview = () => ({});\n");
+    const baseOptions = {
+      envName: "static",
+      serviceConfig: { vendor: "vite-preview", config: { configFile: "./config/vite.ts" } },
+      workspaceRoot,
+      server: {
+        host: "127.0.0.1",
+        port: 6000,
+        basePath: "/env/static/",
+        proxyOrigin: "http://127.0.0.1:4000",
+      },
+      browserModulePath,
+    };
+
+    const prepared = await preparePreviewEnv({
+      ...baseOptions,
+      components: [{ id: "scope/docs-only", rootDir: docsOnlyRoot }],
+    });
+    const source = await readFile(prepared.runtime.prepared.entryFile, "utf8");
+    expect(source).not.toContain("previewMounter");
+    expect(source).not.toContain("PreviewDocsTemplate");
+    await prepared.cleanup();
+
+    await expect(
+      preparePreviewEnv({ ...baseOptions, components: [{ id: "scope/with-demo", rootDir: withDemoRoot }] })
+    ).rejects.toThrow('config.mounter is required because the selected components contain demos');
+  });
+
+  it("reports unresolvable service modules with env and field context", async () => {
+    const workspaceRoot = await createWorkspace();
+    await expect(
+      resolvePreviewServiceConfig(
+        { vendor: "vite-preview", config: { configFile: "./missing-vite.ts" } },
+        workspaceRoot,
+        "broken-env"
+      )
+    ).rejects.toThrow('preview env "broken-env" config.configFile could not be resolved: ./missing-vite.ts');
+  });
+});
+
+async function createWorkspace() {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "bit-lite-preview-prepare-"));
+  await writeFile(path.join(workspaceRoot, "package.json"), '{"type":"module"}\n', "utf8");
+  return workspaceRoot;
+}
+
+async function createComponent(workspaceRoot: string, name: string, files: Record<string, string>) {
+  const rootDir = path.join(workspaceRoot, "components", name);
+  await mkdir(rootDir, { recursive: true });
+  await Promise.all(
+    Object.entries(files).map(([fileName, source]) => writeFile(path.join(rootDir, fileName), source, "utf8"))
+  );
+  return rootDir;
+}
+
+async function createFile(workspaceRoot: string, relativePath: string, source: string) {
+  const filePath = path.join(workspaceRoot, relativePath);
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, source, "utf8");
+  return filePath;
+}

@@ -13,7 +13,13 @@ The public API has three layers:
 - the runner implementation used by Bit-lite to execute vendor modules inline or
   inside a Worker.
 - vendor task helpers such as `runVendorTasks()` and `watchVendorTasks()` for
-  command code that needs common vendor lifecycle handling.
+command code that needs common vendor lifecycle handling.
+
+`VendorData.runtime` is an optional JSON-only command-to-vendor channel. Preview
+uses it for `server` coordinates plus `prepared.entryFile` and
+`prepared.htmlFile`. Preview adapters should not rediscover components, generate
+routes, render Markdown, or inject MDX configuration; those inputs are prepared
+by the command or imported by the user's dev-server config.
 
 Vendor modules export `meta: VendorDefinition` and a default start function:
 

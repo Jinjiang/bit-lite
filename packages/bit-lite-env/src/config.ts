@@ -104,8 +104,8 @@ function validateServiceOptions(
       return value as TestServiceConfig;
     case "preview":
       requireString(value, serviceName, "configFile");
-      requireOptionalString(value, serviceName, "mounter");
-      requireOptionalString(value, serviceName, "docsTemplate");
+      requireOptionalNonEmptyString(value, serviceName, "mounter");
+      requireOptionalNonEmptyString(value, serviceName, "docsTemplate");
       return value as PreviewServiceConfig;
   }
 }
@@ -156,6 +156,10 @@ function requireString(value: JsonObject, serviceName: SupportedEnvServiceName, 
   if (typeof item !== "string" || item.length === 0) {
     throw new BitLiteEnvConfigError(`env service "${serviceName}" field "config.${field}" must be a non-empty string`);
   }
+}
+
+function requireOptionalNonEmptyString(value: JsonObject, serviceName: SupportedEnvServiceName, field: string) {
+  if (value[field] !== undefined) requireString(value, serviceName, field);
 }
 
 function requireOptionalBoolean(value: JsonObject, serviceName: SupportedEnvServiceName, field: string) {

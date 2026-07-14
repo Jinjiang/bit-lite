@@ -21,6 +21,7 @@
     "bit-lite-context": "workspace:*",
     "bit-lite-deps": "workspace:*",
     "bit-lite-env": "workspace:*",
+    "bit-lite-preview": "workspace:*",
     "bit-lite-vendors": "workspace:*"
   },
   "devDependencies": {
