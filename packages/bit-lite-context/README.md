@@ -17,3 +17,8 @@ resolves `extends` through normal dependencies, preserves each service's
 declaring package/entry origin, and caches by canonical entry plus requested
 version. `resolveEnvModuleSpecifier()` uses that origin for relative files and
 package subpaths while preventing package-root escape.
+
+Loaded envs retain `packageName`, `requestedVersion`, and `installedVersion`.
+Service and worker boundaries project those fields to one closed JSON-safe
+`SelectedEnvIdentity`; runtime groups reuse the loaded env instead of copying a
+package-name-only identity.

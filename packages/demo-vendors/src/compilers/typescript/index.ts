@@ -1,11 +1,12 @@
 import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { SelectedEnvIdentity } from "bit-lite-context";
 import type { VendorDefinition } from "bit-lite-vendors";
 
 type TypeScriptModule = typeof import("typescript");
 
 export type TypeScriptCompileInput = {
-  envName?: string;
+  env: SelectedEnvIdentity;
   component?: {
     id: string;
     rootDir: string;

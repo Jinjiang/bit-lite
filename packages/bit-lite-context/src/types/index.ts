@@ -83,6 +83,11 @@ export type LoadedEnvRuntime = {
   inheritanceChain: string[];
 };
 
+export type SelectedEnvIdentity = Pick<
+  LoadedEnvRuntime,
+  "packageName" | "requestedVersion" | "installedVersion"
+>;
+
 export type ComponentRuntime = ComponentRef & {
   kind: ComponentKind;
   envRef: PackageRef;
@@ -90,7 +95,6 @@ export type ComponentRuntime = ComponentRef & {
 };
 
 export type EnvRuntime = {
-  envName: string;
   env: LoadedEnvRuntime;
   components: ComponentRef[];
 };

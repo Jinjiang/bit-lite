@@ -34,7 +34,7 @@ describe("demo vendors", () => {
 
   it("posts lifecycle messages and result data", async () => {
     const harness = createHarness({
-      envName: "demo",
+      env: selectedEnv("demo"),
       components: [{ id: "components/lib/math", rootDir: "/workspace/components/lib/math" }],
       config: {},
       args: parseCliArguments(["--demo"]),
@@ -57,7 +57,7 @@ describe("demo vendors", () => {
 
   it("supports handle stop", async () => {
     const harness = createHarness({
-      envName: "vue",
+      env: selectedEnv("vue"),
       components: [{ id: "components/vue/card", rootDir: "/workspace/components/vue/card" }],
       config: { delay: 10 },
       args: parseCliArguments([]),
@@ -96,6 +96,10 @@ function createHarness<Config extends Record<string, unknown>>(data: VendorData<
       for (const listener of Array.from(controlListeners)) void listener({ type: "shutdown" });
     },
   };
+}
+
+function selectedEnv(packageName: string) {
+  return { packageName, requestedVersion: "1.0.0", installedVersion: "1.0.0" };
 }
 
 async function waitForResult(messages: VendorMessage[]) {

@@ -61,6 +61,12 @@ vendors and module-valued config fields resolve from the defining env package.
 Worker data is limited to JSON-safe env identity, components, config, CLI args,
 and explicit command runtime.
 
+That selected-env identity is
+`{ packageName, requestedVersion, installedVersion }` end to end: vendor task
+input/results, test result context and storage, compile vendor input, preview
+prepared/skipped state, and the preview manifest. Public preview URLs remain
+package-name-based; the adjacent manifest preserves both version values.
+
 Every runtime value export in a sorted `*.demo.*` file is one demo. For example,
 `export const MySecondDemo = ...` in `primary.demo.ts` has ID
 `primary/MySecondDemo` and display name `My Second Demo`. Prefer named exports;

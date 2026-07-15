@@ -17,7 +17,7 @@ The command SHALL resolve the existing `configFile`, optional `mounter`, and opt
 
 #### Scenario: Preview service is inherited
 - **WHEN** a selected child env inherits its preview service from a parent env package
-- **THEN** the command resolves the service modules and vendor from the parent entry and dependency context while proxying and reporting the preview under the child env identity
+- **THEN** the command resolves the service modules and vendor from the parent entry and dependency context while proxying and reporting the preview under the selected child's structured package name, requested version, and installed version identity
 
 #### Scenario: Exported preview config subpath is declared
 - **WHEN** a preview module uses a package subpath such as `demo-config/previewers/react-mounter`

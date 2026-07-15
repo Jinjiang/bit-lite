@@ -12,7 +12,7 @@ import {
 describe("JSON env package loading", () => {
   it("loads external inheritance with shallow config merge and whole-service replacement", async () => {
     const root = await createWorkspace([
-      component("lib/math", "@scope/lib.math", "@env/child", "1.0.0"),
+      component("lib/math", "@scope/lib.math", "@env/child", "^1.0.0"),
     ]);
     const grand = await createEnvPackage(root, "@env/grand", {
       name: "@env/grand",
@@ -42,6 +42,8 @@ describe("JSON env package loading", () => {
     const registry = await loadComponentPackageRegistry(root);
     const loaded = await loadEnvForComponent(registry.components[0]!, registry);
 
+    expect(loaded.requestedVersion).toBe("^1.0.0");
+    expect(loaded.installedVersion).toBe("1.0.0");
     expect(loaded.inheritanceChain).toEqual(["@env/grand", "@env/parent", "@env/child"]);
     expect(loaded.effectiveDefinition.config).toEqual({ grandOnly: true, shared: "child", parentOnly: true });
     expect(loaded.services.test?.definition.config).toEqual({ inherited: false });
@@ -86,6 +88,8 @@ describe("JSON env package loading", () => {
     const registry = await loadComponentPackageRegistry(root);
     const loaded = await loadEnvForComponent(registry.byId.get("lib/math")!, registry);
     expect(loaded.packageName).toBe("@scope/env.local");
+    expect(loaded.requestedVersion).toBe("workspace:*");
+    expect(loaded.installedVersion).toBe("0.0.0");
     expect(loaded.packageRoot).toBe(await realpath(generated));
   });
 
@@ -193,11 +197,17 @@ describe("JSON env package loading", () => {
 function component(
   id: string,
   packageName: string,
-  envName: string,
+  envPackageName: string,
   envVersion: string,
   kind: "component" | "env" = "component"
 ) {
-  return { id, path: `components/${id}`, packageName, env: { packageName: envName, version: envVersion }, kind };
+  return {
+    id,
+    path: `components/${id}`,
+    packageName,
+    env: { packageName: envPackageName, version: envVersion },
+    kind,
+  };
 }
 
 async function createWorkspace(entries: ReturnType<typeof component>[]) {
@@ -237,7 +247,7 @@ async function createEnvPackage(
 async function installEnvForComponent(
   workspaceRoot: string,
   componentPackageName: string,
-  envName: string,
+  envPackageName: string,
   envRoot: string
 ) {
   await linkPackage(path.join(
@@ -245,7 +255,7 @@ async function installEnvForComponent(
     ".bit-lite/deps/components",
     ...componentPackageName.split("/"),
     "node_modules",
-    ...envName.split("/")
+    ...envPackageName.split("/")
   ), envRoot);
 }
 

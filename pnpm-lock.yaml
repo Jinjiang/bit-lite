@@ -118,6 +118,9 @@ importers:
 
   packages/bit-lite-preview:
     dependencies:
+      bit-lite-context:
+        specifier: workspace:*
+        version: link:../bit-lite-context
       react:
         specifier: ^19.2.7
         version: 19.2.7

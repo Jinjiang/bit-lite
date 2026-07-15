@@ -8,7 +8,7 @@ describe("result store", () => {
     const firstEntry = store.add({
       observedAt: "2026-07-09T00:00:00.000Z",
       taskId: "react:lint",
-      envName: "react",
+      env: selectedEnv("react"),
       vendor: "lint",
       json: { ok: true, run: 1 },
       text: "lint passed",
@@ -16,7 +16,7 @@ describe("result store", () => {
     store.add({
       observedAt: "2026-07-09T00:00:01.000Z",
       taskId: "vue:test",
-      envName: "vue",
+      env: selectedEnv("vue"),
       vendor: "test",
       json: { ok: false, run: 2 },
       text: "test failed",
@@ -25,7 +25,7 @@ describe("result store", () => {
     expect(firstEntry).toEqual({
       observedAt: "2026-07-09T00:00:00.000Z",
       taskId: "react:lint",
-      envName: "react",
+      env: selectedEnv("react"),
       vendor: "lint",
       json: { ok: true, run: 1 },
       text: "lint passed",
@@ -35,3 +35,7 @@ describe("result store", () => {
     expect(store.text()).toBe(["lint passed", "test failed"].join("\n---\n"));
   });
 });
+
+function selectedEnv(packageName: string) {
+  return { packageName, requestedVersion: "1.0.0", installedVersion: "1.0.0" };
+}

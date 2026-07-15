@@ -4,6 +4,8 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { getSelectedEnvKey } from "bit-lite-context";
+import type { SelectedEnvIdentity } from "bit-lite-context";
 import { formatCompositionRoute, formatDocsRoute, formatOverviewRoute } from "./routes.js";
 import type { PreviewPreparedRuntime } from "./types.js";
 
@@ -42,7 +44,7 @@ export type ResolvedPreviewServiceConfig = Record<string, unknown> & {
 };
 
 export type PreparedPreviewEnv = {
-  envName: string;
+  env: SelectedEnvIdentity;
   components: PreparedPreviewComponent[];
   serviceConfig: Record<string, unknown>;
   runtime: PreviewPreparedRuntime;
@@ -53,7 +55,7 @@ export type PreparedPreviewEnv = {
 export type PreviewServerRuntime = PreviewPreparedRuntime["server"];
 
 type PreparePreviewEnvOptions = {
-  envName: string;
+  env: SelectedEnvIdentity;
   components: PreviewComponentRef[];
   serviceConfig: unknown;
   workspaceRoot: string;
@@ -68,18 +70,18 @@ export async function preparePreviewEnv(options: PreparePreviewEnvOptions): Prom
   const { serviceConfig, config } = await resolvePreviewServiceConfig(
     options.serviceConfig,
     options.workspaceRoot,
-    options.envName,
+    options.env.packageName,
     options.resolveModule
   );
   if (components.some((component) => component.compositions.length > 0) && !config.mounter) {
     throw new PreviewPreparationError(
-      `preview env "${options.envName}" config.mounter is required because the selected components contain demos`
+      `preview env "${options.env.packageName}" config.mounter is required because the selected components contain demos`
     );
   }
 
   const tempRoot = path.join(options.workspaceRoot, ".bit-lite");
   await mkdir(tempRoot, { recursive: true });
-  const prefix = sanitizeFileName(options.envName);
+  const prefix = sanitizeFileName(getSelectedEnvKey(options.env));
   const tempDir = await mkdtemp(path.join(tempRoot, `preview-${prefix}-`));
   const entryFile = path.join(tempDir, "entry.mjs");
   const htmlFile = path.join(tempDir, "index.html");
@@ -99,7 +101,7 @@ export async function preparePreviewEnv(options: PreparePreviewEnvOptions): Prom
 
   let cleaned = false;
   return {
-    envName: options.envName,
+    env: options.env,
     components,
     serviceConfig,
     runtime: {
@@ -148,20 +150,20 @@ export async function discoverPreviewComponents(components: PreviewComponentRef[
 export async function resolvePreviewServiceConfig(
   serviceConfig: unknown,
   workspaceRoot: string,
-  envName: string,
+  selectedEnvPackageName: string,
   resolveModule?: ((specifier: string, field: string) => Promise<string>) | undefined
 ): Promise<{ serviceConfig: Record<string, unknown>; config: ResolvedPreviewServiceConfig }> {
-  if (!isRecord(serviceConfig)) throw new PreviewPreparationError(`preview env "${envName}" service config must be an object`);
+  if (!isRecord(serviceConfig)) throw new PreviewPreparationError(`preview env "${selectedEnvPackageName}" service config must be an object`);
   if (!isRecord(serviceConfig.config)) {
-    throw new PreviewPreparationError(`preview env "${envName}" service config must define a config object`);
+    throw new PreviewPreparationError(`preview env "${selectedEnvPackageName}" service config must define a config object`);
   }
 
   const config = serviceConfig.config;
-  const configFile = readRequiredSpecifier(config.configFile, envName, "configFile");
-  const mounter = readOptionalSpecifier(config.mounter, envName, "mounter");
-  const docsTemplate = readOptionalSpecifier(config.docsTemplate, envName, "docsTemplate");
+  const configFile = readRequiredSpecifier(config.configFile, selectedEnvPackageName, "configFile");
+  const mounter = readOptionalSpecifier(config.mounter, selectedEnvPackageName, "mounter");
+  const docsTemplate = readOptionalSpecifier(config.docsTemplate, selectedEnvPackageName, "docsTemplate");
   const resolve = resolveModule ?? ((specifier: string, field: string) =>
-    resolvePreviewModule(specifier, workspaceRoot, envName, field));
+    resolvePreviewModule(specifier, workspaceRoot, selectedEnvPackageName, field));
   const resolved: ResolvedPreviewServiceConfig = {
     ...config,
     configFile: await resolve(configFile, "configFile"),
@@ -319,10 +321,17 @@ function createBrowserComponentSource(component: PreparedPreviewComponent, entry
   ].join("\n");
 }
 
-async function resolvePreviewModule(specifier: string, workspaceRoot: string, envName: string, field: string) {
+async function resolvePreviewModule(
+  specifier: string,
+  workspaceRoot: string,
+  selectedEnvPackageName: string,
+  field: string
+) {
   const candidate = await tryResolvePreviewModule(specifier, workspaceRoot);
   if (candidate) return candidate;
-  throw new PreviewPreparationError(`preview env "${envName}" config.${field} could not be resolved: ${specifier}`);
+  throw new PreviewPreparationError(
+    `preview env "${selectedEnvPackageName}" config.${field} could not be resolved: ${specifier}`
+  );
 }
 
 async function tryResolvePreviewModule(specifier: string, workspaceRoot: string) {
@@ -364,16 +373,18 @@ async function isFile(filePath: string) {
   }
 }
 
-function readRequiredSpecifier(value: unknown, envName: string, field: string) {
+function readRequiredSpecifier(value: unknown, selectedEnvPackageName: string, field: string) {
   if (typeof value !== "string" || value.length === 0) {
-    throw new PreviewPreparationError(`preview env "${envName}" config.${field} must be a non-empty string`);
+    throw new PreviewPreparationError(
+      `preview env "${selectedEnvPackageName}" config.${field} must be a non-empty string`
+    );
   }
   return value;
 }
 
-function readOptionalSpecifier(value: unknown, envName: string, field: string) {
+function readOptionalSpecifier(value: unknown, selectedEnvPackageName: string, field: string) {
   if (value === undefined) return undefined;
-  return readRequiredSpecifier(value, envName, field);
+  return readRequiredSpecifier(value, selectedEnvPackageName, field);
 }
 
 function relativeImport(fromDir: string, target: string) {

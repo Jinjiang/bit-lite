@@ -21,6 +21,19 @@ JSON entry origin so the vendor is resolved before runner startup. Worker-facing
 CLI args, and optional command runtime; it does not serialize a workspace/env
 runtime graph.
 
+The identity is always structured and version-aware:
+
+```ts
+env: {
+  packageName: "@acme/env.react",
+  requestedVersion: "workspace:*",
+  installedVersion: "0.0.0",
+}
+```
+
+`VendorTaskStartOptions`, `VendorTask`, task run results, and worker data use
+this same `env` field. There is no package-name-only compatibility field.
+
 `VendorData.runtime` is an optional JSON-only command-to-vendor channel. Preview
 uses it for `server` coordinates plus `prepared.entryFile` and
 `prepared.htmlFile`. Preview adapters should not rediscover components, generate

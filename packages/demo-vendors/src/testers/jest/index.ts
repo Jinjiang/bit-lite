@@ -99,7 +99,7 @@ export default async function startJestVendor(
 
     applyJestResults(runTargets, componentResults, jestResult);
     const data = createTestServiceResult({
-      envName: runtime.data.envName,
+      env: runtime.data.env,
       vendor: meta.id,
       mode,
       run,
@@ -122,7 +122,7 @@ export default async function startJestVendor(
     if (allFiles.length === 0) {
       run += 1;
       const data = createTestServiceResult({
-        envName: runtime.data.envName,
+        env: runtime.data.env,
         vendor: meta.id,
         mode,
         run,
@@ -180,7 +180,7 @@ export default async function startJestVendor(
         const componentResults = createEmptyComponentResults(targets);
         applyJestResults(runTargets, componentResults, results as JestAggregatedResult);
         const data = createTestServiceResult({
-          envName: runtime.data.envName,
+          env: runtime.data.env,
           vendor: meta.id,
           mode,
           run,

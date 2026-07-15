@@ -2,10 +2,11 @@ import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import * as vendorTasks from "bit-lite-vendors";
+import type { SelectedEnvIdentity } from "bit-lite-context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCli } from "../cli.js";
 import { createResultStore } from "../result-store.js";
-import { runTestCommand, type TestServiceResult } from "./test.js";
+import { isTestServiceResult, runTestCommand, type TestServiceResult } from "./test.js";
 import type { VendorTask, VendorTaskStartOptions, WatchVendorTasksOptions } from "bit-lite-vendors";
 
 describe("test command", () => {
@@ -70,10 +71,10 @@ describe("test command", () => {
       const tasks: VendorTask<unknown, TestServiceResult>[] = [];
 
       for (const taskOption of taskOptions) {
-        const result = createWatchResult(taskOption.envName);
+        const result = createWatchResult(taskOption.env);
         const task = {
-          id: `${taskOption.envName}:${result.vendor}`,
-          envName: taskOption.envName,
+          id: `${taskOption.env.packageName}:${result.vendor}`,
+          env: taskOption.env,
         } as VendorTask<unknown, TestServiceResult>;
 
         (options as WatchVendorTasksOptions<TestServiceResult>).onResult?.(result, task);
@@ -97,7 +98,7 @@ describe("test command", () => {
     expect(entries).toMatchObject([
       {
         taskId: "jest:jest",
-        envName: "jest",
+        env: selectedEnv("jest"),
         vendor: "jest",
         json: {
           service: "test",
@@ -113,7 +114,7 @@ describe("test command", () => {
       },
       {
         taskId: "vitest:vitest",
-        envName: "vitest",
+        env: selectedEnv("vitest"),
         vendor: "vitest",
         json: {
           service: "test",
@@ -142,6 +143,18 @@ describe("test command", () => {
 
     expect(store.entries()).toEqual([]);
   });
+
+  it("rejects the legacy package-name-only result context", () => {
+    const result = createWatchResult(selectedEnv("jest"));
+    expect(isTestServiceResult({
+      ...result,
+      context: {
+        ...result.context,
+        envName: result.context.env.packageName,
+        env: undefined,
+      },
+    })).toBe(false);
+  });
 });
 
 function createParsedTestArgs(workspaceRoot: string, options: { watch?: boolean } = {}) {
@@ -161,16 +174,16 @@ function createParsedTestArgs(workspaceRoot: string, options: { watch?: boolean 
   };
 }
 
-function createWatchResult(envName: VendorTaskStartOptions["envName"]): TestServiceResult {
-  const componentId = `components/${envName}/math`;
+function createWatchResult(env: VendorTaskStartOptions["env"]): TestServiceResult {
+  const componentId = `components/${env.packageName}/math`;
 
   return {
     service: "test",
-    vendor: envName,
+    vendor: env.packageName,
     mode: "watch",
     run: 1,
     context: {
-      envName,
+      env,
       componentIds: [componentId],
       args: {
         raw: ["test", "--watch"],
@@ -202,6 +215,14 @@ function createWatchResult(envName: VendorTaskStartOptions["envName"]): TestServ
         errors: [],
       },
     ],
+  };
+}
+
+function selectedEnv(packageName: string): SelectedEnvIdentity {
+  return {
+    packageName,
+    requestedVersion: "1.0.0",
+    installedVersion: "1.0.0",
   };
 }
 
@@ -310,20 +331,20 @@ async function writeMathComponent(workspaceRoot: string, componentDir: string) {
 async function installFixtureEnv(
   workspaceRoot: string,
   componentPackageName: string,
-  envName: string,
+  envPackageName: string,
   vendor: string,
   configFile: string
 ) {
-  const envRoot = path.join(workspaceRoot, ".fixture-envs", envName);
+  const envRoot = path.join(workspaceRoot, ".fixture-envs", envPackageName);
   await mkdir(envRoot, { recursive: true });
   await writeFile(path.join(envRoot, "package.json"), JSON.stringify({
-    name: envName,
+    name: envPackageName,
     version: "1.0.0",
     type: "module",
     exports: { ".": "./index.json" },
   }));
   await writeFile(path.join(envRoot, "index.json"), JSON.stringify({
-    name: envName,
+    name: envPackageName,
     services: { test: { vendor, config: { configFile } } },
   }));
   const target = path.join(
@@ -331,7 +352,7 @@ async function installFixtureEnv(
     ".bit-lite/deps/components",
     ...componentPackageName.split("/"),
     "node_modules",
-    envName
+    envPackageName
   );
   await mkdir(path.dirname(target), { recursive: true });
   await symlink(path.relative(path.dirname(target), envRoot), target, "dir");

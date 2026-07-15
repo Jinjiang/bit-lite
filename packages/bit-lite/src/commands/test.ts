@@ -1,9 +1,21 @@
-import { groupSelectedComponentsByEnv, resolveEnvModuleSpecifier, selectComponentRefs } from "bit-lite-context";
+import {
+  groupSelectedComponentsByEnv,
+  isSelectedEnvIdentity,
+  resolveEnvModuleSpecifier,
+  selectComponentRefs,
+  toSelectedEnvIdentity,
+} from "bit-lite-context";
 import {
   runVendorTasks,
   watchVendorTasks,
 } from "bit-lite-vendors";
-import type { CliArguments, ParsedCliArgs, SelectedEnvGroup, WorkspaceRuntime } from "bit-lite-context";
+import type {
+  CliArguments,
+  ParsedCliArgs,
+  SelectedEnvGroup,
+  SelectedEnvIdentity,
+  WorkspaceRuntime,
+} from "bit-lite-context";
 import type { JsonObject } from "bit-lite-env";
 import type { VendorTask, VendorTaskRunResult, VendorTaskStartOptions } from "bit-lite-vendors";
 import type { ResultStore, ResultStoreEntry } from "../result-store.js";
@@ -20,7 +32,7 @@ export type TestServiceResult = {
 };
 
 export type TestResultContext = {
-  envName: string;
+  env: SelectedEnvIdentity;
   componentIds: string[];
   args: CliArguments;
   config: JsonObject;
@@ -114,12 +126,12 @@ async function createTestVendorTaskOptions(
         service: serviceConfig,
         workspaceRoot: workspace.workspaceRoot,
         field: "test config.configFile",
-        selectedEnv: group.envName,
+        selectedEnv: group.env.packageName,
       })
     : undefined;
 
   return {
-    envName: group.envName,
+    env: toSelectedEnvIdentity(group.env),
     components: group.components,
     args: parsed.args,
     workspaceRoot: workspace.workspaceRoot,
@@ -141,7 +153,7 @@ function printNoTestTasks(groups: SelectedEnvGroup[]) {
     return;
   }
 
-  const envNames = groups.map((group) => group.envName).join(", ");
+  const envNames = groups.map((group) => group.env.packageName).join(", ");
   console.log(`Selected envs: ${envNames}`);
   console.log('Make sure each selected env defines services.test in the workspace config.');
 }
@@ -172,7 +184,7 @@ function addTestWatchResult(
   resultStore.add({
     observedAt,
     taskId: task.id,
-    envName: task.envName,
+    env: task.env,
     vendor: result.vendor,
     json: result,
     text: `# ${result.vendor} run ${result.run} @ ${observedAt}\n${formatTestResultText(result)}`,
@@ -216,7 +228,8 @@ export function isTestServiceResult(value: unknown): value is TestServiceResult 
 function isTestResultContext(value: unknown): value is TestResultContext {
   return (
     isRecord(value) &&
-    typeof value.envName === "string" &&
+    !("envName" in value) &&
+    isSelectedEnvIdentity(value.env) &&
     Array.isArray(value.componentIds) &&
     value.componentIds.every((componentId) => typeof componentId === "string") &&
     isRecord(value.args) &&

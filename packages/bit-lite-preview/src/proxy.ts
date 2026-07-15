@@ -4,6 +4,8 @@ import net from "node:net";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import type { Duplex } from "node:stream";
+import { getSelectedEnvKey } from "bit-lite-context";
+import type { SelectedEnvIdentity } from "bit-lite-context";
 import type { PreparedPreviewComponent } from "./preparation.js";
 
 const previewShellHtml = readFileSync(new URL("./assets/preview-shell.html", import.meta.url), "utf8");
@@ -24,7 +26,7 @@ export type PreviewProxyComponent = {
 };
 
 export type PreviewEnvState = {
-  envName: string;
+  env: SelectedEnvIdentity;
   taskId: string;
   vendor: string;
   status: string;
@@ -34,7 +36,7 @@ export type PreviewEnvState = {
 };
 
 export type PreviewSkippedEnv = {
-  envName: string;
+  env: SelectedEnvIdentity;
   reason: string;
   components: string[];
 };
@@ -60,7 +62,7 @@ export class PreviewProxyServer {
 
   constructor(options: {
     envs: Array<{
-      envName: string;
+      env: SelectedEnvIdentity;
       taskId: string;
       vendor: string;
       status: string;
@@ -70,14 +72,14 @@ export class PreviewProxyServer {
   }) {
     this.#skipped = options.skipped;
     for (const env of options.envs) {
-      this.#envs.set(env.envName, {
-        envName: env.envName,
+      this.#envs.set(getSelectedEnvKey(env.env), {
+        env: env.env,
         taskId: env.taskId,
         vendor: env.vendor,
         status: env.status,
         components: env.components.map((component) => ({
           componentId: component.id,
-          overviewRoute: `/env/${encodeRouteSegment(env.envName)}/#${encodeRouteSegment(component.id)}`,
+          overviewRoute: `/env/${encodeRouteSegment(env.env.packageName)}/#${encodeRouteSegment(component.id)}`,
           compositions: [],
         })),
       });
@@ -110,27 +112,27 @@ export class PreviewProxyServer {
     return this.manifest().proxy;
   }
 
-  updateTask(envName: string, updates: Partial<Pick<PreviewEnvState, "taskId" | "vendor" | "status">>) {
-    const env = this.#envs.get(envName);
+  updateTask(envIdentity: SelectedEnvIdentity, updates: Partial<Pick<PreviewEnvState, "taskId" | "vendor" | "status">>) {
+    const env = this.#envs.get(getSelectedEnvKey(envIdentity));
     if (env) Object.assign(env, updates);
   }
 
-  updateServer(envName: string, server: PreviewServerInfo, vendor: string) {
-    const env = this.#envs.get(envName);
+  updateServer(envIdentity: SelectedEnvIdentity, server: PreviewServerInfo, vendor: string) {
+    const env = this.#envs.get(getSelectedEnvKey(envIdentity));
     if (!env) return;
     env.status = "ready";
     env.vendor = vendor;
     env.server = server;
   }
 
-  updatePreparedComponents(envName: string, basePath: string, components: PreparedPreviewComponent[]) {
-    const env = this.#envs.get(envName);
+  updatePreparedComponents(envIdentity: SelectedEnvIdentity, basePath: string, components: PreparedPreviewComponent[]) {
+    const env = this.#envs.get(getSelectedEnvKey(envIdentity));
     if (!env) return;
     env.components = components.map((component) => createProxyComponent(basePath, component));
   }
 
-  updatePreparationFailure(envName: string, error: unknown) {
-    const env = this.#envs.get(envName);
+  updatePreparationFailure(envIdentity: SelectedEnvIdentity, error: unknown) {
+    const env = this.#envs.get(getSelectedEnvKey(envIdentity));
     if (!env) return;
     env.status = "failed";
     env.error = formatError(error);
@@ -140,8 +142,12 @@ export class PreviewProxyServer {
   manifest(): PreviewProxyManifest {
     return {
       proxy: { origin: this.#origin, host: this.#host, port: this.#port },
-      envs: Array.from(this.#envs.values()).sort((left, right) => left.envName.localeCompare(right.envName)),
-      skipped: [...this.#skipped].sort((left, right) => left.envName.localeCompare(right.envName)),
+      envs: Array.from(this.#envs.values()).sort((left, right) => getSelectedEnvKey(left.env).localeCompare(
+        getSelectedEnvKey(right.env)
+      )),
+      skipped: [...this.#skipped].sort((left, right) => getSelectedEnvKey(left.env).localeCompare(
+        getSelectedEnvKey(right.env)
+      )),
     };
   }
 
@@ -169,9 +175,9 @@ export class PreviewProxyServer {
       return;
     }
 
-    const envName = readEnvName(path);
-    const env = envName ? this.#envs.get(envName) : undefined;
-    if (!envName || !env) {
+    const envPackageName = readEnvPackageName(path);
+    const env = envPackageName ? this.#findEnvByPackageName(envPackageName) : undefined;
+    if (!envPackageName || !env) {
       sendHtml(response, 404, renderMessagePage("Not found", "This preview route is not registered."));
       return;
     }
@@ -182,7 +188,7 @@ export class PreviewProxyServer {
         503,
         renderMessagePage(
           env.status === "failed" ? "Preview preparation failed" : "Preview is starting",
-          env.error ?? `${env.envName} is ${env.status}.`
+          env.error ?? `${env.env.packageName} is ${env.status}.`
         )
       );
       return;
@@ -195,14 +201,18 @@ export class PreviewProxyServer {
   }
 
   #handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer) {
-    const envName = readEnvName(readRequestPath(request, this.#origin));
-    const env = envName ? this.#envs.get(envName) : undefined;
+    const envPackageName = readEnvPackageName(readRequestPath(request, this.#origin));
+    const env = envPackageName ? this.#findEnvByPackageName(envPackageName) : undefined;
     if (!env?.server) {
       socket.write("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;
     }
     proxyWebSocket(request, socket, head, env.server);
+  }
+
+  #findEnvByPackageName(packageName: string) {
+    return Array.from(this.#envs.values()).find((env) => env.env.packageName === packageName);
   }
 }
 
@@ -340,7 +350,7 @@ function readRequestPath(request: IncomingMessage, origin: string) {
   return new URL(request.url ?? "/", origin || "http://127.0.0.1").pathname;
 }
 
-function readEnvName(pathname: string) {
+function readEnvPackageName(pathname: string) {
   const parts = pathname.split("/");
   if (parts[1] !== "env" || !parts[2]) return undefined;
   try {

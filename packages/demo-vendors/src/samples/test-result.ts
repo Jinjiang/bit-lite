@@ -1,9 +1,9 @@
-import type { CliArguments } from "bit-lite-context";
+import type { CliArguments, SelectedEnvIdentity } from "bit-lite-context";
 import type { JsonObject } from "bit-lite-vendors";
 
 export type TestServiceResult = {
   service: "test";
-  envName: string;
+  env: SelectedEnvIdentity;
   vendor: string;
   mode: "run" | "watch";
   run: number;

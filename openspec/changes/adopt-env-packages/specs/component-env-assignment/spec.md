@@ -1,15 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Every component declares an explicit env package
-`bit-lite.json` SHALL represent components as an array of records. Every record, including a record for an env component, SHALL contain non-empty `path`, `id`, and valid npm `packageName` fields plus an `env` object containing `packageName` and `version`; the env package name SHALL be the component's environment identity.
+`bit-lite.json` SHALL represent components as an array of records. Every record, including a record for an env component, SHALL contain non-empty `path`, `id`, and valid npm `packageName` fields plus an `env` object containing `packageName` and `version`; that complete package reference SHALL be the component's configured environment identity and SHALL be retained without reducing it to a package-name-only field.
 
 #### Scenario: Components select different env packages
 - **WHEN** one component declares `@acme/bit-env-react` and another declares `@acme/bit-env-node`
-- **THEN** workspace loading retains both explicit references without deriving either assignment from component paths or IDs
+- **THEN** workspace loading retains both explicit package names and their requested versions without deriving either assignment from component paths or IDs
 
 #### Scenario: Env component declares its own env
 - **WHEN** a registered React env component declares an external Node env in its component record
-- **THEN** the registry retains the Node env as the React env component's selected development environment independently of the React definition's optional `extends`
+- **THEN** the registry retains the complete Node package reference as the React env component's selected development environment independently of the React definition's optional `extends`
 
 #### Scenario: Component omits its env reference
 - **WHEN** a component record has no `env` object or omits either `env.packageName` or `env.version`

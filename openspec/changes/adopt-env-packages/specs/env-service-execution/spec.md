@@ -88,7 +88,7 @@ Compile orchestration SHALL identify registered `kind: "env"` components before 
 - **THEN** later components that depend on it do not run while independent ready work may complete and report separately
 
 ### Requirement: Vendor boundaries remain structured and origin-aware
-Commands SHALL start vendor modules that export valid `meta: VendorDefinition` and the required entry, and SHALL pass JSON-serializable service input containing env identity, selected component descriptors, CLI arguments, service config, and command-specific runtime data. Vendor loading SHALL use the effective service's declaring-package context, while command code SHALL validate run and event result shapes before presenting or storing them.
+Commands SHALL start vendor modules that export valid `meta: VendorDefinition` and the required entry, and SHALL pass JSON-serializable service input containing `env: { packageName, requestedVersion, installedVersion }`, selected component descriptors, CLI arguments, service config, and command-specific runtime data. Vendor loading SHALL use the effective service's declaring-package context, while command code SHALL validate run and event result shapes before presenting or storing them. Vendor task and worker contracts SHALL NOT represent selected env identity as `envName` or another package-name-only field.
 
 #### Scenario: Vendor module has an invalid contract
 - **WHEN** a resolved vendor omits valid metadata or its required entry function
@@ -96,8 +96,31 @@ Commands SHALL start vendor modules that export valid `meta: VendorDefinition` a
 
 #### Scenario: Worker-backed vendor starts
 - **WHEN** a command starts a vendor in worker mode
-- **THEN** the worker receives only serializable service and runtime data and no loaded env runtime, config module, resolver, or callback crosses the boundary
+- **THEN** the worker receives the selected package name, requested version, and installed version with the remaining serializable service/runtime data, and no loaded env runtime, config module, resolver, or callback crosses the boundary
+
+#### Scenario: Inherited vendor service starts
+- **WHEN** a selected child env runs a vendor service inherited from a parent env package
+- **THEN** worker data identifies the selected child package and both of its versions while parent-side vendor resolution retains the declaring parent's package/entry origin
 
 #### Scenario: Vendor emits an invalid result
 - **WHEN** a vendor returns data that fails the command's result formatter
 - **THEN** the affected task reports a validation error and the command does not present the payload as a successful result
+
+### Requirement: Command-facing env identity remains structured end to end
+Workspace env groups SHALL reuse their loaded env runtime instead of duplicating its package name. Vendor task results, test result context, preview service results, compile vendor input, result-store entries, prepared/skipped preview state, and preview proxy manifests SHALL carry `env: { packageName, requestedVersion, installedVersion }`. Command result validation SHALL reject successful payloads that replace this structure with `envName`. Internal grouping, task, temporary-file, or route keys MAY be derived from the selected package reference but SHALL NOT become a second public env identity.
+
+#### Scenario: Test result is stored
+- **WHEN** a test vendor emits a valid result for an env requested with a range
+- **THEN** the validated test result and result-store entry retain the same structured selected-env identity including the actual installed version
+
+#### Scenario: Preview manifest is generated
+- **WHEN** preview prepares, skips, starts, or fails an env group
+- **THEN** prepared state and the proxy manifest expose the structured selected-env identity while existing package-name-based public preview URLs remain unchanged
+
+#### Scenario: Compile vendor receives a component
+- **WHEN** ordinary-component compile invokes the compiler selected by the component's effective env
+- **THEN** compiler input contains the structured selected-env identity and no optional `envName` compatibility field
+
+#### Scenario: Legacy service result uses envName
+- **WHEN** a test or preview vendor returns an otherwise valid result containing only `envName`
+- **THEN** command result validation rejects the payload as an outdated contract

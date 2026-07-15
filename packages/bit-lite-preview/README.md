@@ -31,6 +31,11 @@ demo. Type-only exports are ignored, helpers must remain unexported, and bare
 `export *` is rejected. Existing exports retain HMR; catalog changes require a
 preview restart.
 
+Prepared env state, skipped env state, and proxy manifest entries carry
+`env: { packageName, requestedVersion, installedVersion }`. Internal proxy keys
+derive from the package reference, while public `/env/<package-name>/` routes
+remain unchanged for this single-version phase.
+
 ```sh
 pnpm --filter bit-lite-preview test
 pnpm --filter bit-lite-preview typecheck

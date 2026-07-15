@@ -1,14 +1,14 @@
-import { parseCliArguments } from "bit-lite-context";
+import { isSelectedEnvIdentity, parseCliArguments } from "bit-lite-context";
 import { RawOutputBuffer } from "bit-lite-terminal";
 import { describe, expect, it, vi } from "vitest";
 import { runVendorTasks, stopVendorTasks, watchVendorTasks } from "bit-lite-vendors";
-import type { CliArguments, ComponentRef } from "bit-lite-context";
+import type { CliArguments, ComponentRef, SelectedEnvIdentity } from "bit-lite-context";
 import type { JsonObject } from "./types/index.js";
 import type { VendorTask, VendorTaskRunResult, VendorTaskStartOptions } from "bit-lite-vendors";
 
 type TestServiceResult = {
   service: "test";
-  envName: string;
+  env: SelectedEnvIdentity;
   vendor: string;
   mode: "run" | "watch";
   run: number;
@@ -31,6 +31,7 @@ type MixedRunResult = {
 type MixedEventResult = {
   service: "mixed";
   phase: "progress";
+  env: SelectedEnvIdentity;
   componentCount: number;
   detail: string;
 };
@@ -107,11 +108,11 @@ describe("vendor task helpers", () => {
     expect(results).toMatchObject([
       {
         service: "test",
-        envName: "demo",
+        env: selectedEnv("demo"),
         vendor: "test-x",
         data: {
           service: "test",
-          envName: "demo",
+          env: selectedEnv("demo"),
           vendor: "x",
           mode: "run",
           componentIds: ["components/demo/button"],
@@ -142,7 +143,7 @@ describe("vendor task helpers", () => {
     expect(results).toEqual([
       {
         service: "mixed",
-        envName: "mixed",
+        env: selectedEnv("mixed"),
         vendor: "mixed-results",
         data: {
           service: "mixed",
@@ -156,6 +157,7 @@ describe("vendor task helpers", () => {
 
   it("uses event result data for watch details", async () => {
     const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
+    let receivedResult: MixedEventResult | undefined;
 
     try {
       const tasks = await watchVendorTasks<MixedEventResult>([createTaskOptions("mixed", "mixed", ["--watch"])], {
@@ -163,7 +165,8 @@ describe("vendor task helpers", () => {
         label: "Mixed",
         title: "mixed watch",
         formatResult: formatMixedWatchResult,
-        onResult() {
+        onResult(result) {
+          receivedResult = result;
           process.emit("SIGTERM");
         },
       });
@@ -171,6 +174,8 @@ describe("vendor task helpers", () => {
       expect(tasks).toHaveLength(1);
       expect(tasks[0]?.details).toEqual(["event: event saw 1 component(s)"]);
       expect(tasks[0]?.canAttach).toBe(true);
+      expect(receivedResult?.env).toEqual(selectedEnv("mixed"));
+      expect(receivedResult).not.toHaveProperty("envName");
     } finally {
       kill.mockRestore();
     }
@@ -184,7 +189,7 @@ describe("vendor task helpers", () => {
       label: "Hung Test",
       status: "running",
       rawOutput: new RawOutputBuffer(),
-      envName: "hung",
+      env: selectedEnv("hung"),
       vendor: {
         id: "hung",
         label: "Hung",
@@ -231,20 +236,20 @@ describe("vendor task helpers", () => {
   });
 });
 
-function createTaskOptions(envName: string, serviceId: string, rawArgs: string[]): VendorTaskStartOptions {
-  const group = fixtureGroups[envName];
-  if (!group) throw new Error(`Missing fixture group "${envName}"`);
+function createTaskOptions(fixtureName: string, serviceId: string, rawArgs: string[]): VendorTaskStartOptions {
+  const group = fixtureGroups[fixtureName];
+  if (!group) throw new Error(`Missing fixture group "${fixtureName}"`);
   const definition = group.services[serviceId];
-  if (!definition) throw new Error(`Missing fixture service "${envName}.${serviceId}"`);
+  if (!definition) throw new Error(`Missing fixture service "${fixtureName}.${serviceId}"`);
 
   return {
-    envName,
+    env: selectedEnv(fixtureName),
     components: group.components,
     args: parseCliArguments(rawArgs),
     workspaceRoot: "/workspace",
     service: {
       definition: definition as never,
-      declaredBy: envName,
+      declaredBy: fixtureName,
       packageRoot: "/workspace",
       entryUrl: "file:///workspace/index.json",
       entryDirectory: "/workspace",
@@ -266,7 +271,7 @@ function createTestVendorSpecifier(options: {
       const total = componentIds.length * ${JSON.stringify(options.multiplier)};
       const data = {
         service: "test",
-        envName: runtime.data.envName,
+        env: runtime.data.env,
         vendor: ${JSON.stringify(options.vendor)},
         mode,
         run: 1,
@@ -322,6 +327,7 @@ function createMixedResultsVendorSpecifier() {
         data: {
           service: "mixed",
           phase: "progress",
+          env: runtime.data.env,
           componentCount,
           detail: "event saw " + componentCount + " component(s)",
         },
@@ -364,7 +370,8 @@ function isTestServiceResult(value: unknown): value is TestServiceResult {
   return (
     isRecord(value) &&
     value.service === "test" &&
-    typeof value.envName === "string" &&
+    !("envName" in value) &&
+    isSelectedEnvIdentity(value.env) &&
     typeof value.vendor === "string" &&
     (value.mode === "run" || value.mode === "watch") &&
     typeof value.run === "number" &&
@@ -403,6 +410,7 @@ function isMixedEventResult(value: unknown): value is MixedEventResult {
     isRecord(value) &&
     value.service === "mixed" &&
     value.phase === "progress" &&
+    isSelectedEnvIdentity(value.env) &&
     typeof value.componentCount === "number" &&
     typeof value.detail === "string"
   );
@@ -423,4 +431,12 @@ function isJsonValue(value: unknown): value is JsonObject[keyof JsonObject] {
   if (typeof value === "number") return Number.isFinite(value);
   if (Array.isArray(value)) return value.every(isJsonValue);
   return isJsonObject(value);
+}
+
+function selectedEnv(packageName: string): SelectedEnvIdentity {
+  return {
+    packageName,
+    requestedVersion: "workspace:*",
+    installedVersion: "0.0.0",
+  };
 }

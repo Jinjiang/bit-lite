@@ -112,7 +112,7 @@ describe("preview preparation", () => {
     const browserModulePath = await createFile(workspaceRoot, "runtime/browser.ts", "export const startPreview = () => ({});\n");
 
     const prepared = await preparePreviewEnv({
-      envName: "react env",
+      env: selectedEnv("react env"),
       components: [{ id: 'scope/"quoted"', rootDir: componentRoot, packageName: "@scope/quoted" }],
       serviceConfig: {
         vendor: "vite-preview",
@@ -175,7 +175,7 @@ describe("preview preparation", () => {
     await createFile(workspaceRoot, "config/vite.ts", "export default {};\n");
     const browserModulePath = await createFile(workspaceRoot, "runtime/browser.ts", "export const startPreview = () => ({});\n");
     const baseOptions = {
-      envName: "static",
+      env: selectedEnv("static"),
       serviceConfig: { vendor: "vite-preview", config: { configFile: "./config/vite.ts" } },
       workspaceRoot,
       server: {
@@ -220,6 +220,10 @@ async function createWorkspace() {
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "bit-lite-preview-prepare-"));
   await writeFile(path.join(workspaceRoot, "package.json"), '{"type":"module"}\n', "utf8");
   return workspaceRoot;
+}
+
+function selectedEnv(packageName: string) {
+  return { packageName, requestedVersion: "^1.0.0", installedVersion: "1.2.0" };
 }
 
 async function createComponent(workspaceRoot: string, name: string, files: Record<string, string>) {

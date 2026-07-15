@@ -26,16 +26,21 @@ describe("workspace runtime", () => {
       ["ui/button", "@env/react"],
       ["vue/card", "@env/vue"],
     ]);
-    expect(workspace.groups.map((group) => [group.envName, group.components.map((item) => item.id)])).toEqual([
-      ["@env/node", ["lib/math"]],
-      ["@env/react", ["ui/button"]],
-      ["@env/vue", ["vue/card"]],
+    expect(workspace.groups.map((group) => [
+      group.env.packageName,
+      group.env.requestedVersion,
+      group.env.installedVersion,
+      group.components.map((item) => item.id),
+    ])).toEqual([
+      ["@env/node", "1.0.0", "1.0.0", ["lib/math"]],
+      ["@env/react", "1.0.0", "1.0.0", ["ui/button"]],
+      ["@env/vue", "1.0.0", "1.0.0", ["vue/card"]],
     ]);
 
     expect(groupSelectedComponentsByEnv(workspace, [
       { id: "vue/card", rootDir: path.join(workspaceRoot, "components/vue/card"), packageName: "@scope/vue.card" },
       { id: "lib/math", rootDir: path.join(workspaceRoot, "components/lib/math"), packageName: "@scope/lib.math" },
-    ]).map((group) => group.envName)).toEqual(["@env/node", "@env/vue"]);
+    ]).map((group) => group.env.packageName)).toEqual(["@env/node", "@env/vue"]);
     expect(selectComponentRefs(workspace.components, ["ui/*"]).map((item) => item.id)).toEqual(["ui/button"]);
     expect(() => selectComponentRefs(workspace.components, ["missing/**"]))
       .toThrow("--filter did not match any components: missing/**");

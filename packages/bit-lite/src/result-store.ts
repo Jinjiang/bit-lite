@@ -1,7 +1,9 @@
+import type { SelectedEnvIdentity } from "bit-lite-context";
+
 export type ResultStoreEntry<Result> = {
   observedAt: string;
   taskId: string;
-  envName: string;
+  env: SelectedEnvIdentity;
   vendor: string;
   json: Result;
   text: string;
@@ -26,7 +28,7 @@ export function createResultStore<Result>(): ResultStore<Result> {
       const storedEntry: ResultStoreEntry<Result> = {
         observedAt: formatObservedAt(entry.observedAt),
         taskId: entry.taskId,
-        envName: entry.envName,
+        env: entry.env,
         vendor: entry.vendor,
         json: entry.json,
         text: entry.text,

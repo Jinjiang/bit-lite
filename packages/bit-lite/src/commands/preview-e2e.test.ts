@@ -60,10 +60,11 @@ describe("prepared preview end-to-end", () => {
         writeFile(path.join(componentRoot, variant.demoFile), variant.demoSource, "utf8"),
       ]);
       const vendorPort = await findAvailablePort("127.0.0.1", variant.name === "vite" ? 46_000 : 46_100);
+      const env = selectedEnv(variant.name);
       const proxy = new PreviewProxyServer({
         envs: [
           {
-            envName: variant.name,
+            env,
             taskId: variant.name,
             vendor: `${variant.name}-preview`,
             status: "starting",
@@ -78,7 +79,7 @@ describe("prepared preview end-to-end", () => {
         ? await writeWebpackFixtureConfig(workspaceRoot)
         : require.resolve(variant.configFile);
       const prepared = await preparePreviewEnv({
-        envName: variant.name,
+        env,
         components: [{ id: "components/sample", rootDir: componentRoot, packageName: "@scope/sample" }],
         serviceConfig: {
           vendor: `${variant.name}-preview`,
@@ -106,12 +107,12 @@ describe("prepared preview end-to-end", () => {
       expect(generatedEntry.match(new RegExp(variant.demoFile.replaceAll(".", "\\."), "g"))).toHaveLength(2);
       expect(generatedEntry).toContain('.then((module) => module["Primary"])');
       expect(generatedEntry).toContain('.then((module) => module["MySecondDemo"])');
-      proxy.updatePreparedComponents(variant.name, prepared.runtime.server.basePath, prepared.components);
-      const harness = createHarness(variant.name, prepared);
+      proxy.updatePreparedComponents(env, prepared.runtime.server.basePath, prepared.components);
+      const harness = createHarness(env, prepared);
       const handle = await variant.startVendor(harness.runtime as never);
       stopVendor = () => handle.stop?.();
       proxy.updateServer(
-        variant.name,
+        env,
         {
           origin: `http://127.0.0.1:${vendorPort}`,
           host: "127.0.0.1",
@@ -159,6 +160,7 @@ describe("prepared preview end-to-end", () => {
       }
 
       const component = proxy.manifest().envs[0]?.components[0];
+      expect(proxy.manifest().envs[0]?.env).toEqual(env);
       expect(component?.overviewRoute).toBe(`/env/${variant.name}/#components%2Fsample`);
       expect(component?.docsRoute).toContain("?preview=docs");
       expect(component?.compositions).toEqual([
@@ -227,11 +229,11 @@ async function writeWebpackFixtureConfig(workspaceRoot: string) {
   return configFile;
 }
 
-function createHarness(name: string, prepared: Awaited<ReturnType<typeof preparePreviewEnv>>) {
+function createHarness(env: ReturnType<typeof selectedEnv>, prepared: Awaited<ReturnType<typeof preparePreviewEnv>>) {
   const messages: VendorMessage<PreviewServiceResult>[] = [];
   const runtime: VendorRuntime<Record<string, unknown>, PreviewServiceResult, never, PreviewVendorRuntime> = {
     data: {
-      envName: name,
+      env,
       components: [],
       config: prepared.serviceConfig.config as Record<string, unknown>,
       args: parseCliArguments([]),
@@ -245,6 +247,10 @@ function createHarness(name: string, prepared: Awaited<ReturnType<typeof prepare
     },
   };
   return { runtime, messages };
+}
+
+function selectedEnv(packageName: string) {
+  return { packageName, requestedVersion: "^1.0.0", installedVersion: "1.2.0" };
 }
 
 function readWebpackLazyChunkFiles(entry: string) {

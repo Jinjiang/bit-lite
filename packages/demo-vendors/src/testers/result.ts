@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { CliArguments } from "bit-lite-context";
+import type { CliArguments, SelectedEnvIdentity } from "bit-lite-context";
 import type { JsonObject, JsonValue } from "bit-lite-vendors";
 import type { ComponentTestTarget } from "./files.js";
 
@@ -27,7 +27,7 @@ export type TestServiceResult = {
   mode: TestVendorMode;
   run: number;
   context: {
-    envName: string;
+    env: SelectedEnvIdentity;
     componentIds: string[];
     args: CliArguments;
     config: JsonObject;
@@ -65,7 +65,7 @@ export function finishComponentResults(results: readonly MutableComponentResult[
 }
 
 export function createTestServiceResult(options: {
-  envName: string;
+  env: SelectedEnvIdentity;
   vendor: string;
   mode: TestVendorMode;
   run: number;
@@ -90,7 +90,7 @@ export function createTestServiceResult(options: {
     mode: options.mode,
     run: options.run,
     context: {
-      envName: options.envName,
+      env: options.env,
       componentIds: options.componentResults.map((result) => result.componentId),
       args: options.args,
       config: toJsonObject(options.config),

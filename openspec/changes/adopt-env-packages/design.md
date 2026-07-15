@@ -8,6 +8,8 @@ The component package registry already distinguishes internal component dependen
 
 Every env is conceptually a component package. In a consuming workspace it has one of two forms: a registered local Bit component reached through `workspace:`, or an external package reached through a normal package-manager version. A local env component must be materialized before its JSON definition can be loaded, but asking that definition for its own compile service would create a bootstrap cycle. Bit-lite therefore needs one deliberately narrow built-in compiler for env components while retaining env-selected compile behavior for every ordinary component.
 
+The first implementation migrates persisted assignment to package references and records both requested and installed versions in `LoadedEnvRuntime`, but several runtime and service boundaries still copy only `envName: string`. That string now contains the selected npm package name rather than an alias, duplicates data already present on the loaded runtime, and drops version provenance when vendor input, command results, preview state, and stored results cross package or worker boundaries.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -18,7 +20,7 @@ Every env is conceptually a component package. In a consuming workspace it has o
 - Support explicit single inheritance through `EnvDefinition.extends`, including local or external parents, while retaining the declaring env entry and dependency context of every effective service.
 - Materialize local env components with one Bit-lite-owned, non-configurable TypeScript compiler so env packages terminate configurable compile traversal.
 - Let each ordinary component obtain its compile vendor and opaque JSON config from its own effective env; do not assume one compiler implementation or one TypeScript configuration across a dependency graph.
-- Preserve JSON-only worker data, command-owned selection/modes/results, and vendor-owned file discovery.
+- Preserve the configured package reference and resolved installed version as structured selected-env identity across runtime groups, JSON-only worker data, command-owned results, preview state, and vendor-owned file discovery.
 - Reuse one canonical workspace parser and component registry across link, install, env loading, test, preview, and compile.
 - Migrate the demo to external Node and Vue env packages plus a local React env Bit component that exercises `extends`, generated in-package configuration, and external package-subpath configuration.
 
@@ -31,7 +33,7 @@ Every env is conceptually a component package. In a consuming workspace it has o
 - A cloud env registry, env publishing/versioning commands, automatic dependency-conflict resolution, or peer dependency auto-installation.
 - Multiple inheritance, alias-based parents, deep service merging, or workspace-supplied inheritance/overrides. A single full-package-name `EnvDefinition.extends` is in scope.
 - A configurable compiler for env components. Only ordinary components use package-defined `services.compile`.
-- Redesigning preview browser routing/rendering or existing test/preview result contracts.
+- Redesigning preview browser routing/rendering or test/preview result content beyond replacing the legacy string env identity with a structured package identity.
 
 ## Decisions
 
@@ -80,7 +82,7 @@ Classification is determined by the configured version before package resolution
 - `workspace:` requires `env.packageName` to exist in the current Bit component registry and requires the target to have `kind: "env"`.
 - A normal semver or supported package-manager spec always denotes an external package. A same-named Bit component or root pnpm workspace package does not shadow it.
 - Root pnpm-workspace membership by itself never makes an env local.
-- Components using one env package name in this first phase use one version specifier so env identity and grouping remain unambiguous.
+- Components using one env package name in this first phase use one version specifier. Runtime grouping keys derive from the selected package reference, while public/runtime contracts retain structured identity rather than exposing a bare package-name key as `envName`.
 
 The parser rejects legacy top-level `envs`, `envName`, object-form component mappings, aliases, defaults, and overrides with targeted migration errors. It validates duplicate path, component ID, and component package name before installation or env loading.
 
@@ -124,9 +126,15 @@ type LoadedEnvRuntime = {
   services: Partial<Record<SupportedEnvServiceName, LoadedEnvServiceRuntime>>;
   inheritanceChain: string[];
 };
+
+type SelectedEnvIdentity = {
+  packageName: string;
+  requestedVersion: string;
+  installedVersion: string;
+};
 ```
 
-The definition `name` must exactly match the resolved package manifest name. JSON parsing and protocol validation happen before vendor or config module loading. All runtime data retained from the definition is recursively JSON-safe.
+The definition `name` must exactly match the resolved package manifest name. JSON parsing and protocol validation happen before vendor or config module loading. All runtime data retained from the definition is recursively JSON-safe. `requestedVersion` preserves the configured package-manager spec such as `workspace:*` or `^1.2.0`; `installedVersion` records the resolved manifest version. A selected-env identity is projected from the loaded runtime when a smaller JSON-safe value must cross a service or worker boundary.
 
 Alternative considered: support JSON and a JavaScript factory simultaneously. Deferred because a single static entry keeps identity, caching, validation, and security behavior deterministic; dynamic factories can be proposed later if a concrete use case requires them.
 
@@ -170,7 +178,7 @@ Effective definitions use shallow rules:
 - An omitted child service is inherited together with the parent's declaring package and entry origin.
 - A child service replaces the complete parent service and receives the child's origin.
 - Top-level `config` is shallow-merged with child keys winning.
-- Final identity and grouping always use the selected child package name.
+- Final identity and grouping always use the selected child's package reference and resolved version rather than the inheritance parent's identity.
 
 The uses-env edge, package dependency edge, and `extends` edge remain distinct even when they name the same package. The first selects development behavior, the second makes packages resolvable, and the third defines semantic inheritance.
 
@@ -185,7 +193,7 @@ The JSON definition does not wrap every config value with origin data. The loade
 | Vendor package | Declaring env package's dependency context, then documented workspace fallback |
 | CLI workspace file argument | Workspace root |
 
-For a React env whose entry is `dist/index.json`, `configFile: "./webpack-react.js"` resolves to `dist/webpack-react.js`. A relative specifier must remain inside the declaring env package root. Inherited services use the ancestor entry directory, while commands continue grouping and reporting them under the selected child env identity.
+For a React env whose entry is `dist/index.json`, `configFile: "./webpack-react.js"` resolves to `dist/webpack-react.js`. A relative specifier must remain inside the declaring env package root. Inherited services use the ancestor entry directory, while commands continue grouping and reporting them under the selected child's structured env identity.
 
 Known module-bearing fields such as preview `configFile`, `mounter`, and `docsTemplate` are resolved before worker startup and converted to canonical paths or URLs. Arbitrary vendor JSON strings are not guessed to be paths. A vendor that introduces another module-bearing field requires a typed service adapter rather than generic recursive rewriting.
 
@@ -213,7 +221,7 @@ type EnvDefinition = {
 
 Service objects accept only `vendor` and optional recursively JSON-safe `config`. The shared contract rejects unknown services, empty vendors, `mode`, selected components, workspace/component roots, callbacks, loaded modules, and generic `targets`, `files`, or `patterns`. Vendor-specific compiler settings, including an inline TypeScript configuration or a vendor-defined config module specifier, belong inside opaque service `config`; the shared compile contract does not assume TypeScript.
 
-Test and preview retain command-owned selection, mode, lifecycle, results, and shutdown. Their vendors continue discovering files from selected component descriptors, including maintained hard-coded test patterns.
+Test and preview retain command-owned selection, mode, lifecycle, result validation, and shutdown. Their result identity changes from a bare `envName` string to the structured selected-env identity, while their remaining result content stays command-owned. Their vendors continue discovering files from selected component descriptors, including maintained hard-coded test patterns.
 
 ### 8. Make ordinary-component compile env-specific and dependency-aware
 
@@ -230,11 +238,23 @@ kind: component  -> selected env.services.compile -> dependency layers
 
 ### 9. Resolve vendors in the parent and narrow the worker boundary
 
-`VendorTaskStartOptions` carries selected env identity, the effective service's declaring package/entry origin, selected components, args, service config, and command runtime. Parent-side preparation resolves and imports the vendor from the declaring env package context before the documented workspace fallback and validates `meta: VendorDefinition` plus the required entry.
+`VendorTaskStartOptions` carries the selected loaded env identity, the effective service's declaring package/entry origin, selected components, args, service config, and command runtime. Parent-side preparation resolves and imports the vendor from the declaring env package context before the documented workspace fallback and validates `meta: VendorDefinition` plus the required entry.
 
-Worker-facing `VendorData` contains only JSON-safe env identity, component descriptors, config, parsed args, and explicit command runtime values. Loaded env runtimes, modules, callbacks, maps, and resolver functions remain in the parent. Commands continue owning run/event result validation and presentation.
+Worker-facing `VendorData` contains only `env: SelectedEnvIdentity`, component descriptors, config, parsed args, and explicit command runtime values. Loaded env runtimes, modules, callbacks, maps, and resolver functions remain in the parent. Commands continue owning run/event result validation and presentation.
 
-### 10. Use one local extending env and two external envs in the demo
+### 10. Use structured selected-env identity across runtime and service boundaries
+
+Persisted component assignment continues using `env: PackageRef`, where `version` is the requested package-manager spec. Loaded runtime code uses `LoadedEnvRuntime`, which contains both requested and installed versions. Boundaries that must remain JSON-safe use the smaller `SelectedEnvIdentity`; they do not invent another `envName`, `envPackageName`, or combined public string field.
+
+Workspace groups reuse their `env: LoadedEnvRuntime` and contain selected component descriptors without copying `env.packageName`. Parent-side vendor tasks retain the loaded env identity needed for resolution, then project it to `VendorData.env` for inline or worker execution. Vendor task results, test result context, preview service results, compile vendor input, result-store entries, prepared preview state, skipped-preview state, and preview proxy manifests carry the same structured `env` object. Maintained demo vendors mirror those contracts.
+
+Internal maps, task IDs, temporary directory names, and routing helpers may derive a deterministic key from `packageName` plus `requestedVersion`, but that key is an implementation detail and is not returned as env identity. Preview public URLs continue using the selected package name in this phase because workspace validation allows only one version specifier for a package name; the preview manifest beside those URLs carries full identity. If isolated simultaneous versions are added later, their route-disambiguation scheme requires a separate design.
+
+`EnvDefinition.name` remains a package name checked against the resolved manifest. `EnvDefinition.extends` remains a parent package name whose version is read from the child package's normal dependencies. Adding versions to either JSON field would duplicate package metadata and create competing sources of truth.
+
+Alternative considered: rename `envName` to `envPackageName` and continue passing a string. Rejected because it preserves the version-loss problem and makes grouping/result correctness depend implicitly on the current same-name/same-version restriction.
+
+### 11. Use one local extending env and two external envs in the demo
 
 The maintained demo uses three env identities without pretending all three are local:
 
@@ -262,6 +282,8 @@ Alternative considered: create Node, React, and Vue as root pnpm workspace env p
 - [Different compiler vendors/configs complicate cross-env builds] → Keep one global component dependency order, select service per component, isolate result validation, and stop only dependent later work after failure.
 - [Tool dependency graphs may load duplicate framework/compiler versions] → Resolve from declaring env contexts first, surface missing/incompatible peer causes, and defer automated conflict solving.
 - [Strict same-name/same-version grouping limits mixed-version experiments] → Retain it for this phase and defer isolated simultaneous env versions.
+- [Structured env identity breaks vendor and result consumers that read `envName`] → Migrate parent tasks, worker data, command validators, preview manifests, result storage, maintained vendors, fixtures, and docs atomically, with contract tests rejecting legacy result shapes.
+- [Requested and installed versions can be confused] → Use distinct field names at loaded/runtime boundaries; reserve `PackageRef.version` for the configured spec and never serialize a combined `name@version` string as canonical identity.
 
 ## Migration Plan
 
@@ -272,7 +294,8 @@ Alternative considered: create Node, React, and Vue as root pnpm workspace env p
 5. Migrate test and preview, including inherited and in-package preview module resolution.
 6. Replace global ordinary-component compile selection with the per-component effective compile pipeline and route `install --compile` through env materialization, loading, and dependency layers.
 7. Add external Node/Vue demo env packages, the local React env component and its generated Webpack config, migrate `bit-lite.json`, and update documentation.
-8. Remove inline envs, alias inheritance, `envName`, patterns, duplicate readers, factory code, and the global hard-coded ordinary-component compiler path; then run focused and repository-wide verification.
+8. Replace runtime-group, vendor/worker, command result, compile input, result-store, preview state/manifest, and maintained demo-vendor `envName` fields with structured selected-env identity while retaining package-name-only preview URLs.
+9. Remove inline envs, alias inheritance, remaining non-migration `envName` usage, patterns, duplicate readers, factory code, and the global hard-coded ordinary-component compiler path; then run focused and repository-wide verification.
 
 The cutover is atomic at repository level. Rollback is a source revert restoring the previous config and demo together. No persisted data migration is required beyond editing workspace/component JSON.
 

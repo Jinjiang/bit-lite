@@ -82,3 +82,12 @@
 - [x] 9.3 Run focused `pnpm --filter` tests and existing typechecks for `bit-lite-env`, `bit-lite-context`, `bit-lite-vendors`, `bit-lite-preview`, `bit-lite`, demo env/config/vendor packages, and the local React env fixture, fixing contract or type regressions.
 - [x] 9.4 Run demo end-to-end install/link plus test, preview preparation/startup, and cross-env compile, verifying clean env materialization, external/local resolution, inheritance, generated relative Webpack config, exported config subpaths, different compile configs, component filtering, fallback errors, vendor-owned discovery, and clean shutdown.
 - [x] 9.5 Run repository-wide existing test, typecheck, and build suites and verify generated package manifests/artifacts contain JSON env entries, expected JavaScript support outputs, no stale inline-env schema, and no accidental runtime env dependency on ordinary components.
+
+## 10. Structured Env Identity Migration
+
+- [x] 10.1 Add a shared JSON-safe selected-env identity containing `packageName`, `requestedVersion`, and `installedVersion`; remove the redundant `EnvRuntime.envName` field and derive internal group keys from package refs.
+- [x] 10.2 Migrate `VendorTaskStartOptions`, `VendorData`, `VendorTask`, and vendor run results from `envName` strings to structured env identity while preserving declaring-service origin in the parent.
+- [x] 10.3 Migrate test result context, result-store entries, compile vendor input, validators, and maintained test/compiler vendors to structured env identity without a legacy `envName` compatibility field.
+- [x] 10.4 Migrate preview task specs, preparation state, skipped state, service results, proxy manifests, UI rendering, and maintained preview vendors while retaining existing public preview URL paths.
+- [x] 10.5 Add context/vendor/test/preview/compile tests for requested-versus-installed versions, workspace refs, inherited service origins, worker serialization, manifest output, and rejection of legacy `envName` result payloads.
+- [x] 10.6 Update affected READMEs and interface documentation, search for remaining non-migration `envName` fields, and run focused plus repository-wide typecheck, test, build, and demo end-to-end verification.

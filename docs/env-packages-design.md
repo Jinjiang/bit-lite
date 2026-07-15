@@ -100,6 +100,25 @@ env 自己的 `services.compile`，因此 env package 是级联 compile 的终�
 `install --compile` 的固定顺序是：dependency install、component link、本地 env
 materialization、JSON env loading/inheritance、普通 component compile。
 
+## 运行时 identity
+
+配置中的 `env.version` 保留用户请求的 version spec；loader 另外读取实际安装的
+package manifest version。跨 service/worker 边界统一使用：
+
+```ts
+env: {
+  packageName: string;
+  requestedVersion: string;
+  installedVersion: string;
+}
+```
+
+Workspace group 直接复用 loaded env runtime，不再复制 package-name-only 字段。
+Vendor task/result、test result store、compile vendor input、preview prepared/skipped
+state 与 proxy manifest 都携带同一个 JSON-safe identity。内部 key 从 package ref
+派生；现阶段 preview URL 仍只使用 package name，因为同一 workspace 不允许同名 env
+使用多个 version spec。
+
 ## Demo
 
 `demo-env-node` 与 `demo-env-vue` 是外部式 pnpm packages，不在 demo Bit registry。

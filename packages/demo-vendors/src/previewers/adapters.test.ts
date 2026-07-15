@@ -155,17 +155,10 @@ function createHarness(configFile: string, entryFile: string, htmlFile: string, 
   const messages: VendorMessage<PreviewServiceResult>[] = [];
   const runtime: VendorRuntime<Record<string, unknown>, PreviewServiceResult, never, PreviewVendorRuntime> = {
     data: {
-      envName: "test-env",
+      env: selectedEnv("test-env"),
       components: [],
       config: { configFile },
       args: parseCliArguments([]),
-      context: {
-        workspaceRoot: path.dirname(configFile),
-        config: { envs: {}, components: {} },
-        envs: {},
-        components: [],
-        groups: [],
-      },
       runtime: {
         ...createPreviewRuntime(path.dirname(configFile), entryFile, htmlFile, port),
       },
@@ -178,6 +171,10 @@ function createHarness(configFile: string, entryFile: string, htmlFile: string, 
     },
   };
   return { runtime, messages };
+}
+
+function selectedEnv(packageName: string) {
+  return { packageName, requestedVersion: "1.0.0", installedVersion: "1.0.0" };
 }
 
 function createPreviewRuntime(

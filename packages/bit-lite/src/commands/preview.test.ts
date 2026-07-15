@@ -2,9 +2,10 @@ import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseCliArguments } from "bit-lite-context";
+import { getSelectedEnvKey } from "bit-lite-context";
 import { PreviewProxyServer } from "bit-lite-preview/node";
 import { describe, expect, it } from "vitest";
-import { preparePreviewTasks, type PreviewTaskSpec } from "./preview.js";
+import { isPreviewServiceResult, preparePreviewTasks, type PreviewTaskSpec } from "./preview.js";
 
 describe("preview command preparation isolation", () => {
   it("starts valid env inputs while retaining failed env state and command-owned cleanup", async () => {
@@ -24,8 +25,8 @@ describe("preview command preparation isolation", () => {
     ];
     const proxy = new PreviewProxyServer({
       envs: tasks.map((task) => ({
-        envName: task.envName,
-        taskId: task.envName,
+        env: task.env,
+        taskId: getSelectedEnvKey(task.env),
         vendor: "vite-preview",
         status: "starting",
         components: task.components,
@@ -47,18 +48,41 @@ describe("preview command preparation isolation", () => {
     expect(result.taskOptions[0]?.workspaceRoot).toBe(workspaceRoot);
     expect(result.taskOptions[0]?.service.declaredBy).toBe("valid");
     expect(proxy.manifest().envs).toMatchObject([
-      { envName: "failed", status: "failed", error: expect.stringContaining("could not resolve") },
-      { envName: "valid", status: "starting" },
+      { env: selectedEnv("failed"), status: "failed", error: expect.stringContaining("could not resolve") },
+      { env: selectedEnv("valid"), status: "starting" },
     ]);
 
     const tempDir = result.preparedEnvs[0]?.tempDir;
     await Promise.all(result.preparedEnvs.map((prepared) => prepared.cleanup()));
     await expect(access(tempDir ?? "")).rejects.toThrow();
   });
+
+  it("accepts structured preview identity and rejects the legacy result field", () => {
+    const server = {
+      origin: "http://127.0.0.1:6000",
+      host: "127.0.0.1",
+      port: 6000,
+      basePath: "/env/valid/",
+    };
+    expect(isPreviewServiceResult({
+      service: "preview",
+      vendor: "vite-preview",
+      env: selectedEnv("valid"),
+      mode: "serve",
+      server,
+    })).toBe(true);
+    expect(isPreviewServiceResult({
+      service: "preview",
+      vendor: "vite-preview",
+      envName: "valid",
+      mode: "serve",
+      server,
+    })).toBe(false);
+  });
 });
 
 function createTask(
-  envName: string,
+  envPackageName: string,
   rootDir: string,
   configFile: string,
   workspaceRoot: string
@@ -66,21 +90,26 @@ function createTask(
   const serviceConfig = { vendor: "vite-preview", config: { configFile } };
   const service = {
     definition: serviceConfig,
-    declaredBy: envName,
+    declaredBy: envPackageName,
     packageRoot: workspaceRoot,
     entryUrl: new URL(`file://${path.join(workspaceRoot, "index.json")}`).href,
     entryDirectory: workspaceRoot,
   };
+  const env = selectedEnv(envPackageName);
   return {
-    envName,
-    components: [{ id: `scope/${envName}`, rootDir, packageName: `@scope/${envName}` }],
+    env,
+    components: [{ id: `scope/${envPackageName}`, rootDir, packageName: `@scope/${envPackageName}` }],
     service,
     taskOptions: {
-      envName,
-      components: [{ id: `scope/${envName}`, rootDir, packageName: `@scope/${envName}` }],
+      env,
+      components: [{ id: `scope/${envPackageName}`, rootDir, packageName: `@scope/${envPackageName}` }],
       args: parseCliArguments([]),
       workspaceRoot,
       service,
     },
   };
+}
+
+function selectedEnv(packageName: string) {
+  return { packageName, requestedVersion: "workspace:*", installedVersion: "0.0.0" };
 }

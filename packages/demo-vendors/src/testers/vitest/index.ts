@@ -75,7 +75,7 @@ export default async function startVitestVendor(
 
     applyVitestResults(targets, componentResults, testRun);
     const data = createTestServiceResult({
-      envName: runtime.data.envName,
+      env: runtime.data.env,
       vendor: meta.id,
       mode,
       run,
@@ -97,7 +97,7 @@ export default async function startVitestVendor(
     if (allFiles.length === 0) {
       run += 1;
       const data = createTestServiceResult({
-        envName: runtime.data.envName,
+        env: runtime.data.env,
         vendor: meta.id,
         mode,
         run,
@@ -153,7 +153,7 @@ export default async function startVitestVendor(
           unhandledErrors: Array.from(unhandledErrors),
         } as TestRunResult);
         const data = createTestServiceResult({
-          envName: runtime.data.envName,
+          env: runtime.data.env,
           vendor: meta.id,
           mode,
           run,

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { loadComponentPackageRegistry } from "./component-registry.js";
 import { loadWorkspaceEnvs } from "./env-loader.js";
+import { getPackageRefEnvKey, getSelectedEnvKey, toSelectedEnvIdentity } from "./env-identity.js";
 import type {
   ComponentPackageRegistry,
   ComponentRef,
@@ -21,7 +22,7 @@ export async function loadWorkspace(
   const components = registry.components.map<ComponentRuntime>((component) => {
     const env = loadedByComponent.get(component.id);
     if (!env) throw new BitLiteError(`env for component "${component.id}" was not loaded`);
-    envs[env.packageName] = env;
+    envs[getSelectedEnvKey(toSelectedEnvIdentity(env))] = env;
     return {
       id: component.id,
       rootDir: component.rootDir,
@@ -34,15 +35,17 @@ export async function loadWorkspace(
 
   const groups = Object.values(
     components.reduce<Record<string, WorkspaceRuntime["groups"][number]>>((acc, component) => {
-      const group = acc[component.env.packageName] ?? (acc[component.env.packageName] = {
-        envName: component.env.packageName,
+      const key = getPackageRefEnvKey(component.envRef);
+      const group = acc[key] ?? (acc[key] = {
         env: component.env,
         components: [],
       });
       group.components.push({ id: component.id, rootDir: component.rootDir, packageName: component.packageName });
       return acc;
     }, {})
-  ).sort((left, right) => left.envName.localeCompare(right.envName));
+  ).sort((left, right) => getSelectedEnvKey(toSelectedEnvIdentity(left.env)).localeCompare(
+    getSelectedEnvKey(toSelectedEnvIdentity(right.env))
+  ));
 
   return {
     workspaceRoot: registry.workspaceRoot,
@@ -72,7 +75,7 @@ export function groupSelectedComponentsByEnv(
     const components = group.components
       .filter((component) => selectedIds.has(component.id))
       .map((component) => selectedById.get(component.id) ?? component);
-    return components.length === 0 ? [] : [{ envName: group.envName, env: group.env, components }];
+    return components.length === 0 ? [] : [{ env: group.env, components }];
   });
 }
 

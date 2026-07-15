@@ -4,7 +4,7 @@
 
 Bit-lite commands own runtime orchestration. An env is configuration data:
 
-- a grouping key for components.
+- an explicit package reference used to derive an internal grouping key.
 - a namespace for command config such as `services.test`.
 - a source of `{ vendor, config }` values.
 
@@ -33,7 +33,7 @@ The `test` command owns the whole command workflow:
 - validate env config as `{ vendor, config }`.
 - dynamically import the vendor module.
 - validate `meta: VendorDefinition`.
-- pass only the env service config to the vendor.
+- pass a structured selected-env identity plus the env service config to the vendor.
 - create a `bit-lite-vendors` runner.
 - expose a task with `result`, `status`, `details`, `rawOutput`, `postMessage`, `stop`, `terminate`, `writeInput`, `onMessage`, and `onOutput`.
 - handle common `ready`, `status`, `error`, and `result` messages.
@@ -82,6 +82,20 @@ The effective config passed to the vendor is exactly `env.services.test.config ?
 
 ## Result Shape
 
-Each command validates its own run result and event result types through the helper-specific `formatResult()` function. The current test command uses the same result shape for both run-once output and watch event details. It includes `service`, `envName`, `vendor`, `mode`, `run`, `componentIds`, `args`, `config`, `total`, `passed`, `failed`, and `summary`.
+Each command validates its own run result and event result types through the
+helper-specific `formatResult()` function. Selected env identity is always the
+closed JSON-safe shape below; a package-name-only result is rejected:
+
+```ts
+env: {
+  packageName: string;
+  requestedVersion: string;
+  installedVersion: string;
+}
+```
+
+The current test result contains `service`, `vendor`, `mode`, `run`, structured
+`context.env`, component IDs, args, config, aggregate stats, and per-component
+results. Preview service results and manifests use the same structured `env`.
 
 The generic helper does not know what a valid test result is. It only calls the command-provided formatter for the current mode.

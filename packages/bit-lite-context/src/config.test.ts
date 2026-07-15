@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { validateConfig } from "./config.js";
 
-function component(id: string, envName = "@scope/env.node", version = "^1.0.0") {
+function component(id: string, envPackageName = "@scope/env.node", version = "^1.0.0") {
   return {
     path: `components/${id}`,
     id,
     packageName: `@scope/${id.replaceAll("/", ".")}`,
-    env: { packageName: envName, version },
+    env: { packageName: envPackageName, version },
   };
 }
 

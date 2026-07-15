@@ -42,7 +42,7 @@ export default async function startTestYVendor(
 
     return {
       service: "test",
-      envName: runtime.data.envName,
+      env: runtime.data.env,
       vendor: "y",
       mode,
       run,

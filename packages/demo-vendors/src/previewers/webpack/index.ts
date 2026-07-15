@@ -101,14 +101,14 @@ export default async function startWebpackPreviewVendor(
     await listen(server, previewRuntime.server.host, previewRuntime.server.port);
     await waitUntilValid(middleware);
 
-    const data = createPreviewServiceResult(previewRuntime, runtime.data.envName, meta.id);
+    const data = createPreviewServiceResult(previewRuntime, runtime.data.env, meta.id);
     runtime.postMessage({ type: "result", data });
     runtime.postMessage({ type: "status", status: "ready" });
     return { stop };
   } catch (error) {
     runtime.postMessage({ type: "status", status: "error" });
     await stop().catch(() => undefined);
-    throw withPreviewVendorContext(error, runtime.data.envName, meta.id);
+    throw withPreviewVendorContext(error, runtime.data.env, meta.id);
   }
 
   async function stop() {

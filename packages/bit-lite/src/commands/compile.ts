@@ -3,6 +3,7 @@ import {
   loadWorkspace,
   resolveVendorSpecifier,
   selectComponentRefs,
+  toSelectedEnvIdentity,
 } from "bit-lite-context";
 import type {
   ComponentPackage,
@@ -10,6 +11,7 @@ import type {
   ComponentRuntime,
   LoadedEnvServiceRuntime,
   ParsedCliArgs,
+  SelectedEnvIdentity,
 } from "bit-lite-context";
 import type { JsonObject } from "bit-lite-env";
 import { BitLiteError } from "../utils/errors.js";
@@ -21,7 +23,7 @@ import {
 } from "./link.js";
 
 export type CompileVendorInput = {
-  envName: string;
+  env: SelectedEnvIdentity;
   component: {
     id: string;
     rootDir: string;
@@ -142,7 +144,7 @@ async function compileOrdinaryComponent(
   const vendor = await loadCompilerVendor(vendorUrl, service, runtime.env.packageName, vendorCache);
   const distDir = path.join(getPackageDirectory(registry.workspaceRoot, component.packageName), "dist");
   const result = await vendor.compileComponent({
-    envName: runtime.env.packageName,
+    env: toSelectedEnvIdentity(runtime.env),
     component: {
       id: component.id,
       rootDir: component.rootDir,

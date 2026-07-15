@@ -89,11 +89,19 @@ An `EnvDefinition` MAY declare one `extends` field containing the full npm packa
 - **THEN** env loading fails and reports the complete package chain without reading further definitions
 
 ### Requirement: Loaded env definitions have package identity
-The parsed JSON SHALL be a valid `EnvDefinition` whose `name` exactly equals the resolved npm package name, whose optional top-level `config` is JSON-safe, and whose `services` satisfy the env service contract. The loader SHALL reject identity mismatches rather than normalizing or aliasing them.
+The parsed JSON SHALL be a valid `EnvDefinition` whose `name` exactly equals the resolved npm package name, whose optional top-level `config` is JSON-safe, and whose `services` satisfy the env service contract. The loader SHALL reject identity mismatches rather than normalizing or aliasing them. Its loaded runtime SHALL retain the selected package name, configured requested version, and resolved installed manifest version as distinct fields, and JSON-safe service boundaries SHALL project those fields without reducing them to a package-name-only identity.
 
 #### Scenario: JSON definition has the matching name
 - **WHEN** `@acme/env.react` exports an otherwise valid definition named `@acme/env.react`
-- **THEN** the definition is accepted with that package name as its env identity
+- **THEN** the definition is accepted with that package name while its requested and installed versions remain available on the loaded runtime
+
+#### Scenario: External env range resolves to an installed version
+- **WHEN** a component requests `@acme/env.react@^1.2.0` and package resolution selects manifest version `1.4.3`
+- **THEN** the selected env identity contains package name `@acme/env.react`, requested version `^1.2.0`, and installed version `1.4.3` as separate fields
+
+#### Scenario: Local env uses workspace protocol
+- **WHEN** a component requests `@acme/env.react@workspace:*` and the registered generated env package is loaded
+- **THEN** the selected env identity retains `workspace:*` as its requested version separately from the generated package's installed manifest version
 
 #### Scenario: JSON definition contains an alias
 - **WHEN** `@acme/env.react` exports a definition named `react`

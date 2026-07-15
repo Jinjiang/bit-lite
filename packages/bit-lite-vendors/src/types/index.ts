@@ -1,4 +1,4 @@
-import type { CliArguments, ComponentRef } from "bit-lite-context";
+import type { CliArguments, ComponentRef, SelectedEnvIdentity } from "bit-lite-context";
 import type { ManagedTerminalItem, RawOutputBuffer } from "bit-lite-terminal";
 import type {
   Runner,
@@ -54,7 +54,7 @@ export type VendorData<
   Config extends VendorConfig = VendorConfig,
   Runtime extends JsonObject = JsonObject,
 > = {
-  envName: string;
+  env: SelectedEnvIdentity;
   components: ComponentRef[];
   config: Config;
   args: CliArguments;

@@ -1,4 +1,5 @@
 import { readPreviewPreparedRuntime, type PreviewPreparedRuntime } from "bit-lite-preview/node";
+import type { SelectedEnvIdentity } from "bit-lite-context";
 import type { JsonObject } from "bit-lite-vendors";
 
 export type PreviewVendorRuntime = PreviewPreparedRuntime;
@@ -13,7 +14,7 @@ export type PreviewServerInfo = JsonObject & {
 export type PreviewServiceResult = JsonObject & {
   service: "preview";
   vendor: string;
-  envName: string;
+  env: SelectedEnvIdentity;
   mode: "serve";
   server: PreviewServerInfo;
 };
@@ -30,13 +31,13 @@ export { readPreviewPreparedRuntime as readPreviewRuntime };
 
 export function createPreviewServiceResult(
   runtime: PreviewVendorRuntime,
-  envName: string,
+  env: SelectedEnvIdentity,
   vendor: string
 ): PreviewServiceResult {
   return {
     service: "preview",
     vendor,
-    envName,
+    env,
     mode: "serve",
     server: {
       origin: `http://${runtime.server.host}:${runtime.server.port}`,
@@ -51,8 +52,8 @@ export function isShutdownMessage(message: unknown) {
   return typeof message === "object" && message !== null && (message as { type?: unknown }).type === "shutdown";
 }
 
-export function withPreviewVendorContext(error: unknown, envName: string, vendor: string) {
-  return new Error(`${vendor} failed for preview env "${envName}": ${formatError(error)}`, { cause: error });
+export function withPreviewVendorContext(error: unknown, env: SelectedEnvIdentity, vendor: string) {
+  return new Error(`${vendor} failed for preview env "${env.packageName}": ${formatError(error)}`, { cause: error });
 }
 
 function formatError(error: unknown) {

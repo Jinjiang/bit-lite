@@ -5,7 +5,9 @@ Reference vendor implementations for Bit-lite.
 The package supplies test, preview, and TypeScript compile vendors. Test vendors
 own their hard-coded `*.test.*` / `*.spec.*` discovery rules; env JSON does not
 define files or patterns. The compile vendor receives one component at a time
-with its selected env identity and that env's opaque JSON config.
+with `env: { packageName, requestedVersion, installedVersion }` and that env's
+opaque JSON config. Test and preview vendors copy the same structured identity
+from `runtime.data.env` into their service results.
 
 The Vite and Webpack preview adapters consume the command-prepared runtime:
 
