@@ -1,4 +1,4 @@
-import { groupSelectedComponentsByEnv, loadWorkspace, selectComponentRefs } from "bit-lite-context";
+import { groupSelectedComponentsByEnv, resolveEnvModuleSpecifier, selectComponentRefs } from "bit-lite-context";
 import {
   runVendorTasks,
   watchVendorTasks,
@@ -7,6 +7,7 @@ import type { CliArguments, ParsedCliArgs, SelectedEnvGroup, WorkspaceRuntime } 
 import type { JsonObject } from "bit-lite-env";
 import type { VendorTask, VendorTaskRunResult, VendorTaskStartOptions } from "bit-lite-vendors";
 import type { ResultStore, ResultStoreEntry } from "../result-store.js";
+import { prepareWorkspaceForEnvLoading } from "../prepare-workspace.js";
 
 export type TestServiceResult = {
   service: "test";
@@ -53,11 +54,11 @@ const serviceId = "test";
 const label = "Test";
 
 export async function runTestCommand(parsed: ParsedCliArgs, options: RunTestCommandOptions = {}) {
-  const workspace = await loadWorkspace(parsed.workspaceRoot);
+  const { workspace } = await prepareWorkspaceForEnvLoading(parsed.workspaceRoot);
   const components = selectComponentRefs(workspace.components, parsed.componentFilters);
   const groups = groupSelectedComponentsByEnv(workspace, components);
-  const tasks = groups
-    .map((group) => createTestVendorTaskOptions(workspace, group, parsed))
+  const tasks = (await Promise.all(groups
+    .map((group) => createTestVendorTaskOptions(workspace, group, parsed))))
     .filter((task): task is VendorTaskStartOptions => task !== undefined);
 
   if (tasks.length === 0) {
@@ -99,20 +100,37 @@ function isInteractiveTerminal() {
   return process.stdin.isTTY === true && process.stdout.isTTY === true;
 }
 
-function createTestVendorTaskOptions(
+async function createTestVendorTaskOptions(
   workspace: WorkspaceRuntime,
   group: SelectedEnvGroup,
   parsed: ParsedCliArgs
-): VendorTaskStartOptions | undefined {
+): Promise<VendorTaskStartOptions | undefined> {
   const serviceConfig = group.env.services[serviceId];
   if (serviceConfig === undefined) return undefined;
+  const rawConfig = serviceConfig.definition.config ?? {};
+  const configFile = typeof rawConfig.configFile === "string"
+    ? await resolveEnvModuleSpecifier({
+        specifier: rawConfig.configFile,
+        service: serviceConfig,
+        workspaceRoot: workspace.workspaceRoot,
+        field: "test config.configFile",
+        selectedEnv: group.envName,
+      })
+    : undefined;
 
   return {
     envName: group.envName,
     components: group.components,
     args: parsed.args,
-    context: workspace,
-    serviceConfig,
+    workspaceRoot: workspace.workspaceRoot,
+    service: {
+      ...serviceConfig,
+      definition: {
+        ...serviceConfig.definition,
+        config: { ...rawConfig, ...(configFile ? { configFile } : {}) },
+      },
+    },
+    runtime: { workspaceRoot: workspace.workspaceRoot },
   };
 }
 

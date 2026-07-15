@@ -2,7 +2,7 @@ import { parseCliArguments } from "bit-lite-context";
 import { RawOutputBuffer } from "bit-lite-terminal";
 import { describe, expect, it, vi } from "vitest";
 import { runVendorTasks, stopVendorTasks, watchVendorTasks } from "bit-lite-vendors";
-import type { CliArguments, ComponentRuntime, WorkspaceRuntime } from "bit-lite-context";
+import type { CliArguments, ComponentRef } from "bit-lite-context";
 import type { JsonObject } from "./types/index.js";
 import type { VendorTask, VendorTaskRunResult, VendorTaskStartOptions } from "bit-lite-vendors";
 
@@ -49,157 +49,44 @@ const testYVendorSpecifier = createTestVendorSpecifier({
 });
 const mixedResultsVendorSpecifier = createMixedResultsVendorSpecifier();
 
-const components: ComponentRuntime[] = [
-  {
-    id: "components/demo/button",
-    rootDir: "/workspace/components/demo/button",
-    envName: "demo",
-  },
-  {
-    id: "components/react/card",
-    rootDir: "/workspace/components/react/card",
-    envName: "react",
-  },
-];
-
-const workspaceRuntime: WorkspaceRuntime = {
-  workspaceRoot: "/workspace",
-  config: {
-    envs: {
-      demo: {
-        name: "demo",
-        services: {
-          test: {
-            vendor: testXVendorSpecifier,
-            config: {
-              label: "demo test",
-              shard: "unit",
-              retries: 1,
-              coverage: true,
-            },
-          },
-        },
-      },
-      react: {
-        name: "react",
-        services: {
-          test: {
-            vendor: testYVendorSpecifier,
-            config: {
-              label: "react test",
-              shard: "browser",
-              retries: 2,
-              coverage: false,
-            },
-          },
-        },
-      },
-      mixed: {
-        name: "mixed",
-        services: {
-          mixed: {
-            vendor: mixedResultsVendorSpecifier,
-            config: {},
-          },
-        },
-      },
-    },
-    components: {
-      "components/demo/button": "demo",
-      "components/react/card": "react",
-    },
-  },
-  envs: {
-    demo: {
-      name: "demo",
-      services: {
-        test: {
-          vendor: testXVendorSpecifier,
-          config: {
-            label: "demo test",
-            shard: "unit",
-            retries: 1,
-            coverage: true,
-          },
-        },
-      },
-    },
-    react: {
-      name: "react",
-      services: {
-        test: {
-          vendor: testYVendorSpecifier,
-          config: {
-            label: "react test",
-            shard: "browser",
-            retries: 2,
-            coverage: false,
-          },
-        },
-      },
-    },
-    mixed: {
-      name: "mixed",
-      services: {
-        mixed: {
-          vendor: mixedResultsVendorSpecifier,
-          config: {},
-        },
+const fixtureGroups: Record<string, {
+  components: ComponentRef[];
+  services: Record<string, { vendor: string; config: Record<string, unknown> }>;
+}> = {
+  demo: {
+    components: [{
+      id: "components/demo/button",
+      rootDir: "/workspace/components/demo/button",
+      packageName: "@fixture/demo.button",
+    }],
+    services: {
+      test: {
+        vendor: testXVendorSpecifier,
+        config: { label: "demo test", shard: "unit", retries: 1, coverage: true },
       },
     },
   },
-  components,
-  groups: [
-    {
-      envName: "demo",
-      env: {
-        name: "demo",
-        services: {
-          test: {
-            vendor: testXVendorSpecifier,
-            config: {
-              label: "demo test",
-              shard: "unit",
-              retries: 1,
-              coverage: true,
-            },
-          },
-        },
+  react: {
+    components: [{
+      id: "components/react/card",
+      rootDir: "/workspace/components/react/card",
+      packageName: "@fixture/react.card",
+    }],
+    services: {
+      test: {
+        vendor: testYVendorSpecifier,
+        config: { label: "react test", shard: "browser", retries: 2, coverage: false },
       },
-      components: [{ id: "components/demo/button", rootDir: "/workspace/components/demo/button" }],
     },
-    {
-      envName: "react",
-      env: {
-        name: "react",
-        services: {
-          test: {
-            vendor: testYVendorSpecifier,
-            config: {
-              label: "react test",
-              shard: "browser",
-              retries: 2,
-              coverage: false,
-            },
-          },
-        },
-      },
-      components: [{ id: "components/react/card", rootDir: "/workspace/components/react/card" }],
-    },
-    {
-      envName: "mixed",
-      env: {
-        name: "mixed",
-        services: {
-          mixed: {
-            vendor: mixedResultsVendorSpecifier,
-            config: {},
-          },
-        },
-      },
-      components: [{ id: "components/demo/button", rootDir: "/workspace/components/demo/button" }],
-    },
-  ],
+  },
+  mixed: {
+    components: [{
+      id: "components/demo/button",
+      rootDir: "/workspace/components/demo/button",
+      packageName: "@fixture/demo.button",
+    }],
+    services: { mixed: { vendor: mixedResultsVendorSpecifier, config: {} } },
+  },
 };
 
 describe("vendor task helpers", () => {
@@ -325,10 +212,11 @@ describe("vendor task helpers", () => {
         [
           {
             ...taskOptions,
-            serviceConfig: {
-              config: {
-                label: "missing vendor",
-              },
+            service: {
+              ...taskOptions.service,
+              definition: {
+                config: { label: "missing vendor" },
+              } as never,
             },
           },
         ],
@@ -344,15 +232,24 @@ describe("vendor task helpers", () => {
 });
 
 function createTaskOptions(envName: string, serviceId: string, rawArgs: string[]): VendorTaskStartOptions {
-  const group = workspaceRuntime.groups.find((candidate) => candidate.envName === envName);
+  const group = fixtureGroups[envName];
   if (!group) throw new Error(`Missing fixture group "${envName}"`);
+  const definition = group.services[serviceId];
+  if (!definition) throw new Error(`Missing fixture service "${envName}.${serviceId}"`);
 
   return {
-    envName: group.envName,
+    envName,
     components: group.components,
     args: parseCliArguments(rawArgs),
-    context: workspaceRuntime,
-    serviceConfig: group.env.services[serviceId],
+    workspaceRoot: "/workspace",
+    service: {
+      definition: definition as never,
+      declaredBy: envName,
+      packageRoot: "/workspace",
+      entryUrl: "file:///workspace/index.json",
+      entryDirectory: "/workspace",
+    },
+    runtime: { workspaceRoot: "/workspace" },
   };
 }
 

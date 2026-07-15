@@ -1,23 +1,19 @@
-// General interface
+import type { EnvDefinition, EnvServiceConfig, SupportedEnvServiceName } from "bit-lite-env";
 
 export type ComponentRef = {
   id: string;
   rootDir: string;
+  packageName: string;
 };
 
-// CLI Arguments
-
 export type CliOptionScalar = string | number | boolean;
-
 export type CliOptionValue = CliOptionScalar | CliOptionScalar[];
-
 export type CliArguments = {
   raw: string[];
   positional: string[];
   options: Record<string, CliOptionValue>;
   passthrough: string[];
 };
-
 export type ParsedCliArgs = {
   command: string | undefined;
   args: CliArguments;
@@ -26,47 +22,76 @@ export type ParsedCliArgs = {
   help: boolean;
 };
 
-// Workspace Config interface
-
-export type EnvConfig = {
-  extends?: string;
-  // TODO: unknown should be more particularly an optional JSON value
-  services?: Record<string, unknown>;
-};
-
-export type ResolvedEnvConfig = {
-  name: string;
-  // TODO: unknown should be more particularly an optional JSON value
-  services: Record<string, unknown>;
+export type PackageRef = {
+  packageName: string;
+  version: string;
 };
 
 export type WorkspaceComponentConfig = {
   path: string;
   id: string;
-  envName: string;
+  packageName: string;
+  env: PackageRef;
 };
-
-export type WorkspaceComponentsConfig = Record<string, string> | WorkspaceComponentConfig[];
 
 export type WorkspaceConfig = {
-  envs: Record<string, EnvConfig>;
-  components?: WorkspaceComponentsConfig;
+  defaultScope?: string;
+  components: WorkspaceComponentConfig[];
 };
 
-export type ResolvedWorkspaceConfig = {
-  envs: Record<string, ResolvedEnvConfig>;
-  components: WorkspaceComponentsConfig;
+export type ComponentKind = "component" | "env";
+
+export type ComponentPackage = ComponentRef & {
+  path: string;
+  kind: ComponentKind;
+  env: PackageRef;
+  mainFile: string;
+  mainFileRelative: string;
+  dependencies: Record<string, string>;
+  devDependencies: Record<string, string>;
+  peerDependencies: Record<string, string>;
+  internalDependencyPackageNames: string[];
+  internalEnvPackageName: string | undefined;
 };
 
-// Runtime interface
+export type ComponentPackageRegistry = {
+  workspaceRoot: string;
+  configPath: string;
+  config: WorkspaceConfig;
+  components: ComponentPackage[];
+  byId: Map<string, ComponentPackage>;
+  byPackageName: Map<string, ComponentPackage>;
+};
+
+export type LoadedEnvServiceRuntime = {
+  definition: EnvServiceConfig;
+  declaredBy: string;
+  packageRoot: string;
+  entryUrl: string;
+  entryDirectory: string;
+};
+
+export type LoadedEnvRuntime = {
+  packageName: string;
+  requestedVersion: string;
+  installedVersion: string;
+  packageRoot: string;
+  entryUrl: string;
+  entryDirectory: string;
+  effectiveDefinition: EnvDefinition;
+  services: Partial<Record<SupportedEnvServiceName, LoadedEnvServiceRuntime>>;
+  inheritanceChain: string[];
+};
 
 export type ComponentRuntime = ComponentRef & {
-  envName: string;
+  kind: ComponentKind;
+  envRef: PackageRef;
+  env: LoadedEnvRuntime;
 };
 
 export type EnvRuntime = {
   envName: string;
-  env: ResolvedEnvConfig;
+  env: LoadedEnvRuntime;
   components: ComponentRef[];
 };
 
@@ -74,8 +99,8 @@ export type SelectedEnvGroup = EnvRuntime;
 
 export type WorkspaceRuntime = {
   workspaceRoot: string;
-  config: ResolvedWorkspaceConfig;
-  envs: Record<string, ResolvedEnvConfig>;
+  config: WorkspaceConfig;
+  envs: Record<string, LoadedEnvRuntime>;
   components: ComponentRuntime[];
   groups: EnvRuntime[];
 };

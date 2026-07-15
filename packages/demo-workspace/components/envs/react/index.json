@@ -1,0 +1,23 @@
+{
+  "name": "@my-scope/env.react",
+  "extends": "demo-env-node",
+  "services": {
+    "test": {
+      "vendor": "demo-vendors/testers/jest",
+      "config": {
+        "configFile": "demo-config/testers/jest/react"
+      }
+    },
+    "preview": {
+      "vendor": "demo-vendors/previewers/webpack",
+      "config": {
+        "configFile": "./webpack-react.js",
+        "mounter": "demo-config/previewers/react-mounter",
+        "docsTemplate": "demo-config/previewers/docs-template"
+      }
+    }
+  },
+  "config": {
+    "framework": "react"
+  }
+}

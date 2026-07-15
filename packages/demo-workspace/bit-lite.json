@@ -1,102 +1,49 @@
 {
   "defaultScope": "my-scope",
-  "envs": {
-    "node": {
-      "services": {
-        "test": {
-          "vendor": "demo-vendors/testers/vitest",
-          "config": {
-            "configFile": "demo-config/testers/vitest/node"
-          }
-        },
-        "preview": {
-          "vendor": "demo-vendors/previewers/vite",
-          "config": {
-            "configFile": "demo-config/previewers/vite-static",
-            "mounter": "demo-config/previewers/static-mounter",
-            "docsTemplate": "demo-config/previewers/docs-template"
-          }
-        }
-      }
-    },
-    "react": {
-      "extends": "node",
-      "services": {
-        "test": {
-          "vendor": "demo-vendors/testers/jest",
-          "config": {
-            "configFile": "demo-config/testers/jest/react"
-          }
-        },
-        "preview": {
-          "vendor": "demo-vendors/previewers/webpack",
-          "config": {
-            "configFile": "demo-config/previewers/webpack-react",
-            "mounter": "demo-config/previewers/react-mounter",
-            "docsTemplate": "demo-config/previewers/docs-template"
-          }
-        }
-      }
-    },
-    "vue": {
-      "extends": "node",
-      "services": {
-        "test": {
-          "vendor": "demo-vendors/testers/vitest",
-          "config": {
-            "configFile": "demo-config/testers/vitest/vue"
-          }
-        },
-        "preview": {
-          "vendor": "demo-vendors/previewers/vite",
-          "config": {
-            "configFile": "demo-config/previewers/vite-vue",
-            "mounter": "demo-config/previewers/vue-mounter",
-            "docsTemplate": "demo-config/previewers/docs-template"
-          }
-        }
-      }
-    }
-  },
   "components": [
+    {
+      "path": "components/envs/react",
+      "id": "envs/react",
+      "packageName": "@my-scope/env.react",
+      "env": {
+        "packageName": "demo-env-node",
+        "version": "0.0.0"
+      }
+    },
     {
       "path": "components/lib/math",
       "id": "lib/math",
-      "envName": "node",
       "packageName": "@my-scope/lib.math",
       "env": {
-        "packageName": "demo-config",
-        "version": "workspace:*"
+        "packageName": "demo-env-node",
+        "version": "0.0.0"
       }
     },
     {
       "path": "components/ui/button",
       "id": "ui/button",
-      "envName": "react",
       "packageName": "@my-scope/ui.button",
       "env": {
-        "packageName": "demo-config",
+        "packageName": "@my-scope/env.react",
         "version": "workspace:*"
       }
     },
     {
       "path": "components/ui/legacy-badge",
       "id": "ui/legacy-badge",
-      "envName": "react",
       "packageName": "@my-scope/ui.legacy-badge",
       "env": {
-        "packageName": "demo-config",
+        "packageName": "@my-scope/env.react",
         "version": "workspace:*"
       }
     },
     {
       "path": "components/vue/card",
       "id": "vue/card",
-      "envName": "vue",
       "packageName": "@my-scope/vue.card",
       "env": {
-        "packageName": "demo-config",
-        "version": "workspace:*"
+        "packageName": "demo-env-vue",
+        "version": "0.0.0"
       }
     }
   ]

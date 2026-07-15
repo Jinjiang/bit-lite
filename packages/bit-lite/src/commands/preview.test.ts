@@ -18,16 +18,9 @@ describe("preview command preparation isolation", () => {
       writeFile(path.join(failedRoot, "failed.docs.md"), "# Failed docs\n", "utf8"),
       writeFile(path.join(workspaceRoot, "vite.mjs"), "export default {};\n", "utf8"),
     ]);
-    const workspace = {
-      workspaceRoot,
-      config: { envs: {}, components: {} },
-      envs: {},
-      components: [],
-      groups: [],
-    };
     const tasks: PreviewTaskSpec[] = [
-      createTask("valid", validRoot, "./vite.mjs", workspace),
-      createTask("failed", failedRoot, "./missing.mjs", workspace),
+      createTask("valid", validRoot, "./vite.mjs", workspaceRoot),
+      createTask("failed", failedRoot, "./missing.mjs", workspaceRoot),
     ];
     const proxy = new PreviewProxyServer({
       envs: tasks.map((task) => ({
@@ -51,15 +44,10 @@ describe("preview command preparation isolation", () => {
       rootDir: workspaceRoot,
       components: [{ packageName: "@scope/valid", sourceDir: validRoot }],
     });
-    expect(result.taskOptions[0]?.context).toEqual({
-      workspaceRoot,
-      config: { envs: {}, components: {} },
-      envs: {},
-      components: [],
-      groups: [],
-    });
+    expect(result.taskOptions[0]?.workspaceRoot).toBe(workspaceRoot);
+    expect(result.taskOptions[0]?.service.declaredBy).toBe("valid");
     expect(proxy.manifest().envs).toMatchObject([
-      { envName: "failed", status: "failed", error: expect.stringContaining("could not be resolved") },
+      { envName: "failed", status: "failed", error: expect.stringContaining("could not resolve") },
       { envName: "valid", status: "starting" },
     ]);
 
@@ -73,19 +61,26 @@ function createTask(
   envName: string,
   rootDir: string,
   configFile: string,
-  context: PreviewTaskSpec["taskOptions"]["context"]
+  workspaceRoot: string
 ): PreviewTaskSpec {
   const serviceConfig = { vendor: "vite-preview", config: { configFile } };
+  const service = {
+    definition: serviceConfig,
+    declaredBy: envName,
+    packageRoot: workspaceRoot,
+    entryUrl: new URL(`file://${path.join(workspaceRoot, "index.json")}`).href,
+    entryDirectory: workspaceRoot,
+  };
   return {
     envName,
     components: [{ id: `scope/${envName}`, rootDir, packageName: `@scope/${envName}` }],
-    serviceConfig,
+    service,
     taskOptions: {
       envName,
       components: [{ id: `scope/${envName}`, rootDir, packageName: `@scope/${envName}` }],
       args: parseCliArguments([]),
-      context,
-      serviceConfig,
+      workspaceRoot,
+      service,
     },
   };
 }

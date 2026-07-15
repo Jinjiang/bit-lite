@@ -6,24 +6,13 @@ export type JsonObject = {
   [key: string]: JsonValue;
 };
 
-export const supportedEnvServiceNames = ["test", "preview"] as const;
+export const supportedEnvServiceNames = ["test", "preview", "compile"] as const;
 
 export type SupportedEnvServiceName = (typeof supportedEnvServiceNames)[number];
-
-export type ServiceTargetPattern = {
-  include?: string[];
-  exclude?: string[];
-};
-
-export type ServiceTargetInput = {
-  files?: string[];
-  patterns?: ServiceTargetPattern[];
-};
 
 export type EnvServiceConfig<Config extends JsonObject = JsonObject> = {
   vendor: string;
   config?: Config;
-  targets?: ServiceTargetInput;
 };
 
 export type TestServiceConfig = JsonObject & {
@@ -39,42 +28,19 @@ export type PreviewServiceConfig = JsonObject & {
   docsTemplate?: string;
 };
 
+export type CompileServiceConfig = JsonObject;
+
 export type EnvServiceConfigMap = {
   test: EnvServiceConfig<TestServiceConfig>;
   preview: EnvServiceConfig<PreviewServiceConfig>;
+  compile: EnvServiceConfig<CompileServiceConfig>;
 };
 
 export type EnvServicesConfig = Partial<EnvServiceConfigMap>;
 
-export type EnvConfig = {
-  extends?: string;
-  services?: EnvServicesConfig;
-};
-
-export type ResolvedEnvConfig = {
-  name: string;
-  services: EnvServicesConfig;
-};
-
-export type EnvFactoryContext = {
-  packageName: string;
-  version: string;
-  envPackageRoot: string;
-  workspaceRoot: string;
-};
-
 export type EnvDefinition = {
   name: string;
+  extends?: string;
   services: EnvServicesConfig;
   config?: JsonObject;
 };
-
-export type EnvFactory = (context: EnvFactoryContext) => EnvDefinition | Promise<EnvDefinition>;
-
-export function defineEnv(definition: EnvDefinition): EnvDefinition {
-  return definition;
-}
-
-export function defineEnvFactory(factory: EnvFactory): EnvFactory {
-  return factory;
-}

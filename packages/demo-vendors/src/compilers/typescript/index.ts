@@ -5,10 +5,17 @@ import type { VendorDefinition } from "bit-lite-vendors";
 type TypeScriptModule = typeof import("typescript");
 
 export type TypeScriptCompileInput = {
-  componentId: string;
-  componentRootDir: string;
+  envName?: string;
+  component?: {
+    id: string;
+    rootDir: string;
+    packageName: string;
+  };
+  componentId?: string;
+  componentRootDir?: string;
   mainFileRelative: string;
   distDir: string;
+  config?: Record<string, unknown>;
 };
 
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
@@ -24,25 +31,29 @@ export const meta: VendorDefinition = {
 };
 
 export async function compileComponent(input: TypeScriptCompileInput) {
+  const componentId = input.component?.id ?? input.componentId;
+  const componentRootDir = input.component?.rootDir ?? input.componentRootDir;
+  if (!componentId || !componentRootDir) throw new Error("TypeScript compiler requires component identity and root");
   const ts = await import("typescript");
   await rm(input.distDir, { recursive: true, force: true });
   await mkdir(input.distDir, { recursive: true });
 
-  const sourceFiles = await findComponentSourceFiles(input.componentRootDir);
+  const sourceFiles = await findComponentSourceFiles(componentRootDir);
   for (const sourceFile of sourceFiles) {
     const extension = path.extname(sourceFile);
 
     if (sourceExtensions.has(extension) && !sourceFile.endsWith(".d.ts")) {
-      await transpileSourceFile(ts, input.componentRootDir, sourceFile, input.distDir);
+      await transpileSourceFile(ts, componentRootDir, sourceFile, input.distDir);
       continue;
     }
 
     if (staticAssetExtensions.has(extension) || sourceFile.endsWith(".d.ts")) {
-      await copyStaticFile(input.componentRootDir, sourceFile, input.distDir);
+      await copyStaticFile(componentRootDir, sourceFile, input.distDir);
     }
   }
 
-  await ensureEntryDeclaration(input);
+  await ensureEntryDeclaration({ ...input, componentId, componentRootDir });
+  return { service: "compile" as const, componentId, outputDir: input.distDir };
 }
 
 async function transpileSourceFile(

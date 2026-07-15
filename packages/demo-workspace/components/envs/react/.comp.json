@@ -1,0 +1,20 @@
+{
+  "kind": "env",
+  "dependencies": {
+    "@mdx-js/loader": "^3.1.1",
+    "@swc/core": "^1.15.43",
+    "demo-config": "0.0.0",
+    "demo-env-node": "0.0.0",
+    "demo-utils": "0.0.0",
+    "demo-vendors": "0.0.0",
+    "swc-loader": "^0.2.6",
+    "webpack": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1"
+  },
+  "peerDependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  }
+}

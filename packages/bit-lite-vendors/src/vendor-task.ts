@@ -1,9 +1,7 @@
-import { createRequire } from "node:module";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { createRunner } from "./runner/index.js";
 import { ManagedTerminal, RawOutputBuffer } from "bit-lite-terminal";
-import type { CliArguments, ComponentRef, WorkspaceRuntime } from "bit-lite-context";
+import { resolveVendorSpecifier } from "bit-lite-context";
+import type { CliArguments, ComponentRef, LoadedEnvServiceRuntime } from "bit-lite-context";
 import type {
   ManagedTerminalItem,
   ManagedTerminalOptions,
@@ -31,8 +29,8 @@ export type VendorTaskStartOptions = {
   envName: string;
   components: ComponentRef[];
   args: CliArguments;
-  context: WorkspaceRuntime;
-  serviceConfig: unknown;
+  workspaceRoot: string;
+  service: LoadedEnvServiceRuntime;
   runtime?: JsonObject | undefined;
 };
 
@@ -364,12 +362,20 @@ async function createVendorTask<
   runnerOptions: { worker?: WorkerRunnerOptions | undefined },
   resultOptions: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>
 ): Promise<VendorTask<RunResult, EventResult, InputMessage>> {
-  const serviceConfig = readVendorServiceConfig(options.serviceConfig, resultOptions.serviceId, options.envName);
+  const serviceConfig = readVendorServiceConfig(options.service.definition, resultOptions.serviceId, options.envName);
+  const vendorUrl = await resolveVendorSpecifier({
+    specifier: serviceConfig.vendor,
+    service: options.service,
+    workspaceRoot: options.workspaceRoot,
+    selectedEnv: options.envName,
+    serviceName: resultOptions.serviceId,
+  });
   const vendor = await loadVendor(
+    vendorUrl,
     serviceConfig.vendor,
     resultOptions.serviceId,
     options.envName,
-    options.context.workspaceRoot
+    options.service.declaredBy
   );
 
   return createStartedVendorTask<RunResult, EventResult, InputMessage>(
@@ -395,7 +401,6 @@ function createStartedVendorTask<
     components: options.components,
     config,
     args: options.args,
-    context: options.context,
     ...(options.runtime === undefined ? {} : { runtime: options.runtime }),
   };
   const runner = createRunner<VendorData<VendorConfig>, VendorMessage<EventResult>, InputMessage, RunResult>({
@@ -637,53 +642,31 @@ function readVendorServiceConfig(value: unknown, serviceId: string, envName: str
 }
 
 async function loadVendor(
+  resolvedUrl: string,
   specifier: string,
   serviceId: string,
   envName: string,
-  workspaceRoot: string
+  declaredBy: string
 ): Promise<VendorDefinition> {
   let vendorModule: unknown;
   try {
-    vendorModule = await import(resolveVendorSpecifier(specifier, workspaceRoot));
+    vendorModule = await import(resolvedUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to import ${serviceId} vendor "${specifier}" for env "${envName}": ${message}`);
+    throw new Error(
+      `Failed to import ${serviceId} vendor "${specifier}" for selected env "${envName}" ` +
+      `(declared by "${declaredBy}"): ${message}`
+    );
   }
 
   if (!isRecord(vendorModule) || !isVendorDefinition(vendorModule.meta)) {
-    throw new Error(`${serviceId} vendor "${specifier}" for env "${envName}" must export const meta: VendorDefinition`);
+    throw new Error(
+      `${serviceId} vendor "${specifier}" for selected env "${envName}" ` +
+      `(declared by "${declaredBy}") must export const meta: VendorDefinition`
+    );
   }
 
   return vendorModule.meta;
-}
-
-function resolveVendorSpecifier(specifier: string, workspaceRoot: string) {
-  if (isAbsoluteUrl(specifier)) return specifier;
-
-  if (specifier.startsWith(".") || path.isAbsolute(specifier)) {
-    const absolutePath = path.isAbsolute(specifier) ? specifier : path.resolve(workspaceRoot, specifier);
-    return pathToFileURL(absolutePath).href;
-  }
-
-  for (const root of [workspaceRoot, process.cwd()]) {
-    try {
-      const requireFromRoot = createRequire(path.join(root, "package.json"));
-      return pathToFileURL(requireFromRoot.resolve(specifier)).href;
-    } catch {
-      // Try the next resolution root.
-    }
-  }
-
-  return specifier;
-}
-
-function isAbsoluteUrl(specifier: string) {
-  try {
-    const url = new URL(specifier);
-    return url.protocol.length > 0;
-  } catch {
-    return false;
-  }
 }
 
 function isVendorDefinition(value: unknown): value is VendorDefinition {

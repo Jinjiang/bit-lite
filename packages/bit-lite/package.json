@@ -22,13 +22,15 @@
     "bit-lite-deps": "workspace:*",
     "bit-lite-env": "workspace:*",
     "bit-lite-preview": "workspace:*",
-    "bit-lite-vendors": "workspace:*"
+    "bit-lite-vendors": "workspace:*",
+    "typescript": "^6.0.3"
   },
   "devDependencies": {
+    "@mdx-js/loader": "^3.1.1",
     "@types/node": "^25.9.1",
     "demo-config": "workspace:*",
     "demo-vendors": "workspace:*",
-    "typescript": "^6.0.3",
+    "swc-loader": "^0.2.6",
     "vitest": "^4.1.8"
   }
 }

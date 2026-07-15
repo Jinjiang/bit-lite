@@ -25,7 +25,13 @@ importers:
       bit-lite-vendors:
         specifier: workspace:*
         version: link:../bit-lite-vendors
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
     devDependencies:
+      '@mdx-js/loader':
+        specifier: ^3.1.1
+        version: 3.1.1(webpack@5.108.4(@swc/core@1.15.43)(esbuild@0.28.1))
       '@types/node':
         specifier: ^25.9.1
         version: 25.9.4
@@ -35,15 +41,18 @@ importers:
       demo-vendors:
         specifier: workspace:*
         version: link:../demo-vendors
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
+      swc-loader:
+        specifier: ^0.2.6
+        version: 0.2.7(@swc/core@1.15.43)(webpack@5.108.4(@swc/core@1.15.43)(esbuild@0.28.1))
       vitest:
         specifier: ^4.1.8
         version: 4.1.9(@types/node@25.9.4)(jsdom@29.1.1)(vite@8.1.2(@types/node@25.9.4)(esbuild@0.28.1)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/bit-lite-context:
     dependencies:
+      bit-lite-env:
+        specifier: workspace:*
+        version: link:../bit-lite-env
       yargs-parser:
         specifier: ^22.0.0
         version: 22.0.0
@@ -81,6 +90,12 @@ importers:
       '@pnpm/worker':
         specifier: 1000.6.7
         version: 1000.6.7(@pnpm/logger@1001.0.1)(@types/node@25.9.4)
+      fast-glob:
+        specifier: ^3.3.3
+        version: 3.3.3
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       '@types/node':
         specifier: ^25.9.1
@@ -162,9 +177,6 @@ importers:
 
   packages/demo-config:
     dependencies:
-      '@mdx-js/loader':
-        specifier: ^3.1.1
-        version: 3.1.1(webpack@5.108.4(@swc/core@1.15.43)(esbuild@0.28.1))
       '@mdx-js/rollup':
         specifier: ^3.1.1
         version: 3.1.1(rollup@4.62.2)
@@ -186,15 +198,9 @@ importers:
       jest-environment-jsdom:
         specifier: ^30.4.1
         version: 30.4.1
-      swc-loader:
-        specifier: ^0.2.6
-        version: 0.2.7(@swc/core@1.15.43)(webpack@5.108.4(@swc/core@1.15.43)(esbuild@0.28.1))
       vite:
         specifier: ^8.1.2
         version: 8.1.2(@types/node@25.9.4)(esbuild@0.28.1)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)
-      webpack:
-        specifier: ^5.0.0
-        version: 5.108.4(@swc/core@1.15.43)(esbuild@0.28.1)
     devDependencies:
       '@mdx-js/mdx':
         specifier: ^3.1.1
@@ -226,6 +232,24 @@ importers:
       vue:
         specifier: ^3.5.38
         version: 3.5.39(typescript@6.0.3)
+
+  packages/demo-env-node:
+    dependencies:
+      demo-config:
+        specifier: workspace:*
+        version: link:../demo-config
+      demo-vendors:
+        specifier: workspace:*
+        version: link:../demo-vendors
+
+  packages/demo-env-vue:
+    dependencies:
+      demo-config:
+        specifier: workspace:*
+        version: link:../demo-config
+      demo-vendors:
+        specifier: workspace:*
+        version: link:../demo-vendors
 
   packages/demo-tester-watch-api: {}
 

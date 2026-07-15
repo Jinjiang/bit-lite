@@ -1,83 +1,56 @@
 import path from "node:path";
-import { loadConfig, resolveEnvs } from "./config.js";
+import { loadComponentPackageRegistry } from "./component-registry.js";
+import { loadWorkspaceEnvs } from "./env-loader.js";
+import type {
+  ComponentPackageRegistry,
+  ComponentRef,
+  ComponentRuntime,
+  SelectedEnvGroup,
+  WorkspaceRuntime,
+} from "./types/index.js";
 import { BitLiteError } from "./utils/errors.js";
-import { componentIdFromDir, discoverComponentDirs, matchPattern } from "./utils/patterns.js";
-import type { ComponentRef, ComponentRuntime, SelectedEnvGroup, WorkspaceRuntime } from "./types/index.js";
-import { normalizeRelativePath, toPosixPath } from "./utils/path-utils.js";
+import { matchPattern } from "./utils/patterns.js";
 
-export async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceRuntime> {
-  const absoluteRoot = path.resolve(workspaceRoot);
-  const workspaceConfig = await loadConfig(absoluteRoot);
-  const envs = resolveEnvs(workspaceConfig);
-  const explicitComponents = Array.isArray(workspaceConfig.components) ? workspaceConfig.components : undefined;
-  const patternEntries = explicitComponents ? [] : Object.entries(workspaceConfig.components ?? {});
-  const componentDirs = await discoverComponentDirs(
-    absoluteRoot,
-    explicitComponents?.map((component) => component.path) ?? patternEntries.map(([pattern]) => pattern)
-  );
-
-  const envNames = Object.keys(envs);
-  const components: ComponentRuntime[] = explicitComponents
-    ? createExplicitComponents(absoluteRoot, componentDirs, explicitComponents, envs)
-    : componentDirs.map((rootDir) => {
-        const relativeDir = toPosixPath(path.relative(absoluteRoot, rootDir));
-        const envName = resolveComponentEnv(relativeDir, patternEntries, envNames);
-        if (!envs[envName]) throw new BitLiteError(`component "${relativeDir}" resolved to unknown env "${envName}"`);
-        return {
-          id: componentIdFromDir(absoluteRoot, rootDir),
-          rootDir,
-          envName,
-        };
-      });
+export async function loadWorkspace(
+  workspaceRoot: string,
+  options: { registry?: ComponentPackageRegistry } = {}
+): Promise<WorkspaceRuntime> {
+  const registry = options.registry ?? await loadComponentPackageRegistry(path.resolve(workspaceRoot));
+  const loadedByComponent = await loadWorkspaceEnvs(registry);
+  const envs: WorkspaceRuntime["envs"] = {};
+  const components = registry.components.map<ComponentRuntime>((component) => {
+    const env = loadedByComponent.get(component.id);
+    if (!env) throw new BitLiteError(`env for component "${component.id}" was not loaded`);
+    envs[env.packageName] = env;
+    return {
+      id: component.id,
+      rootDir: component.rootDir,
+      packageName: component.packageName,
+      kind: component.kind,
+      envRef: component.env,
+      env,
+    };
+  });
 
   const groups = Object.values(
     components.reduce<Record<string, WorkspaceRuntime["groups"][number]>>((acc, component) => {
-      const env = envs[component.envName];
-      if (!env) throw new BitLiteError(`env "${component.envName}" is not resolved`);
-      const group =
-        acc[component.envName] ??
-        (acc[component.envName] = {
-          envName: component.envName,
-          env,
-          components: [],
-        });
-      group.components.push({
-        id: component.id,
-        rootDir: component.rootDir,
+      const group = acc[component.env.packageName] ?? (acc[component.env.packageName] = {
+        envName: component.env.packageName,
+        env: component.env,
+        components: [],
       });
+      group.components.push({ id: component.id, rootDir: component.rootDir, packageName: component.packageName });
       return acc;
     }, {})
   ).sort((left, right) => left.envName.localeCompare(right.envName));
 
   return {
-    workspaceRoot: absoluteRoot,
-    config: {
-      envs,
-      components: workspaceConfig.components ?? {},
-    },
+    workspaceRoot: registry.workspaceRoot,
+    config: registry.config,
     envs,
-    components: components.sort((left, right) => left.id.localeCompare(right.id)),
+    components,
     groups,
   };
-}
-
-function createExplicitComponents(
-  workspaceRoot: string,
-  discoveredDirs: string[],
-  entries: Array<{ path: string; id: string; envName: string }>,
-  envs: WorkspaceRuntime["envs"]
-) {
-  const discovered = new Set(discoveredDirs.map((rootDir) => path.resolve(rootDir)));
-  return entries.map<ComponentRuntime>((entry) => {
-    const rootDir = path.resolve(workspaceRoot, normalizeRelativePath(entry.path));
-    if (!discovered.has(rootDir)) {
-      throw new BitLiteError(`component "${entry.id}" path "${entry.path}" was not found or has no component marker`);
-    }
-    if (!envs[entry.envName]) {
-      throw new BitLiteError(`component "${entry.id}" resolved to unknown env "${entry.envName}"`);
-    }
-    return { id: entry.id, rootDir, envName: entry.envName };
-  });
 }
 
 export function groupSelectedComponentsByEnv(
@@ -86,61 +59,29 @@ export function groupSelectedComponentsByEnv(
 ): SelectedEnvGroup[] {
   const selectedIds = new Set(selectedComponents.map((component) => component.id));
   const selectedById = new Map(selectedComponents.map((component) => [component.id, component]));
-
   if (selectedIds.size !== selectedComponents.length) {
     throw new BitLiteError("selected components must not contain duplicate ids");
   }
-
   for (const component of selectedComponents) {
     if (!workspace.components.some((candidate) => candidate.id === component.id)) {
       throw new BitLiteError(`selected component "${component.id}" does not exist in workspace`);
     }
   }
 
-  const groups: SelectedEnvGroup[] = [];
-  for (const group of workspace.groups) {
+  return workspace.groups.flatMap((group) => {
     const components = group.components
       .filter((component) => selectedIds.has(component.id))
-      .map((component) => {
-        const selected = selectedById.get(component.id);
-        return selected ?? component;
-      });
-
-    if (components.length === 0) continue;
-    groups.push({
-      envName: group.envName,
-      env: group.env,
-      components,
-    });
-  }
-
-  return groups;
+      .map((component) => selectedById.get(component.id) ?? component);
+    return components.length === 0 ? [] : [{ envName: group.envName, env: group.env, components }];
+  });
 }
 
-export function selectComponentRefs(components: ComponentRuntime[], filters: string[]): ComponentRef[] {
-  const selected =
-    filters.length === 0
-      ? components
-      : components.filter((component) => filters.some((filter) => matchPattern(component.id, filter)));
-
+export function selectComponentRefs(components: ComponentRef[], filters: string[]): ComponentRef[] {
+  const selected = filters.length === 0
+    ? components
+    : components.filter((component) => filters.some((filter) => matchPattern(component.id, filter)));
   if (filters.length > 0 && selected.length === 0) {
     throw new BitLiteError(`--filter did not match any components: ${filters.join(", ")}`);
   }
-
-  return selected.map(({ id, rootDir }) => ({ id, rootDir }));
-}
-
-function resolveComponentEnv(patternPath: string, patternEntries: Array<[string, string]>, envNames: string[]) {
-  let envName: string | undefined;
-  for (const [pattern, candidateEnv] of patternEntries) {
-    if (matchPattern(patternPath, pattern)) {
-      envName = candidateEnv;
-    }
-  }
-  if (envName) return envName;
-  if (patternEntries.length === 0 && envNames.length === 1) {
-    const onlyEnv = envNames[0];
-    if (onlyEnv) return onlyEnv;
-  }
-  throw new BitLiteError(`component "${patternPath}" does not match any env pattern`);
+  return selected.map(({ id, rootDir, packageName }) => ({ id, rootDir, packageName }));
 }

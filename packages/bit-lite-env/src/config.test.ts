@@ -1,170 +1,95 @@
 import { describe, expect, it } from "vitest";
 import {
-  defineEnv,
   isSupportedEnvServiceName,
   supportedEnvServiceNames,
-  validateEnvConfig,
+  validateEnvDefinition,
   validateEnvServiceConfig,
 } from "./index.js";
 
-describe("bit-lite-env config", () => {
-  it("defines the first supported service set", () => {
-    expect(supportedEnvServiceNames).toEqual(["test", "preview"]);
-    expect(isSupportedEnvServiceName("test")).toBe(true);
-    expect(isSupportedEnvServiceName("preview")).toBe(true);
+describe("bit-lite-env static definition", () => {
+  it("supports test, preview, and compile", () => {
+    expect(supportedEnvServiceNames).toEqual(["test", "preview", "compile"]);
+    expect(isSupportedEnvServiceName("compile")).toBe(true);
     expect(isSupportedEnvServiceName("storybook")).toBe(false);
   });
 
-  it("accepts test service config with test-specific fields", () => {
-    const config = validateEnvConfig({
-      extends: "base",
+  it("validates a package-owned JSON definition", () => {
+    const definition = validateEnvDefinition({
+      name: "@acme/env.react",
+      extends: "@acme/env.node",
+      config: { runtime: "browser" },
       services: {
-        test: {
-          vendor: "@bit-vendors/vitest",
-          config: {
-            configFile: "./configs/vitest",
-            shard: "unit",
-            retries: 1,
-            coverage: true,
-            customPool: "browser",
-          },
-          targets: {
-            patterns: [{ include: ["**/*.{test,spec}.{ts,tsx}"], exclude: ["dist/**"] }],
-          },
+        test: { vendor: "demo-vendors/testers/vitest", config: { retries: 1, coverage: true } },
+        preview: {
+          vendor: "demo-vendors/previewers/vite",
+          config: { configFile: "./vite.js", mounter: "demo-config/react-mounter" },
+        },
+        compile: {
+          vendor: "demo-vendors/compilers/typescript",
+          config: { tsconfig: { compilerOptions: { jsx: "react-jsx" } } },
         },
       },
-    });
+    }, "@acme/env.react");
 
-    expect(config.services?.test?.config).toEqual({
-      configFile: "./configs/vitest",
-      shard: "unit",
-      retries: 1,
-      coverage: true,
-      customPool: "browser",
-    });
-    expect(config.services?.test?.targets?.patterns?.[0]?.include).toEqual(["**/*.{test,spec}.{ts,tsx}"]);
-  });
-
-  it("rejects unsupported services", () => {
-    expect(() =>
-      validateEnvConfig({
-        services: {
-          storybook: {
-            vendor: "storybook",
-          },
-        },
-      })
-    ).toThrow('env service "storybook" is not supported');
-  });
-
-  it("accepts preview service config with preview-specific fields", () => {
-    const config = validateEnvServiceConfig("preview", {
-      vendor: "@bit-vendors/vite-react-preview",
-      config: {
-        configFile: "./configs/vite",
-        mounter: "./configs/react-mounter",
-        docsTemplate: "./configs/docs-template",
-        customTheme: "demo",
-      },
-    });
-
-    expect(config.config).toEqual({
-      configFile: "./configs/vite",
-      mounter: "./configs/react-mounter",
-      docsTemplate: "./configs/docs-template",
-      customTheme: "demo",
+    expect(definition.extends).toBe("@acme/env.node");
+    expect(definition.services.compile?.config).toEqual({
+      tsconfig: { compilerOptions: { jsx: "react-jsx" } },
     });
   });
 
-  it("requires preview service config to name a config file", () => {
-    expect(() =>
-      validateEnvServiceConfig("preview", {
-        vendor: "@bit-vendors/vite-react-preview",
-      })
-    ).toThrow('env service "preview" config must define field "config"');
-
-    expect(() =>
-      validateEnvServiceConfig("preview", {
-        vendor: "@bit-vendors/vite-react-preview",
-        config: {
-          mounter: "./configs/react-mounter",
-        },
-      })
-    ).toThrow('env service "preview" field "config.configFile" must be a non-empty string');
+  it("keeps compile config vendor-specific", () => {
+    expect(validateEnvServiceConfig("compile", {
+      vendor: "custom-compiler",
+      config: { pipeline: ["parse", "emit"], custom: { format: "esm" } },
+    }).config).toEqual({ pipeline: ["parse", "emit"], custom: { format: "esm" } });
   });
 
-  it("validates optional preview runtime module specifiers", () => {
-    expect(() =>
-      validateEnvServiceConfig("preview", {
-        vendor: "vite-preview",
-        config: { configFile: "./vite.ts", mounter: 42 },
-      })
-    ).toThrow('env service "preview" field "config.mounter" must be a non-empty string');
+  it("rejects unsupported services and service fields", () => {
+    expect(() => validateEnvDefinition({
+      name: "@acme/env.node",
+      services: { deploy: { vendor: "deploy" } },
+    })).toThrow('env service "deploy" is not supported');
 
-    expect(() =>
-      validateEnvServiceConfig("preview", {
-        vendor: "vite-preview",
-        config: { configFile: "./vite.ts", docsTemplate: "" },
-      })
-    ).toThrow('env service "preview" field "config.docsTemplate" must be a non-empty string');
+    for (const field of ["targets", "files", "patterns", "mode", "components", "rootDir"]) {
+      expect(() => validateEnvServiceConfig("test", {
+        vendor: "vitest",
+        [field]: {},
+      })).toThrow(`field "${field}" is not supported`);
+    }
   });
 
-  it("requires each service config to name a vendor", () => {
-    expect(() => validateEnvServiceConfig("test", { config: {} })).toThrow(
-      'env service "test" config must define a non-empty vendor'
-    );
+  it("validates known preview and test fields", () => {
+    expect(() => validateEnvServiceConfig("preview", {
+      vendor: "vite-preview",
+      config: { mounter: "./mounter.js" },
+    })).toThrow('config.configFile" must be a non-empty string');
+
+    expect(() => validateEnvServiceConfig("test", {
+      vendor: "vitest",
+      config: { retries: "twice" },
+    })).toThrow('config.retries" must be a non-negative integer');
   });
 
-  it("validates known service config fields", () => {
-    expect(() =>
-      validateEnvServiceConfig("test", {
-        vendor: "@bit-vendors/vitest",
-        config: {
-          retries: "twice",
-        },
-      })
-    ).toThrow('env service "test" field "config.retries" must be a non-negative integer');
-
-    expect(() =>
-      validateEnvServiceConfig("test", {
-        vendor: "@bit-vendors/vitest",
-        config: {
-          coverage: "yes",
-        },
-      })
-    ).toThrow('env service "test" field "config.coverage" must be a boolean');
+  it("rejects invalid identities and non-JSON values", () => {
+    expect(() => validateEnvDefinition({ name: "react", services: {} }, "@acme/env.react"))
+      .toThrow('expected "@acme/env.react" but received "react"');
+    expect(() => validateEnvDefinition({
+      name: "@acme/env.react",
+      services: { compile: { vendor: "ts", config: { callback: () => undefined } } },
+    })).toThrow("recursively JSON-safe");
+    expect(() => validateEnvDefinition({
+      name: "@acme/env.react",
+      services: { compile: { vendor: "ts", config: { value: Number.NaN } } },
+    })).toThrow("finite numbers");
   });
 
-  it("rejects unsupported target pattern fields", () => {
-    expect(() =>
-      validateEnvServiceConfig("test", {
-        vendor: "@bit-vendors/vitest",
-        targets: {
-          patterns: [
-            {
-              kind: "unit",
-              include: ["**/*.test.ts"],
-            },
-          ],
-        },
-      })
-    ).toThrow('env service "test" field "targets.patterns[0]".kind is not supported');
-  });
-
-  it("offers a typed helper for third-party env definitions", () => {
-    const env = defineEnv({
-      name: "@acme/bit-env-react",
-      services: {
-        test: {
-          vendor: "@bit-vendors/vitest",
-          config: {
-            configFile: "./configs/vitest",
-            coverage: true,
-          },
-        },
-      },
-    });
-
-    expect(env.name).toBe("@acme/bit-env-react");
+  it("requires a valid parent package name and services object", () => {
+    expect(() => validateEnvDefinition({
+      name: "@acme/env.react",
+      extends: "./node",
+      services: {},
+    })).toThrow('field "extends" must be a valid npm package name');
+    expect(() => validateEnvDefinition({ name: "@acme/env.react" }))
+      .toThrow('field "services" must be an object');
   });
 });

@@ -1,0 +1,14 @@
+{
+  "name": "demo-env-node",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.json",
+  "exports": {
+    ".": "./index.json"
+  },
+  "dependencies": {
+    "demo-config": "workspace:*",
+    "demo-vendors": "workspace:*"
+  }
+}

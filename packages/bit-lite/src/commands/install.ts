@@ -1,9 +1,10 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { ParsedCliArgs } from "bit-lite-context";
-import { installDependencyProjects, type DependencyProject } from "bit-lite-deps";
+import { discoverPnpmWorkspacePackages, installDependencyProjects, type DependencyProject } from "bit-lite-deps";
 import { BitLiteError } from "../utils/errors.js";
 import { compileComponentPackages } from "./compile.js";
+import { materializeLocalEnvComponents } from "../env-component-compiler.js";
 import {
   getComponentDependencyDirectory,
   isWorkspaceProtocolSpec,
@@ -27,12 +28,15 @@ export async function runInstallCommand(parsed: ParsedCliArgs) {
   const registry = await loadComponentPackageRegistry(parsed.workspaceRoot);
   const shouldCompile = readCompileOption(parsed.args.options.compile);
   const projects = await createDependencyProjects(registry.workspaceRoot, registry.components);
+  const workspacePackages = await discoverPnpmWorkspacePackages(registry.workspaceRoot);
 
   await installDependencyProjects({
     rootDir: getDependencyInstallRoot(registry.workspaceRoot),
     projects,
+    workspacePackages,
   });
   await linkComponentPackages(registry);
+  await materializeLocalEnvComponents(registry);
 
   const externalRequirements = countExternalRequirements(registry.components);
   console.log(
@@ -78,16 +82,15 @@ async function createDependencyProjects(workspaceRoot: string, components: Compo
   return projects;
 }
 
-function createComponentDependencyManifest(component: ComponentPackage): DependencyManifest {
+export function createComponentDependencyManifest(component: ComponentPackage): DependencyManifest {
   const runtimeDependencies = {
     ...withoutWorkspaceDependencies(component.peerDependencies),
     ...withoutWorkspaceDependencies(component.dependencies),
   };
-  if (component.env && !isWorkspaceProtocolSpec(component.env.version)) {
-    runtimeDependencies[component.env.packageName] = component.env.version;
-  }
-
   const devDependencies = withoutWorkspaceDependencies(component.devDependencies);
+  if (!isWorkspaceProtocolSpec(component.env.version) && runtimeDependencies[component.env.packageName] === undefined) {
+    devDependencies[component.env.packageName] = component.env.version;
+  }
   for (const dependencyName of Object.keys(runtimeDependencies)) {
     delete devDependencies[dependencyName];
   }

@@ -1,15 +1,13 @@
 export {
   BitLiteEnvConfigError,
   isSupportedEnvServiceName,
-  validateEnvConfig,
+  validateEnvDefinition,
   validateEnvServiceConfig,
   validateEnvServicesConfig,
 } from "./config.js";
 export type {
-  EnvConfig,
+  CompileServiceConfig,
   EnvDefinition,
-  EnvFactory,
-  EnvFactoryContext,
   EnvServiceConfig,
   EnvServiceConfigMap,
   EnvServicesConfig,
@@ -17,10 +15,7 @@ export type {
   JsonPrimitive,
   JsonValue,
   PreviewServiceConfig,
-  ResolvedEnvConfig,
-  ServiceTargetInput,
-  ServiceTargetPattern,
   SupportedEnvServiceName,
   TestServiceConfig,
 } from "./types/index.js";
-export { defineEnv, defineEnvFactory, supportedEnvServiceNames } from "./types/index.js";
+export { supportedEnvServiceNames } from "./types/index.js";

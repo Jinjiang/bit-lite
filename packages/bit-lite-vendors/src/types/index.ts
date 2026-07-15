@@ -1,4 +1,4 @@
-import type { CliArguments, ComponentRef, WorkspaceRuntime } from "bit-lite-context";
+import type { CliArguments, ComponentRef } from "bit-lite-context";
 import type { ManagedTerminalItem, RawOutputBuffer } from "bit-lite-terminal";
 import type {
   Runner,
@@ -58,7 +58,6 @@ export type VendorData<
   components: ComponentRef[];
   config: Config;
   args: CliArguments;
-  context?: WorkspaceRuntime;
   runtime?: Runtime;
 };
 

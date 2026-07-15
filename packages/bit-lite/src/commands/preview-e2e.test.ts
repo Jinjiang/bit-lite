@@ -26,7 +26,7 @@ describe("prepared preview end-to-end", () => {
     {
       name: "webpack",
       startVendor: startWebpackPreviewVendor,
-      configFile: "demo-config/previewers/webpack-react",
+      configFile: "local-react-env-config",
       demoFile: "primary.demo.tsx",
       demoSource: [
         'import { createElement } from "react";',
@@ -35,7 +35,10 @@ describe("prepared preview end-to-end", () => {
       ].join("\n"),
     },
   ])("serves one $name document and logical entry with lazy docs/demo modules and HMR", async (variant) => {
-    const repoRoot = path.resolve(process.cwd(), "../..");
+    const cwd = process.cwd();
+    const repoRoot = path.basename(cwd) === "bit-lite" && path.basename(path.dirname(cwd)) === "packages"
+      ? path.resolve(cwd, "../..")
+      : cwd;
     const tempRoot = path.join(repoRoot, "packages", "demo-workspace", ".bit-lite");
     await mkdir(tempRoot, { recursive: true });
     const workspaceRoot = await mkdtemp(path.join(tempRoot, `preview-e2e-${variant.name}-`));
@@ -71,13 +74,16 @@ describe("prepared preview end-to-end", () => {
       });
       closeProxy = () => proxy.close();
       await proxy.start("127.0.0.1", variant.name === "vite" ? 45_000 : 45_100);
+      const configFile = variant.name === "webpack"
+        ? await writeWebpackFixtureConfig(workspaceRoot)
+        : require.resolve(variant.configFile);
       const prepared = await preparePreviewEnv({
         envName: variant.name,
         components: [{ id: "components/sample", rootDir: componentRoot, packageName: "@scope/sample" }],
         serviceConfig: {
           vendor: `${variant.name}-preview`,
           config: {
-            configFile: require.resolve(variant.configFile),
+            configFile,
             mounter: require.resolve(
               variant.name === "vite"
                 ? "demo-config/previewers/static-mounter"
@@ -101,7 +107,7 @@ describe("prepared preview end-to-end", () => {
       expect(generatedEntry).toContain('.then((module) => module["Primary"])');
       expect(generatedEntry).toContain('.then((module) => module["MySecondDemo"])');
       proxy.updatePreparedComponents(variant.name, prepared.runtime.server.basePath, prepared.components);
-      const harness = createHarness(variant.name, workspaceRoot, prepared);
+      const harness = createHarness(variant.name, prepared);
       const handle = await variant.startVendor(harness.runtime as never);
       stopVendor = () => handle.stop?.();
       proxy.updateServer(
@@ -182,7 +188,46 @@ describe("prepared preview end-to-end", () => {
   }, 30_000);
 });
 
-function createHarness(name: string, workspaceRoot: string, prepared: Awaited<ReturnType<typeof preparePreviewEnv>>) {
+async function writeWebpackFixtureConfig(workspaceRoot: string) {
+  const configFile = path.join(workspaceRoot, "webpack-react.mjs");
+  const mdxLoader = require.resolve("@mdx-js/loader");
+  const swcLoader = require.resolve("swc-loader");
+  const reactRoot = path.dirname(require.resolve("react"));
+  const reactDomRoot = path.dirname(require.resolve("react-dom"));
+  await writeFile(configFile, `
+    export default {
+      resolve: {
+        extensions: [".mdx", ".md", ".tsx", ".ts", ".jsx", ".js", ".json"],
+        alias: {
+          react: ${JSON.stringify(reactRoot)},
+          "react-dom": ${JSON.stringify(reactDomRoot)}
+        },
+        extensionAlias: { ".js": [".tsx", ".ts", ".js"], ".jsx": [".tsx", ".jsx"] }
+      },
+      module: {
+        rules: [
+          { test: /\\.docs\\.mdx?$/, use: { loader: ${JSON.stringify(mdxLoader)} } },
+          {
+            test: /\\.[jt]sx?$/,
+            exclude: /node_modules/,
+            use: {
+              loader: ${JSON.stringify(swcLoader)},
+              options: {
+                jsc: {
+                  parser: { syntax: "typescript", tsx: true },
+                  transform: { react: { runtime: "automatic" } }
+                }
+              }
+            }
+          }
+        ]
+      }
+    };
+  `, "utf8");
+  return configFile;
+}
+
+function createHarness(name: string, prepared: Awaited<ReturnType<typeof preparePreviewEnv>>) {
   const messages: VendorMessage<PreviewServiceResult>[] = [];
   const runtime: VendorRuntime<Record<string, unknown>, PreviewServiceResult, never, PreviewVendorRuntime> = {
     data: {
@@ -190,13 +235,6 @@ function createHarness(name: string, workspaceRoot: string, prepared: Awaited<Re
       components: [],
       config: prepared.serviceConfig.config as Record<string, unknown>,
       args: parseCliArguments([]),
-      context: {
-        workspaceRoot,
-        config: { envs: {}, components: {} },
-        envs: {},
-        components: [],
-        groups: [],
-      },
       runtime: prepared.runtime,
     },
     postMessage(message) {

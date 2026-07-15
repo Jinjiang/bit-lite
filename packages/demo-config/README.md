@@ -3,7 +3,9 @@
 Maintained demo workspace configs for tests and examples.
 
 - Vite configs apply `demo-utils` options through `@mdx-js/rollup`.
-- Webpack applies the same options through `@mdx-js/loader`.
+- The local React env owns its TypeScript Webpack config and applies the same
+  options through `@mdx-js/loader`; `demo-config` keeps exported mounters,
+  docs templates, and test/Vite configs.
 - framework-specific mounters remain runtime inputs.
 - `previewers/docs-template` demonstrates the optional docs-only
   `PreviewDocsTemplateProps` contract.

@@ -23,6 +23,7 @@
     "vitest": "^4.1.8"
   },
   "dependencies": {
+    "bit-lite-env": "workspace:*",
     "yargs-parser": "^22.0.0"
   }
 }

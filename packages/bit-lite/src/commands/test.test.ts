@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import * as vendorTasks from "bit-lite-vendors";
@@ -239,32 +239,20 @@ async function createWorkspace() {
     path.join(workspaceRoot, "bit-lite.json"),
     JSON.stringify(
       {
-        envs: {
-          jest: {
-            services: {
-              test: {
-                vendor: "demo-vendors/testers/jest",
-                config: {
-                  configFile: "demo-config/testers/jest/react",
-                },
-              },
-            },
+        components: [
+          {
+            path: "components/jest/math",
+            id: "components/jest/math",
+            packageName: "@fixture/jest.math",
+            env: { packageName: "jest", version: "1.0.0" },
           },
-          vitest: {
-            services: {
-              test: {
-                vendor: "demo-vendors/testers/vitest",
-                config: {
-                  configFile: "demo-config/testers/vitest/node",
-                },
-              },
-            },
+          {
+            path: "components/vitest/math",
+            id: "components/vitest/math",
+            packageName: "@fixture/vitest.math",
+            env: { packageName: "vitest", version: "1.0.0" },
           },
-        },
-        components: {
-          "components/jest/**": "jest",
-          "components/vitest/**": "vitest",
-        },
+        ],
       },
       null,
       2
@@ -273,6 +261,13 @@ async function createWorkspace() {
 
   await writeMathComponent(workspaceRoot, "components/jest/math");
   await writeMathComponent(workspaceRoot, "components/vitest/math");
+  await installFixtureEnv(workspaceRoot, "@fixture/jest.math", "jest", "demo-vendors/testers/jest", "demo-config/testers/jest/react");
+  await installFixtureEnv(workspaceRoot, "@fixture/vitest.math", "vitest", "demo-vendors/testers/vitest", "demo-config/testers/vitest/node");
+  const workspaceNodeModules = path.join(workspaceRoot, "node_modules");
+  await mkdir(workspaceNodeModules, { recursive: true });
+  for (const packageName of ["demo-config", "demo-vendors"]) {
+    await symlink(path.join(process.cwd(), "packages", packageName), path.join(workspaceNodeModules, packageName), "dir");
+  }
 
   return workspaceRoot;
 }
@@ -280,6 +275,7 @@ async function createWorkspace() {
 async function writeMathComponent(workspaceRoot: string, componentDir: string) {
   const absoluteDir = path.join(workspaceRoot, componentDir);
   await mkdir(absoluteDir, { recursive: true });
+  await writeFile(path.join(absoluteDir, ".comp.json"), "{}\n");
   await writeFile(path.join(absoluteDir, "index.ts"), "export const add = (left: number, right: number) => left + right;\n");
   await writeFile(
     path.join(absoluteDir, "index.test.ts"),
@@ -309,4 +305,34 @@ async function writeMathComponent(workspaceRoot: string, componentDir: string) {
       "",
     ].join("\n")
   );
+}
+
+async function installFixtureEnv(
+  workspaceRoot: string,
+  componentPackageName: string,
+  envName: string,
+  vendor: string,
+  configFile: string
+) {
+  const envRoot = path.join(workspaceRoot, ".fixture-envs", envName);
+  await mkdir(envRoot, { recursive: true });
+  await writeFile(path.join(envRoot, "package.json"), JSON.stringify({
+    name: envName,
+    version: "1.0.0",
+    type: "module",
+    exports: { ".": "./index.json" },
+  }));
+  await writeFile(path.join(envRoot, "index.json"), JSON.stringify({
+    name: envName,
+    services: { test: { vendor, config: { configFile } } },
+  }));
+  const target = path.join(
+    workspaceRoot,
+    ".bit-lite/deps/components",
+    ...componentPackageName.split("/"),
+    "node_modules",
+    envName
+  );
+  await mkdir(path.dirname(target), { recursive: true });
+  await symlink(path.relative(path.dirname(target), envRoot), target, "dir");
 }

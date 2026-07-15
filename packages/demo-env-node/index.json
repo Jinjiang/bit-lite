@@ -1,0 +1,26 @@
+{
+  "name": "demo-env-node",
+  "services": {
+    "test": {
+      "vendor": "demo-vendors/testers/vitest",
+      "config": {
+        "configFile": "demo-config/testers/vitest/node"
+      }
+    },
+    "preview": {
+      "vendor": "demo-vendors/previewers/vite",
+      "config": {
+        "configFile": "demo-config/previewers/vite-static",
+        "mounter": "demo-config/previewers/static-mounter",
+        "docsTemplate": "demo-config/previewers/docs-template"
+      }
+    },
+    "compile": {
+      "vendor": "demo-vendors/compilers/typescript",
+      "config": {
+        "target": "ES2022",
+        "jsx": "react-jsx"
+      }
+    }
+  }
+}

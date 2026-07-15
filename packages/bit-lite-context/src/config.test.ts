@@ -1,91 +1,67 @@
 import { describe, expect, it } from "vitest";
-import { resolveEnvs, validateConfig } from "./config.js";
+import { validateConfig } from "./config.js";
 
-describe("config", () => {
-  it("resolves inherited env services", () => {
+function component(id: string, envName = "@scope/env.node", version = "^1.0.0") {
+  return {
+    path: `components/${id}`,
+    id,
+    packageName: `@scope/${id.replaceAll("/", ".")}`,
+    env: { packageName: envName, version },
+  };
+}
+
+describe("canonical workspace config", () => {
+  it("accepts explicit package identities and returns deterministic ordering", () => {
     const config = validateConfig({
-      envs: {
-        node: {
-          services: {
-            inspect: { level: "base" },
-            typescript: { tsconfig: "tsconfig.json" },
-          },
-        },
-        react: {
-          extends: "node",
-          services: {
-            inspect: { level: "child" },
-            test: {},
-          },
-        },
-      },
-      components: {
-        "components/ui/**": "react",
-      },
+      defaultScope: "scope",
+      components: [component("ui/button", "@scope/env.react", "workspace:*"), component("lib/math")],
     });
-
-    const envs = resolveEnvs(config);
-
-    expect(envs.react?.services).toEqual({
-      inspect: { level: "child" },
-      typescript: { tsconfig: "tsconfig.json" },
-      test: {},
-    });
+    expect(config.components.map((entry) => entry.id)).toEqual(["lib/math", "ui/button"]);
+    expect(config.components[1]?.env).toEqual({ packageName: "@scope/env.react", version: "workspace:*" });
   });
 
-  it("rejects components that point to unknown envs", () => {
-    expect(() =>
-      validateConfig({
-        envs: {
-          node: {},
-        },
-        components: {
-          "components/ui/**": "react",
-        },
-      })
-    ).toThrow('component pattern "components/ui/**" references unknown env "react"');
+  it("rejects legacy assignment forms", () => {
+    expect(() => validateConfig({ envs: {}, components: [component("lib/math")] }))
+      .toThrow('top-level "envs" is no longer supported');
+    expect(() => validateConfig({ components: { "components/**": "node" } }))
+      .toThrow("pattern-to-env component mappings are no longer supported");
+    expect(() => validateConfig({ components: [{ ...component("lib/math"), envName: "node" }] }))
+      .toThrow('field "envName" is no longer supported');
   });
 
-  it("accepts explicit per-component records and keeps their local env assignment", () => {
-    const config = validateConfig({
-      envs: { node: {}, react: {} },
-      components: [
-        {
-          path: "components/lib/math",
-          id: "lib/math",
-          envName: "node",
-          packageName: "@scope/lib.math",
-          env: { packageName: "demo-config", version: "workspace:*" },
-        },
-        {
-          path: "components/ui/button",
-          id: "ui/button",
-          envName: "react",
-          packageName: "@scope/ui.button",
-          env: { packageName: "demo-config", version: "workspace:*" },
-        },
-      ],
-    });
-
-    expect(config.components).toEqual([
-      { path: "components/lib/math", id: "lib/math", envName: "node" },
-      { path: "components/ui/button", id: "ui/button", envName: "react" },
-    ]);
+  it("requires all explicit component and env fields", () => {
+    const base = component("lib/math");
+    for (const field of ["path", "id", "packageName", "env"] as const) {
+      const invalid = { ...base } as Record<string, unknown>;
+      delete invalid[field];
+      expect(() => validateConfig({ components: [invalid] })).toThrow(field);
+    }
+    expect(() => validateConfig({ components: [{ ...base, env: { packageName: "@scope/env.node" } }] }))
+      .toThrow("env.version");
   });
 
-  it("rejects explicit component records with missing or unknown env names", () => {
-    expect(() =>
-      validateConfig({
-        envs: { node: {} },
-        components: [{ path: "components/lib/math", id: "lib/math" }],
-      })
-    ).toThrow('component entry at index 0 field "envName" must be a non-empty string');
+  it("rejects duplicate component identities", () => {
+    const first = component("lib/math");
+    expect(() => validateConfig({ components: [first, { ...component("lib/other"), path: first.path }] }))
+      .toThrow("component path");
+    expect(() => validateConfig({ components: [first, { ...component("lib/other"), id: first.id }] }))
+      .toThrow("component id");
+    expect(() => validateConfig({ components: [first, { ...component("lib/other"), packageName: first.packageName }] }))
+      .toThrow("component package name");
+  });
 
-    expect(() =>
-      validateConfig({
-        envs: { node: {} },
-        components: [{ path: "components/ui/button", id: "ui/button", envName: "react" }],
-      })
-    ).toThrow('component "ui/button" references unknown env "react"');
+  it("rejects conflicting versions for one env identity", () => {
+    expect(() => validateConfig({
+      components: [component("lib/math", "@scope/env.node", "^1.0.0"), component("lib/other", "@scope/env.node", "^2.0.0")],
+    })).toThrow('env package "@scope/env.node" has conflicting versions');
+  });
+
+  it("validates npm package names and version specs", () => {
+    expect(() => validateConfig({ components: [{ ...component("lib/math"), packageName: "Bad Name" }] }))
+      .toThrow("valid npm package name");
+    expect(() => validateConfig({ components: [{ ...component("lib/math"), env: { packageName: "bad name", version: "1" } }] }))
+      .toThrow("env.packageName");
+    expect(() => validateConfig({ components: [{ ...component("lib/math"), env: { packageName: "env", version: "bad spec" } }] }))
+      .toThrow("supported package version specifier");
   });
 });

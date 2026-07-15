@@ -1,4 +1,4 @@
-import { groupSelectedComponentsByEnv, loadWorkspace, selectComponentRefs } from "bit-lite-context";
+import { groupSelectedComponentsByEnv, resolveEnvModuleSpecifier, selectComponentRefs } from "bit-lite-context";
 import { watchVendorTasks } from "bit-lite-vendors";
 import { BitLiteError } from "../utils/errors.js";
 import {
@@ -12,9 +12,10 @@ import {
   type PreviewServerInfo,
   type PreviewSkippedEnv,
 } from "bit-lite-preview/node";
-import type { CliOptionValue, ParsedCliArgs, SelectedEnvGroup, WorkspaceRuntime } from "bit-lite-context";
+import type { CliOptionValue, LoadedEnvServiceRuntime, ParsedCliArgs, SelectedEnvGroup, WorkspaceRuntime } from "bit-lite-context";
+import type { EnvServiceConfig } from "bit-lite-env";
 import type { JsonObject, VendorMessage, VendorTask, VendorTaskStartOptions } from "bit-lite-vendors";
-import { loadComponentPackageRegistry, type ComponentPackageRegistry } from "./link.js";
+import { prepareWorkspaceForEnvLoading } from "../prepare-workspace.js";
 
 export type PreviewVendorRuntime = PreviewPreparedRuntime;
 
@@ -29,7 +30,7 @@ export type PreviewServiceResult = JsonObject & {
 export type PreviewTaskSpec = {
   envName: string;
   components: PreviewComponentRef[];
-  serviceConfig: unknown;
+  service: LoadedEnvServiceRuntime;
   taskOptions: VendorTaskStartOptions;
 };
 
@@ -40,11 +41,10 @@ const defaultProxyPort = 4000;
 const defaultVendorPort = 6000;
 
 export async function runPreviewCommand(parsed: ParsedCliArgs) {
-  const workspace = await loadWorkspace(parsed.workspaceRoot);
+  const { workspace } = await prepareWorkspaceForEnvLoading(parsed.workspaceRoot);
   const components = selectComponentRefs(workspace.components, parsed.componentFilters);
   const groups = groupSelectedComponentsByEnv(workspace, components);
-  const componentPackages = await loadComponentPackageRegistry(workspace.workspaceRoot);
-  const { tasks, skipped } = createPreviewTaskSpecs(workspace, groups, parsed, componentPackages);
+  const { tasks, skipped } = createPreviewTaskSpecs(workspace, groups, parsed);
 
   if (tasks.length === 0) {
     printNoPreviewTasks(groups);
@@ -57,7 +57,7 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
     envs: tasks.map((task) => ({
       envName: task.envName,
       taskId: task.envName,
-      vendor: readVendorLabel(task.serviceConfig),
+      vendor: task.service.definition.vendor,
       status: "starting",
       components: task.components,
     })),
@@ -108,8 +108,7 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
 function createPreviewTaskSpecs(
   workspace: WorkspaceRuntime,
   groups: SelectedEnvGroup[],
-  parsed: ParsedCliArgs,
-  componentPackages: ComponentPackageRegistry
+  parsed: ParsedCliArgs
 ) {
   const tasks: PreviewTaskSpec[] = [];
   const skipped: PreviewSkippedEnv[] = [];
@@ -123,27 +122,17 @@ function createPreviewTaskSpecs(
       });
       continue;
     }
-    const components = group.components.map((component) => {
-      const componentPackage = componentPackages.byId.get(component.id);
-      if (!componentPackage) {
-        throw new BitLiteError(`preview component "${component.id}" has no workspace package`);
-      }
-      return {
-        id: component.id,
-        rootDir: component.rootDir,
-        packageName: componentPackage.packageName,
-      };
-    });
+    const components = group.components.map(({ id, rootDir, packageName }) => ({ id, rootDir, packageName }));
     tasks.push({
       envName: group.envName,
       components,
-      serviceConfig,
+      service: serviceConfig,
       taskOptions: {
         envName: group.envName,
         components,
         args: parsed.args,
-        context: workspace,
-        serviceConfig,
+        workspaceRoot: workspace.workspaceRoot,
+        service: serviceConfig,
       },
     });
   }
@@ -174,17 +163,29 @@ export async function preparePreviewTasks(
       const prepared = await preparePreviewEnv({
         envName: task.envName,
         components: task.components,
-        serviceConfig: task.serviceConfig,
+        serviceConfig: task.service.definition,
         workspaceRoot,
         server,
+        resolveModule(specifier, field) {
+          return resolveEnvModuleSpecifier({
+            specifier,
+            service: task.service,
+            workspaceRoot,
+            field: `preview config.${field}`,
+            selectedEnv: task.envName,
+          });
+        },
       });
       preparedEnvs.push(prepared);
       proxyServer.updatePreparedComponents(task.envName, server.basePath, prepared.components);
       taskOptions.push({
         ...task.taskOptions,
         components: [],
-        context: createPreparedVendorContext(workspaceRoot),
-        serviceConfig: prepared.serviceConfig,
+        workspaceRoot,
+        service: {
+          ...task.service,
+          definition: prepared.serviceConfig as EnvServiceConfig,
+        },
         runtime: prepared.runtime,
       });
     } catch (error) {
@@ -193,16 +194,6 @@ export async function preparePreviewTasks(
     }
   }
   return { taskOptions, preparedEnvs, failures };
-}
-
-function createPreparedVendorContext(workspaceRoot: string): WorkspaceRuntime {
-  return {
-    workspaceRoot,
-    config: { envs: {}, components: {} },
-    envs: {},
-    components: [],
-    groups: [],
-  };
 }
 
 function attachPreviewTaskListeners(proxyServer: PreviewProxyServer, tasks: VendorTask<unknown, PreviewServiceResult>[]) {
@@ -281,11 +272,6 @@ function readPort(value: CliOptionValue | undefined, optionName: string, fallbac
     throw new BitLiteError(`${optionName} requires a port number between 1 and 65535`);
   }
   return port;
-}
-
-function readVendorLabel(serviceConfig: unknown) {
-  if (!isRecord(serviceConfig) || typeof serviceConfig.vendor !== "string") return "unknown";
-  return serviceConfig.vendor;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

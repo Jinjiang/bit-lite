@@ -57,7 +57,7 @@ type JestRunCLI = (
 export default async function startJestVendor(
   runtime: VendorRuntime<Record<string, unknown>, TestServiceResult>
 ): Promise<VendorStartResult<TestServiceResult>> {
-  const workspaceRoot = runtime.data.context?.workspaceRoot ?? process.cwd();
+  const workspaceRoot = readWorkspaceRoot(runtime.data.runtime) ?? process.cwd();
   const watch = runtime.data.args.options.watch === true && isInteractiveTerminal();
   const mode = watch ? "watch" : "run";
   let run = 0;
@@ -217,6 +217,10 @@ export default async function startJestVendor(
       unregisterJestWatchReporter(reporterId);
     }
   }
+}
+
+function readWorkspaceRoot(runtime: Record<string, unknown> | undefined) {
+  return runtime && typeof runtime.workspaceRoot === "string" ? runtime.workspaceRoot : undefined;
 }
 
 function resolveJestReporterPath() {

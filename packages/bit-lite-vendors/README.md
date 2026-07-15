@@ -15,6 +15,12 @@ The public API has three layers:
 - vendor task helpers such as `runVendorTasks()` and `watchVendorTasks()` for
 command code that needs common vendor lifecycle handling.
 
+Parent-side task options retain the effective service's declaring package and
+JSON entry origin so the vendor is resolved before runner startup. Worker-facing
+`VendorData` contains only JSON-safe env identity, selected components, config,
+CLI args, and optional command runtime; it does not serialize a workspace/env
+runtime graph.
+
 `VendorData.runtime` is an optional JSON-only command-to-vendor channel. Preview
 uses it for `server` coordinates plus `prepared.entryFile` and
 `prepared.htmlFile`. Preview adapters should not rediscover components, generate

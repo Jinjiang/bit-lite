@@ -59,6 +59,7 @@ type PreparePreviewEnvOptions = {
   workspaceRoot: string;
   server: PreviewServerRuntime;
   browserModulePath?: string;
+  resolveModule?: ((specifier: string, field: string) => Promise<string>) | undefined;
 };
 
 export async function preparePreviewEnv(options: PreparePreviewEnvOptions): Promise<PreparedPreviewEnv> {
@@ -67,7 +68,8 @@ export async function preparePreviewEnv(options: PreparePreviewEnvOptions): Prom
   const { serviceConfig, config } = await resolvePreviewServiceConfig(
     options.serviceConfig,
     options.workspaceRoot,
-    options.envName
+    options.envName,
+    options.resolveModule
   );
   if (components.some((component) => component.compositions.length > 0) && !config.mounter) {
     throw new PreviewPreparationError(
@@ -146,7 +148,8 @@ export async function discoverPreviewComponents(components: PreviewComponentRef[
 export async function resolvePreviewServiceConfig(
   serviceConfig: unknown,
   workspaceRoot: string,
-  envName: string
+  envName: string,
+  resolveModule?: ((specifier: string, field: string) => Promise<string>) | undefined
 ): Promise<{ serviceConfig: Record<string, unknown>; config: ResolvedPreviewServiceConfig }> {
   if (!isRecord(serviceConfig)) throw new PreviewPreparationError(`preview env "${envName}" service config must be an object`);
   if (!isRecord(serviceConfig.config)) {
@@ -157,12 +160,14 @@ export async function resolvePreviewServiceConfig(
   const configFile = readRequiredSpecifier(config.configFile, envName, "configFile");
   const mounter = readOptionalSpecifier(config.mounter, envName, "mounter");
   const docsTemplate = readOptionalSpecifier(config.docsTemplate, envName, "docsTemplate");
+  const resolve = resolveModule ?? ((specifier: string, field: string) =>
+    resolvePreviewModule(specifier, workspaceRoot, envName, field));
   const resolved: ResolvedPreviewServiceConfig = {
     ...config,
-    configFile: await resolvePreviewModule(configFile, workspaceRoot, envName, "configFile"),
-    ...(mounter ? { mounter: await resolvePreviewModule(mounter, workspaceRoot, envName, "mounter") } : {}),
+    configFile: await resolve(configFile, "configFile"),
+    ...(mounter ? { mounter: await resolve(mounter, "mounter") } : {}),
     ...(docsTemplate
-      ? { docsTemplate: await resolvePreviewModule(docsTemplate, workspaceRoot, envName, "docsTemplate") }
+      ? { docsTemplate: await resolve(docsTemplate, "docsTemplate") }
       : {}),
   } as ResolvedPreviewServiceConfig;
 

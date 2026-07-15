@@ -1,120 +1,103 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { groupSelectedComponentsByEnv, loadWorkspace, selectComponentRefs } from "./workspace.js";
 
 describe("workspace runtime", () => {
-  it("discovers components and assigns envs", async () => {
-    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "bit-lite-"));
-    await writeFile(
-      path.join(workspaceRoot, "bit-lite.json"),
-      JSON.stringify(
-        {
-          envs: {
-            node: {
-              services: {
-                inspect: {
-                  vendor: "default",
-                  config: { source: "node" },
-                },
-              },
-            },
-            react: {
-              extends: "node",
-              services: {
-                inspect: {
-                  vendor: "default",
-                  config: { source: "react" },
-                },
-              },
-            },
-            vue: {
-              extends: "node",
-              services: {
-                inspect: {
-                  vendor: "default",
-                  config: { source: "vue" },
-                },
-              },
-            },
-          },
-          components: {
-            "components/ui/**": "react",
-            "components/vue/**": "vue",
-            "components/lib/**": "node",
-          },
-        },
-        null,
-        2
-      )
-    );
-    await mkdir(path.join(workspaceRoot, "components/lib/math"), { recursive: true });
-    await mkdir(path.join(workspaceRoot, "components/ui/button"), { recursive: true });
-    await mkdir(path.join(workspaceRoot, "components/vue/card"), { recursive: true });
-    await writeFile(path.join(workspaceRoot, "components/lib/math/index.ts"), "export const add = () => 1;\n");
-    await writeFile(path.join(workspaceRoot, "components/ui/button/index.ts"), "export const Button = {};\n");
-    await writeFile(path.join(workspaceRoot, "components/vue/card/index.vue"), "<template><div>Card</div></template>\n");
+  it("loads explicit components, external JSON envs, and deterministic groups", async () => {
+    const workspaceRoot = await createWorkspace([
+      component("components/lib/math", "lib/math", "@scope/lib.math", "@env/node"),
+      component("components/ui/button", "ui/button", "@scope/ui.button", "@env/react"),
+      component("components/vue/card", "vue/card", "@scope/vue.card", "@env/vue"),
+    ]);
+    for (const entry of [
+      ["@scope/lib.math", "@env/node"],
+      ["@scope/ui.button", "@env/react"],
+      ["@scope/vue.card", "@env/vue"],
+    ] as const) {
+      await installEnv(workspaceRoot, entry[0], entry[1]);
+    }
 
     const workspace = await loadWorkspace(workspaceRoot);
 
-    expect(workspace.components.map((component) => [component.id, component.envName])).toEqual([
-      ["components/lib/math", "node"],
-      ["components/ui/button", "react"],
-      ["components/vue/card", "vue"],
+    expect(workspace.components.map((item) => [item.id, item.env.packageName])).toEqual([
+      ["lib/math", "@env/node"],
+      ["ui/button", "@env/react"],
+      ["vue/card", "@env/vue"],
     ]);
-    expect(workspace.groups.map((group) => [group.envName, group.components.map((component) => component.id)])).toEqual([
-      ["node", ["components/lib/math"]],
-      ["react", ["components/ui/button"]],
-      ["vue", ["components/vue/card"]],
-    ]);
-
-    expect(
-      groupSelectedComponentsByEnv(workspace, [
-        { id: "components/vue/card", rootDir: path.join(workspaceRoot, "components/vue/card") },
-        { id: "components/lib/math", rootDir: path.join(workspaceRoot, "components/lib/math") },
-      ]).map((group) => [group.envName, group.components.map((component) => component.id)])
-    ).toEqual([
-      ["node", ["components/lib/math"]],
-      ["vue", ["components/vue/card"]],
+    expect(workspace.groups.map((group) => [group.envName, group.components.map((item) => item.id)])).toEqual([
+      ["@env/node", ["lib/math"]],
+      ["@env/react", ["ui/button"]],
+      ["@env/vue", ["vue/card"]],
     ]);
 
-    expect(selectComponentRefs(workspace.components, ["components/ui/*"]).map((component) => component.id)).toEqual([
-      "components/ui/button",
-    ]);
-    expect(() => selectComponentRefs(workspace.components, ["missing/**"])).toThrow(
-      "--filter did not match any components: missing/**"
-    );
+    expect(groupSelectedComponentsByEnv(workspace, [
+      { id: "vue/card", rootDir: path.join(workspaceRoot, "components/vue/card"), packageName: "@scope/vue.card" },
+      { id: "lib/math", rootDir: path.join(workspaceRoot, "components/lib/math"), packageName: "@scope/lib.math" },
+    ]).map((group) => group.envName)).toEqual(["@env/node", "@env/vue"]);
+    expect(selectComponentRefs(workspace.components, ["ui/*"]).map((item) => item.id)).toEqual(["ui/button"]);
+    expect(() => selectComponentRefs(workspace.components, ["missing/**"]))
+      .toThrow("--filter did not match any components: missing/**");
   });
 
-  it("loads only explicit component records with their configured ids and envs", async () => {
-    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "bit-lite-explicit-"));
-    await writeFile(
-      path.join(workspaceRoot, "bit-lite.json"),
-      JSON.stringify({
-        envs: { node: {}, react: {} },
-        components: [
-          { path: "components/lib/math", id: "lib/math", envName: "node" },
-          { path: "components/ui/button", id: "ui/button", envName: "react" },
-        ],
-      })
-    );
-    await mkdir(path.join(workspaceRoot, "components/lib/math"), { recursive: true });
-    await mkdir(path.join(workspaceRoot, "components/ui/button"), { recursive: true });
+  it("does not discover unregistered source directories", async () => {
+    const workspaceRoot = await createWorkspace([
+      component("components/lib/math", "lib/math", "@scope/lib.math", "@env/node"),
+    ]);
     await mkdir(path.join(workspaceRoot, "components/unlisted"), { recursive: true });
-    await writeFile(path.join(workspaceRoot, "components/lib/math/index.ts"), "export const add = () => 1;\n");
-    await writeFile(path.join(workspaceRoot, "components/ui/button/index.ts"), "export const Button = {};\n");
-    await writeFile(path.join(workspaceRoot, "components/unlisted/index.ts"), "export const Hidden = {};\n");
+    await writeFile(path.join(workspaceRoot, "components/unlisted/index.ts"), "export const hidden = true;\n");
+    await installEnv(workspaceRoot, "@scope/lib.math", "@env/node");
 
     const workspace = await loadWorkspace(workspaceRoot);
-
-    expect(workspace.components.map(({ id, envName }) => [id, envName])).toEqual([
-      ["lib/math", "node"],
-      ["ui/button", "react"],
-    ]);
+    expect(workspace.components.map((item) => item.id)).toEqual(["lib/math"]);
     expect(workspace.config.components).toEqual([
-      { path: "components/lib/math", id: "lib/math", envName: "node" },
-      { path: "components/ui/button", id: "ui/button", envName: "react" },
+      component("components/lib/math", "lib/math", "@scope/lib.math", "@env/node"),
     ]);
   });
 });
+
+function component(componentPath: string, id: string, packageName: string, envPackageName: string) {
+  return {
+    path: componentPath,
+    id,
+    packageName,
+    env: { packageName: envPackageName, version: "1.0.0" },
+  };
+}
+
+async function createWorkspace(components: ReturnType<typeof component>[]) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "bit-lite-workspace-"));
+  await writeFile(path.join(root, "bit-lite.json"), JSON.stringify({ components }));
+  for (const entry of components) {
+    const componentRoot = path.join(root, entry.path);
+    await mkdir(componentRoot, { recursive: true });
+    await writeFile(path.join(componentRoot, "index.ts"), "export const value = true;\n");
+    await writeFile(path.join(componentRoot, ".comp.json"), "{}\n");
+  }
+  return root;
+}
+
+async function installEnv(workspaceRoot: string, componentPackageName: string, envPackageName: string) {
+  const storeRoot = path.join(workspaceRoot, ".fixture-envs", ...envPackageName.split("/"));
+  await mkdir(storeRoot, { recursive: true });
+  await writeFile(path.join(storeRoot, "package.json"), JSON.stringify({
+    name: envPackageName,
+    version: "1.0.0",
+    type: "module",
+    exports: { ".": "./index.json" },
+  }));
+  await writeFile(path.join(storeRoot, "index.json"), JSON.stringify({
+    name: envPackageName,
+    services: { compile: { vendor: "compiler", config: {} } },
+  }));
+  const installPath = path.join(
+    workspaceRoot,
+    ".bit-lite/deps/components",
+    ...componentPackageName.split("/"),
+    "node_modules",
+    ...envPackageName.split("/")
+  );
+  await mkdir(path.dirname(installPath), { recursive: true });
+  await symlink(path.relative(path.dirname(installPath), storeRoot), installPath, "dir");
+}
