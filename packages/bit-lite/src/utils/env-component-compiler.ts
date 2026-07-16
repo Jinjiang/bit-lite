@@ -3,7 +3,7 @@ import path from "node:path";
 import ts from "typescript";
 import type { Workspace, WorkspaceComponent } from "bit-lite-context";
 import { orderWorkspaceComponents } from "bit-lite-context";
-import { getPackageDirectory } from "./commands/link.js";
+import { getPackageDirectory } from "../commands/link.js";
 
 const typeScriptExtensions = new Set([".ts", ".tsx"]);
 const ignoredDirectories = new Set(["node_modules", "dist", ".git"]);

@@ -30,7 +30,7 @@ import type {
   VendorTask,
   VendorTaskStartOptions,
 } from "bit-lite-vendors";
-import { prepareWorkspaceForEnvLoading } from "../prepare-workspace.js";
+import { prepareWorkspaceForEnvLoading } from "../utils/prepare-workspace.js";
 
 export type PreviewVendorRuntime = PreviewPreparedRuntime;
 export type PreviewServiceResult = JsonObject & { mode: "serve" };

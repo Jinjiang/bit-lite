@@ -1,5 +1,5 @@
 import { readWorkspace, resolveWorkspace } from "bit-lite-context";
-import { linkComponentPackages } from "./commands/link.js";
+import { linkComponentPackages } from "../commands/link.js";
 import { materializeLocalEnvComponents } from "./env-component-compiler.js";
 
 export async function prepareWorkspaceForEnvLoading(workspaceRoot: string) {

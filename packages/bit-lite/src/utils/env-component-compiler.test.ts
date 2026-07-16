@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { readWorkspace } from "bit-lite-context";
 import { describe, expect, it } from "vitest";
-import { linkComponentPackages } from "./commands/link.js";
+import { linkComponentPackages } from "../commands/link.js";
 import { materializeLocalEnvComponents } from "./env-component-compiler.js";
 
 describe("fixed local env component compiler", () => {

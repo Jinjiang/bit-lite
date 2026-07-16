@@ -20,7 +20,7 @@ import type {
   VendorDefinition,
 } from "bit-lite-vendors";
 import { BitLiteError } from "../utils/errors.js";
-import { materializeLocalEnvComponents } from "../env-component-compiler.js";
+import { materializeLocalEnvComponents } from "../utils/env-component-compiler.js";
 import { getPackageDirectory, linkComponentPackages } from "./link.js";
 
 export type CompileVendorRuntime = JsonObject & {

@@ -16,6 +16,11 @@ export type DependencyProject = {
 export type InstallDependencyProjectsOptions = {
   rootDir: string;
   projects: DependencyProject[];
+  /**
+   * Optional local packages used by the current demo/development setup.
+   * A Bit workspace is not required to live inside a pnpm workspace, and the
+   * long-term package source for Bit components is a dedicated npm registry.
+   */
   workspacePackages?: DependencyProject[];
 };
 
@@ -89,6 +94,13 @@ export async function installDependencyProjects(options: InstallDependencyProjec
   }
 }
 
+/**
+ * Discovers a containing pnpm workspace only as a temporary demo/development fallback.
+ * This is not part of the Bit workspace model: standalone Bit workspaces are valid,
+ * so not finding `pnpm-workspace.yaml` is expected and produces an empty package set.
+ * Long term, Bit component packages should be installed from a dedicated npm registry
+ * instead of being sourced from an enclosing pnpm workspace.
+ */
 export async function discoverPnpmWorkspacePackages(startDir: string): Promise<DependencyProject[]> {
   const workspaceRoot = await findWorkspaceRoot(path.resolve(startDir));
   if (!workspaceRoot) return [];

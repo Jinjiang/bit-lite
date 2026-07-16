@@ -5,7 +5,7 @@ import * as vendorTasks from "bit-lite-vendors";
 import type { SelectedEnvIdentity } from "bit-lite-context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCli } from "../cli.js";
-import { createResultStore } from "../result-store.js";
+import { createResultStore } from "../utils/result-store.js";
 import { isTestServiceResult, runTestCommand, type TestServiceResult } from "./test.js";
 import type { JsonObject, VendorTask, VendorTaskStartOptions, WatchVendorTasksOptions } from "bit-lite-vendors";
 

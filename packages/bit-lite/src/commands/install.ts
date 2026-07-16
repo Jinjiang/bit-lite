@@ -5,7 +5,7 @@ import { readWorkspace } from "bit-lite-context";
 import { discoverPnpmWorkspacePackages, installDependencyProjects, type DependencyProject } from "bit-lite-deps";
 import { BitLiteError } from "../utils/errors.js";
 import { compileComponentPackages } from "./compile.js";
-import { materializeLocalEnvComponents } from "../env-component-compiler.js";
+import { materializeLocalEnvComponents } from "../utils/env-component-compiler.js";
 import {
   getComponentDependencyDirectory,
   isWorkspaceProtocolSpec,
@@ -27,6 +27,9 @@ export async function runInstallCommand(parsed: ParsedCliArgs) {
   const workspace = await readWorkspace(parsed.workspaceRoot);
   const shouldCompile = readCompileOption(parsed.args.options.compile);
   const projects = await createDependencyProjects(workspace.rootDir, workspace.components);
+  // Temporary demo bridge: reuse locally developed packages when this Bit workspace
+  // happens to be nested in a pnpm workspace. Its absence is normal; production Bit
+  // component installation is expected to resolve through a dedicated npm registry.
   const workspacePackages = await discoverPnpmWorkspacePackages(workspace.rootDir);
 
   await installDependencyProjects({

@@ -21,8 +21,8 @@ import type {
   VendorTaskRunResult,
   VendorTaskStartOptions,
 } from "bit-lite-vendors";
-import type { ResultStore, ResultStoreEntry } from "../result-store.js";
-import { prepareWorkspaceForEnvLoading } from "../prepare-workspace.js";
+import type { ResultStore, ResultStoreEntry } from "../utils/result-store.js";
+import { prepareWorkspaceForEnvLoading } from "../utils/prepare-workspace.js";
 
 export type TestServiceResult = JsonObject & {
   mode: "run" | "watch";
