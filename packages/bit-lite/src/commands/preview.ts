@@ -47,6 +47,7 @@ const defaultProxyPort = 4000;
 const defaultVendorPort = 6000;
 
 export async function runPreviewCommand(parsed: ParsedCliArgs) {
+  // 0. resolve inputs
   const { workspace, context } = await prepareWorkspaceForEnvLoading(parsed.workspaceRoot);
   const components = selectWorkspaceComponents(workspace, parsed.componentFilters);
   const groups = groupWorkspaceComponentsByEnv(context, components);
@@ -57,6 +58,7 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
     return;
   }
 
+  // 1. initialize the proxy server
   const host = readHost(parsed.args.options.host);
   const proxyPort = readPort(parsed.args.options.port, "--port", defaultProxyPort);
   const proxyServer = new PreviewProxyServer({
@@ -73,6 +75,7 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
   let proxyCleanupRegistered = false;
 
   try {
+    // 2. prepare tasks with resolving vendors and configs
     const prepared = await preparePreviewTasks(
       previewGroups,
       workspace,
@@ -91,6 +94,8 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
     const preparedByEnv = new Map(
       prepared.tasks.map((task) => [getSelectedEnvKey(task.prepared.env), task.prepared])
     );
+
+    // 3. start watch vendor tasks and manage the communications
     console.log(`Preview: ${proxyServer.origin}`);
     await watchVendorTasks<PreviewServiceResult>(prepared.tasks.map((task) => task.options), {
       serviceId,
@@ -137,6 +142,7 @@ export async function preparePreviewTasks(
   for (const group of groups) {
     const service = getPreviewService(group);
     try {
+      // 0. resolve vendor and server info
       const vendorUrl = await resolveVendorSpecifier({
         specifier: service.definition.vendor,
         service,
@@ -152,6 +158,8 @@ export async function preparePreviewTasks(
         basePath: `/env/${encodeRouteSegment(group.env.env.packageName)}/`,
         proxyOrigin,
       };
+
+      // 1. resolve preview config details
       const prepared = await preparePreviewEnv({
         env: group.env.env,
         components: group.components,
@@ -168,7 +176,11 @@ export async function preparePreviewTasks(
           });
         },
       });
+
+      // 2. update components of the env to proxy server
       proxyServer.updatePreparedComponents(group.env.env, server.basePath, prepared.components);
+
+      // 3. add to the final tasks (or failures)
       tasks.push({
         prepared,
         options: {
