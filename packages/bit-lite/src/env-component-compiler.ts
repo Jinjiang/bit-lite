@@ -1,22 +1,22 @@
 import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
-import type { ComponentPackage, ComponentPackageRegistry } from "bit-lite-context";
-import { orderComponentsByInternalDependencies } from "bit-lite-context";
+import type { Workspace, WorkspaceComponent } from "bit-lite-context";
+import { orderWorkspaceComponents } from "bit-lite-context";
 import { getPackageDirectory } from "./commands/link.js";
 
 const typeScriptExtensions = new Set([".ts", ".tsx"]);
 const ignoredDirectories = new Set(["node_modules", "dist", ".git"]);
 const ignoredFiles = new Set([".comp.json"]);
 
-export async function materializeLocalEnvComponents(registry: ComponentPackageRegistry) {
-  const envComponents = registry.components.filter((component) => component.kind === "env");
-  const ordered = orderComponentsByInternalDependencies(registry, envComponents);
+export async function materializeLocalEnvComponents(workspace: Workspace) {
+  const envComponents = workspace.components.filter((component) => component.kind === "env");
+  const ordered = orderWorkspaceComponents(workspace, envComponents);
   for (const component of ordered) {
     try {
-      await materializeLocalEnvComponent(registry.workspaceRoot, component);
+      await materializeLocalEnvComponent(workspace.rootDir, component);
     } catch (error) {
-      const affected = registry.components
+      const affected = workspace.components
         .filter((candidate) => candidate.internalEnvPackageName === component.packageName)
         .map((candidate) => candidate.id);
       throw new Error(
@@ -28,7 +28,7 @@ export async function materializeLocalEnvComponents(registry: ComponentPackageRe
   return ordered;
 }
 
-export async function materializeLocalEnvComponent(workspaceRoot: string, component: ComponentPackage) {
+export async function materializeLocalEnvComponent(workspaceRoot: string, component: WorkspaceComponent) {
   if (component.kind !== "env") {
     throw new Error(`fixed env compiler cannot compile ordinary component "${component.id}"`);
   }
@@ -54,7 +54,7 @@ export async function materializeLocalEnvComponent(workspaceRoot: string, compon
 }
 
 async function transpileEnvSupportFile(
-  component: ComponentPackage,
+  component: WorkspaceComponent,
   sourceFile: string,
   relativePath: string,
   distDir: string

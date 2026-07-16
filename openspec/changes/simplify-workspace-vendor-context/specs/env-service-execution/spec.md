@@ -45,9 +45,9 @@ Test, preview, and compile vendor outputs SHALL contain only data produced by th
 - **WHEN** a compile vendor writes to the output directory selected by the parent
 - **THEN** it may return produced artifact information or no output and is not required to echo env, component ID, service name, or output directory
 
-#### Scenario: Legacy maintained vendor echoes context
-- **WHEN** a maintained vendor returns the legacy repository result shape containing echoed service/vendor/env/args/config metadata
-- **THEN** contract tests reject that maintained-vendor output and require the produced-data-only shape
+#### Scenario: Vendor output uses a historical field name
+- **WHEN** an otherwise valid vendor result contains an additional JSON-safe field whose name was used by an older result shape
+- **THEN** validation preserves it as opaque vendor output while parent-owned context remains the source of execution identity
 
 ## MODIFIED Requirements
 
@@ -75,14 +75,14 @@ Commands SHALL start vendor modules that export valid `meta: VendorDefinition` a
 - **THEN** the affected task reports a validation error and the command does not present or store the payload as successful output
 
 ### Requirement: Command-facing env identity remains structured end to end
-Workspace env groups SHALL reuse their loaded env context and its canonical `env: { packageName, requestedVersion, installedVersion }` identity. Vendor inputs SHALL expose that identity at `VendorData.context.env`; vendors SHALL NOT echo it in produced output. Parent-owned vendor task/result context, test watch storage, prepared/skipped preview state, and preview proxy manifests SHALL derive their structured env identity from the selected env context. Internal grouping, task, temporary-file, or route keys MAY be derived from the selected package reference but SHALL NOT become a second public env identity.
+Workspace env groups SHALL reuse their loaded env context and its canonical `env: { packageName, requestedVersion, installedVersion }` identity. Vendor inputs SHALL expose that identity at `VendorData.context.env`; vendors SHALL NOT echo it in produced output. Parent-owned vendor task/result context, test watch storage, prepared preview state, and preview proxy manifests SHALL derive their structured env identity from the selected env context. Internal grouping, task, temporary-file, or route keys MAY be derived from the selected package reference but SHALL NOT become a second public env identity.
 
 #### Scenario: Test result is stored
 - **WHEN** a test vendor emits valid produced output for an env requested with a range
 - **THEN** the watch store obtains package name, requested version, and installed version from the parent task context and stores the vendor output without requiring an env echo
 
 #### Scenario: Preview manifest is generated
-- **WHEN** preview prepares, skips, starts, or fails an env group
+- **WHEN** preview prepares, starts, or fails an env group
 - **THEN** the proxy manifest projects the structured selected-env identity from parent preparation/task state while existing package-name-based public preview URLs remain unchanged
 
 #### Scenario: Compile vendor receives a component
@@ -90,6 +90,5 @@ Workspace env groups SHALL reuse their loaded env context and its canonical `env
 - **THEN** compiler context contains the structured selected-env identity and compiler output does not repeat it
 
 #### Scenario: Vendor output contains envName or env
-- **WHEN** a maintained test or preview vendor returns an otherwise valid produced result containing legacy `envName` or echoed `env` identity metadata
-- **THEN** command contract validation rejects the output as an outdated maintained-vendor shape
-
+- **WHEN** a test or preview vendor returns an otherwise valid result containing additional `envName` or `env` fields
+- **THEN** command validation treats those fields as opaque vendor data and continues deriving execution identity from the parent task context

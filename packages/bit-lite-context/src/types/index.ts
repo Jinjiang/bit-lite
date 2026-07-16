@@ -1,10 +1,8 @@
-import type { EnvDefinition, EnvServiceConfig, SupportedEnvServiceName } from "bit-lite-env";
-
-export type ComponentRef = {
-  id: string;
-  rootDir: string;
-  packageName: string;
-};
+import type {
+  EnvServiceConfigMap,
+  JsonObject,
+  SupportedEnvServiceName,
+} from "bit-lite-env";
 
 export type CliOptionScalar = string | number | boolean;
 export type CliOptionValue = CliOptionScalar | CliOptionScalar[];
@@ -14,6 +12,7 @@ export type CliArguments = {
   options: Record<string, CliOptionValue>;
   passthrough: string[];
 };
+
 export type ParsedCliArgs = {
   command: string | undefined;
   args: CliArguments;
@@ -22,6 +21,7 @@ export type ParsedCliArgs = {
   help: boolean;
 };
 
+/** Package requirement from workspace config; `version` may be a range or protocol such as `^1.0.0` or `workspace:*`. */
 export type PackageRef = {
   packageName: string;
   version: string;
@@ -41,8 +41,12 @@ export type WorkspaceConfig = {
 
 export type ComponentKind = "component" | "env";
 
-export type ComponentPackage = ComponentRef & {
+/** Canonical, JSON-safe description of one component in a workspace. */
+export type WorkspaceComponent = {
+  id: string;
   path: string;
+  rootDir: string;
+  packageName: string;
   kind: ComponentKind;
   env: PackageRef;
   mainFile: string;
@@ -54,57 +58,62 @@ export type ComponentPackage = ComponentRef & {
   internalEnvPackageName: string | undefined;
 };
 
-export type ComponentPackageRegistry = {
-  workspaceRoot: string;
+/** Base workspace snapshot. It never contains loaded env packages or lookup maps. */
+export type Workspace = {
+  rootDir: string;
   configPath: string;
   config: WorkspaceConfig;
-  components: ComponentPackage[];
-  byId: Map<string, ComponentPackage>;
-  byPackageName: Map<string, ComponentPackage>;
+  components: readonly WorkspaceComponent[];
 };
 
-export type LoadedEnvServiceRuntime = {
-  definition: EnvServiceConfig;
-  declaredBy: string;
-  packageRoot: string;
-  entryUrl: string;
-  entryDirectory: string;
+/** Resolved package identity; `version` is the concrete version read from the installed package manifest. */
+export type PackageIdentity = {
+  packageName: string;
+  version: string;
 };
 
-export type LoadedEnvRuntime = {
+export type PackageLocation = {
+  identity: PackageIdentity;
+  rootDir: string;
+  entryFile: string;
+};
+
+export type SelectedEnvIdentity = {
   packageName: string;
   requestedVersion: string;
   installedVersion: string;
-  packageRoot: string;
-  entryUrl: string;
-  entryDirectory: string;
-  effectiveDefinition: EnvDefinition;
-  services: Partial<Record<SupportedEnvServiceName, LoadedEnvServiceRuntime>>;
-  inheritanceChain: string[];
 };
 
-export type SelectedEnvIdentity = Pick<
-  LoadedEnvRuntime,
-  "packageName" | "requestedVersion" | "installedVersion"
->;
-
-export type ComponentRuntime = ComponentRef & {
-  kind: ComponentKind;
-  envRef: PackageRef;
-  env: LoadedEnvRuntime;
+export type ResolvedService<Name extends SupportedEnvServiceName = SupportedEnvServiceName> = {
+  name: Name;
+  definition: EnvServiceConfigMap[Name];
+  source: PackageLocation;
 };
 
-export type EnvRuntime = {
-  env: LoadedEnvRuntime;
-  components: ComponentRef[];
+export type ResolvedServices = {
+  [Name in SupportedEnvServiceName]?: ResolvedService<Name>;
 };
 
-export type SelectedEnvGroup = EnvRuntime;
+/** Resolved env information retained only by parent-side orchestration. */
+export type EnvContext = {
+  env: SelectedEnvIdentity;
+  package: PackageLocation;
+  config: JsonObject | undefined;
+  services: ResolvedServices;
+  inheritance: readonly PackageIdentity[];
+};
 
-export type WorkspaceRuntime = {
-  workspaceRoot: string;
-  config: WorkspaceConfig;
-  envs: Record<string, LoadedEnvRuntime>;
-  components: ComponentRuntime[];
-  groups: EnvRuntime[];
+export type ComponentContext = {
+  component: WorkspaceComponent;
+  env: EnvContext;
+};
+
+export type WorkspaceContext = {
+  workspace: Workspace;
+  components: readonly ComponentContext[];
+};
+
+export type WorkspaceEnvGroup = {
+  env: EnvContext;
+  components: readonly WorkspaceComponent[];
 };

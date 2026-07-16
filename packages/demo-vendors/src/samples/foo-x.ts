@@ -1,4 +1,4 @@
-import type { VendorDefinition, VendorStartResult, VendorRuntime } from "bit-lite-vendors";
+import type { JsonObject, VendorDefinition, VendorStartResult, VendorRuntime } from "bit-lite-vendors";
 import { isShutdownMessage, wait } from "./vendor-utils.js";
 
 export type FooXResult = {
@@ -15,7 +15,7 @@ export const meta: VendorDefinition = {
   moduleUrl: import.meta.url,
 };
 
-export default function startFooXVendor(runtime: VendorRuntime<Record<string, unknown>>): VendorStartResult {
+export default function startFooXVendor(runtime: VendorRuntime<JsonObject>): VendorStartResult {
   const calls: string[] = [];
   const data: FooXResult = {
     service: "foo",

@@ -3,14 +3,16 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { validateEnvDefinition } from "bit-lite-env";
-import type { EnvDefinition, EnvServiceConfig, SupportedEnvServiceName } from "bit-lite-env";
+import type { EnvDefinition, EnvServiceConfigMap, SupportedEnvServiceName } from "bit-lite-env";
 import { isWorkspaceProtocolSpec } from "./config.js";
 import type {
-  ComponentPackage,
-  ComponentPackageRegistry,
-  LoadedEnvRuntime,
-  LoadedEnvServiceRuntime,
+  EnvContext,
+  PackageLocation,
   PackageRef,
+  ResolvedService,
+  ResolvedServices,
+  Workspace,
+  WorkspaceComponent,
 } from "./types/index.js";
 import { BitLiteError } from "./utils/errors.js";
 
@@ -29,40 +31,40 @@ type ResolvedEnvPackage = {
 };
 
 type LoadState = {
-  registry: ComponentPackageRegistry;
-  cache: Map<string, Promise<LoadedEnvRuntime>>;
+  workspace: Workspace;
+  cache: Map<string, Promise<EnvContext>>;
 };
 
 export async function loadEnvForComponent(
-  component: ComponentPackage,
-  registry: ComponentPackageRegistry,
-  cache = new Map<string, Promise<LoadedEnvRuntime>>()
+  component: WorkspaceComponent,
+  workspace: Workspace,
+  cache = new Map<string, Promise<EnvContext>>()
 ) {
-  const state: LoadState = { registry, cache };
+  const state: LoadState = { workspace, cache };
   try {
-    const resolved = await resolveSelectedEnv(component, registry);
+    const resolved = await resolveSelectedEnv(component, workspace);
     return await loadResolvedEnv(component.env, resolved, state, []);
   } catch (error) {
     throw contextualError(error, component.env, [component.id], "load");
   }
 }
 
-export async function loadWorkspaceEnvs(registry: ComponentPackageRegistry) {
-  const cache = new Map<string, Promise<LoadedEnvRuntime>>();
-  const result = new Map<string, LoadedEnvRuntime>();
-  const groups = new Map<string, ComponentPackage[]>();
-  for (const component of registry.components) {
+export async function loadWorkspaceEnvContexts(workspace: Workspace) {
+  const cache = new Map<string, Promise<EnvContext>>();
+  const result = new Map<string, EnvContext>();
+  const groups = new Map<string, WorkspaceComponent[]>();
+  for (const component of workspace.components) {
     const key = `${component.env.packageName}\0${component.env.version}`;
     const group = groups.get(key) ?? [];
     group.push(component);
     groups.set(key, group);
   }
-  for (const component of registry.components) {
+  for (const component of workspace.components) {
     const key = `${component.env.packageName}\0${component.env.version}`;
     const affected = groups.get(key) ?? [component];
     try {
-      const resolved = await resolveSelectedEnv(component, registry);
-      const env = await loadResolvedEnv(component.env, resolved, { registry, cache }, []);
+      const resolved = await resolveSelectedEnv(component, workspace);
+      const env = await loadResolvedEnv(component.env, resolved, { workspace, cache }, []);
       result.set(component.id, env);
     } catch (error) {
       throw contextualError(error, component.env, affected.map((selected) => selected.id), "load");
@@ -73,12 +75,29 @@ export async function loadWorkspaceEnvs(registry: ComponentPackageRegistry) {
 
 export async function resolveEnvModuleSpecifier(options: {
   specifier: string;
-  service: LoadedEnvServiceRuntime;
+  service: ResolvedService;
   workspaceRoot: string;
   field: string;
   selectedEnv: string;
 }) {
-  const { specifier, service } = options;
+  return resolveServiceSpecifier({
+    specifier: options.specifier,
+    source: options.service.source,
+    workspaceRoot: options.workspaceRoot,
+    field: options.field,
+    selectedEnv: options.selectedEnv,
+  });
+}
+
+/** Resolve a module using only the serializable service origin and workspace root. */
+export async function resolveServiceSpecifier(options: {
+  specifier: string;
+  source: PackageLocation;
+  workspaceRoot: string;
+  field: string;
+  selectedEnv: string;
+}) {
+  const { specifier, source } = options;
   const attempts: string[] = [];
   if (isFileUrl(specifier)) {
     const filePath = fileURLToPath(specifier);
@@ -87,11 +106,11 @@ export async function resolveEnvModuleSpecifier(options: {
   } else if (path.isAbsolute(specifier) || specifier.startsWith(".")) {
     const candidate = path.isAbsolute(specifier)
       ? specifier
-      : path.resolve(service.entryDirectory, specifier);
-    const relative = path.relative(service.packageRoot, candidate);
+      : path.resolve(path.dirname(source.entryFile), specifier);
+    const relative = path.relative(source.rootDir, candidate);
     if (relative.startsWith("..") || path.isAbsolute(relative)) {
       throw new BitLiteError(
-        `${options.field} for selected env "${options.selectedEnv}" declared by "${service.declaredBy}" ` +
+        `${options.field} for selected env "${options.selectedEnv}" declared by "${source.identity.packageName}" ` +
         `escapes package root: ${specifier}`
       );
     }
@@ -100,7 +119,7 @@ export async function resolveEnvModuleSpecifier(options: {
     attempts.push(candidate);
   } else {
     for (const manifestPath of [
-      path.join(service.packageRoot, "package.json"),
+      path.join(source.rootDir, "package.json"),
       path.join(options.workspaceRoot, "package.json"),
     ]) {
       try {
@@ -111,14 +130,14 @@ export async function resolveEnvModuleSpecifier(options: {
     }
   }
   throw new BitLiteError(
-    `${options.field} for selected env "${options.selectedEnv}" declared by "${service.declaredBy}" ` +
+    `${options.field} for selected env "${options.selectedEnv}" declared by "${source.identity.packageName}" ` +
     `could not resolve "${specifier}"; attempted ${attempts.join(", ")}`
   );
 }
 
 export async function resolveVendorSpecifier(options: {
   specifier: string;
-  service: LoadedEnvServiceRuntime;
+  service: ResolvedService;
   workspaceRoot: string;
   selectedEnv: string;
   serviceName: string;
@@ -142,17 +161,17 @@ function isAbsoluteNonFileUrl(value: string) {
   }
 }
 
-async function resolveSelectedEnv(component: ComponentPackage, registry: ComponentPackageRegistry) {
+async function resolveSelectedEnv(component: WorkspaceComponent, workspace: Workspace) {
   if (isWorkspaceProtocolSpec(component.env.version)) {
-    const target = registry.byPackageName.get(component.env.packageName);
+    const target = workspace.components.find((candidate) => candidate.packageName === component.env.packageName);
     if (!target || target.kind !== "env") {
       throw new BitLiteError(`local env component "${component.env.packageName}" is unavailable`);
     }
-    const packageDir = generatedPackageDirectory(registry.workspaceRoot, target.packageName);
+    const packageDir = generatedPackageDirectory(workspace.rootDir, target.packageName);
     return resolvePackageFromDirectory(packageDir, target.packageName);
   }
 
-  const dependencyProject = componentDependencyDirectory(registry.workspaceRoot, component.packageName);
+  const dependencyProject = componentDependencyDirectory(workspace.rootDir, component.packageName);
   const directPackageDirectory = path.join(
     dependencyProject,
     "node_modules",
@@ -178,7 +197,7 @@ async function loadResolvedEnv(
   resolved: ResolvedEnvPackage,
   state: LoadState,
   stack: string[]
-): Promise<LoadedEnvRuntime> {
+): Promise<EnvContext> {
   const canonicalEntry = await realpath(resolved.entryPath);
   const cacheKey = `${canonicalEntry}\0${ref.version}`;
   if (stack.includes(canonicalEntry)) {
@@ -204,7 +223,7 @@ async function buildLoadedEnv(
   canonicalEntry: string,
   state: LoadState,
   stack: string[]
-): Promise<LoadedEnvRuntime> {
+): Promise<EnvContext> {
   if (path.extname(canonicalEntry).toLowerCase() !== ".json") {
     throw new BitLiteError(`env package "${ref.packageName}" default entry must be JSON: ${canonicalEntry}`);
   }
@@ -227,8 +246,7 @@ async function buildLoadedEnv(
     throw new BitLiteError(`failed parsing env JSON "${canonicalEntry}": ${message}`);
   }
   const definition = validateEnvDefinition(parsed, resolved.manifest.name);
-  const entryDirectory = path.dirname(canonicalEntry);
-  let parent: LoadedEnvRuntime | undefined;
+  let parent: EnvContext | undefined;
   if (definition.extends) {
     const parentVersion = resolved.manifest.dependencies[definition.extends];
     if (!parentVersion) {
@@ -247,48 +265,39 @@ async function buildLoadedEnv(
     );
   }
 
-  const ownServices = createServiceOrigins(definition, resolved.packageRoot, canonicalEntry, entryDirectory);
-  const services = { ...(parent?.services ?? {}), ...ownServices };
-  const effectiveDefinition: EnvDefinition = {
-    name: definition.name,
-    ...(definition.extends ? { extends: definition.extends } : {}),
-    services: Object.fromEntries(
-      Object.entries(services).map(([name, runtime]) => [name, runtime.definition])
-    ),
-    ...((parent?.effectiveDefinition.config || definition.config)
-      ? { config: { ...(parent?.effectiveDefinition.config ?? {}), ...(definition.config ?? {}) } }
-      : {}),
+  const source: PackageLocation = {
+    identity: { packageName: definition.name, version: resolved.manifest.version },
+    rootDir: resolved.packageRoot,
+    entryFile: canonicalEntry,
   };
+  const ownServices = createServiceOrigins(definition, source);
+  const services: ResolvedServices = { ...(parent?.services ?? {}), ...ownServices };
+  const config = parent?.config || definition.config
+    ? { ...(parent?.config ?? {}), ...(definition.config ?? {}) }
+    : undefined;
 
   return {
-    packageName: definition.name,
-    requestedVersion: ref.version,
-    installedVersion: resolved.manifest.version,
-    packageRoot: resolved.packageRoot,
-    entryUrl: pathToFileURL(canonicalEntry).href,
-    entryDirectory,
-    effectiveDefinition,
+    env: {
+      packageName: definition.name,
+      requestedVersion: ref.version,
+      installedVersion: resolved.manifest.version,
+    },
+    package: source,
+    config,
     services,
-    inheritanceChain: [...(parent?.inheritanceChain ?? []), definition.name],
+    inheritance: [...(parent?.inheritance ?? []), source.identity],
   };
 }
 
-function createServiceOrigins(
-  definition: EnvDefinition,
-  packageRoot: string,
-  entryPath: string,
-  entryDirectory: string
-) {
-  const services: Partial<Record<SupportedEnvServiceName, LoadedEnvServiceRuntime>> = {};
+function createServiceOrigins(definition: EnvDefinition, source: PackageLocation) {
+  const services: ResolvedServices = {};
   for (const [name, service] of Object.entries(definition.services) as Array<
-    [SupportedEnvServiceName, EnvServiceConfig]
+    [SupportedEnvServiceName, EnvServiceConfigMap[SupportedEnvServiceName]]
   >) {
-    services[name] = {
+    (services as Record<string, ResolvedService>)[name] = {
+      name,
       definition: service,
-      declaredBy: definition.name,
-      packageRoot,
-      entryUrl: pathToFileURL(entryPath).href,
-      entryDirectory,
+      source,
     };
   }
   return services;

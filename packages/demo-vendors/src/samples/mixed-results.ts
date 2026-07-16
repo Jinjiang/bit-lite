@@ -1,4 +1,4 @@
-import type { VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
+import type { JsonObject, VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
 import { wait } from "./vendor-utils.js";
 
 export type MixedRunResult = {
@@ -23,7 +23,7 @@ export const meta: VendorDefinition = {
 };
 
 export default async function startMixedResultsVendor(
-  runtime: VendorRuntime<Record<string, unknown>, MixedEventResult>
+  runtime: VendorRuntime<JsonObject, MixedEventResult>
 ): Promise<VendorStartResult<MixedRunResult>> {
   const componentCount = runtime.data.components.length;
 

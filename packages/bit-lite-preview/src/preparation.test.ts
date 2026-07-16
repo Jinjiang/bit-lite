@@ -114,13 +114,10 @@ describe("preview preparation", () => {
     const prepared = await preparePreviewEnv({
       env: selectedEnv("react env"),
       components: [{ id: 'scope/"quoted"', rootDir: componentRoot, packageName: "@scope/quoted" }],
-      serviceConfig: {
-        vendor: "vite-preview",
-        config: {
-          configFile: "./config/vite.ts",
-          mounter: "./config/mounter.ts",
-          docsTemplate: "./config/docs-template.tsx",
-        },
+      config: {
+        configFile: "./config/vite.ts",
+        mounter: "./config/mounter.ts",
+        docsTemplate: "./config/docs-template.tsx",
       },
       workspaceRoot,
       server: {
@@ -134,10 +131,7 @@ describe("preview preparation", () => {
 
     const source = await readFile(prepared.runtime.prepared.entryFile, "utf8");
     const html = await readFile(prepared.runtime.prepared.htmlFile, "utf8");
-    expect(prepared.serviceConfig).toMatchObject({
-      vendor: "vite-preview",
-      config: { configFile, mounter, docsTemplate },
-    });
+    expect(prepared.config).toMatchObject({ configFile, mounter, docsTemplate });
     expect(source).toContain('component: { id: "scope/\\\"quoted\\\"" }');
     expect(source.match(/load: \(\) => import\(/g)).toHaveLength(3);
     expect(source.match(/primary\.demo\.tsx/g)).toHaveLength(2);
@@ -151,11 +145,10 @@ describe("preview preparation", () => {
     expect(source).not.toContain("loadDocs");
     expect(source).not.toContain("loadComposition");
     expect(html).toContain('src="./__bit-lite/preview.js"');
-    expect(Object.keys(prepared.runtime)).toEqual(["server", "prepared", "workspace"]);
-    expect(prepared.runtime.workspace).toEqual({
-      rootDir: workspaceRoot,
-      components: [{ packageName: "@scope/quoted", sourceDir: componentRoot }],
-    });
+    expect(Object.keys(prepared.runtime)).toEqual(["server", "prepared", "aliases"]);
+    expect(prepared.runtime.aliases).toEqual([
+      { packageName: "@scope/quoted", sourceDir: componentRoot },
+    ]);
     expect(JSON.parse(JSON.stringify(prepared.runtime))).toEqual(prepared.runtime);
 
     const tempDir = prepared.tempDir;
@@ -176,7 +169,7 @@ describe("preview preparation", () => {
     const browserModulePath = await createFile(workspaceRoot, "runtime/browser.ts", "export const startPreview = () => ({});\n");
     const baseOptions = {
       env: selectedEnv("static"),
-      serviceConfig: { vendor: "vite-preview", config: { configFile: "./config/vite.ts" } },
+      config: { configFile: "./config/vite.ts" },
       workspaceRoot,
       server: {
         host: "127.0.0.1",
@@ -208,7 +201,7 @@ describe("preview preparation", () => {
     const workspaceRoot = await createWorkspace();
     await expect(
       resolvePreviewServiceConfig(
-        { vendor: "vite-preview", config: { configFile: "./missing-vite.ts" } },
+        { configFile: "./missing-vite.ts" },
         workspaceRoot,
         "broken-env"
       )

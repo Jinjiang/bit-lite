@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ComponentPackage } from "bit-lite-context";
+import type { WorkspaceComponent } from "bit-lite-context";
 import { createComponentDependencyManifest } from "./install.js";
 
 describe("component dependency manifests", () => {
@@ -35,7 +35,7 @@ describe("component dependency manifests", () => {
   });
 });
 
-function component(overrides: Partial<ComponentPackage>): ComponentPackage {
+function component(overrides: Partial<WorkspaceComponent>): WorkspaceComponent {
   return {
     id: "lib/math",
     path: "components/lib/math",

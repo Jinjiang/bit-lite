@@ -7,7 +7,7 @@ import startVitePreviewVendor from "demo-vendors/previewers/vite";
 import startWebpackPreviewVendor from "demo-vendors/previewers/webpack";
 import { describe, expect, it } from "vitest";
 import type { PreviewServiceResult, PreviewVendorRuntime } from "./preview.js";
-import type { VendorMessage, VendorRuntime } from "bit-lite-vendors";
+import type { JsonObject, VendorMessage, VendorRuntime } from "bit-lite-vendors";
 
 const require = createRequire(import.meta.url);
 
@@ -71,27 +71,24 @@ describe("prepared preview end-to-end", () => {
             components: [{ id: "components/sample" }],
           },
         ],
-        skipped: [],
       });
       closeProxy = () => proxy.close();
       await proxy.start("127.0.0.1", variant.name === "vite" ? 45_000 : 45_100);
       const configFile = variant.name === "webpack"
         ? await writeWebpackFixtureConfig(workspaceRoot)
         : require.resolve(variant.configFile);
+      const component = { id: "components/sample", rootDir: componentRoot, packageName: "@scope/sample" };
       const prepared = await preparePreviewEnv({
         env,
-        components: [{ id: "components/sample", rootDir: componentRoot, packageName: "@scope/sample" }],
-        serviceConfig: {
-          vendor: `${variant.name}-preview`,
-          config: {
-            configFile,
-            mounter: require.resolve(
-              variant.name === "vite"
-                ? "demo-config/previewers/static-mounter"
-                : "demo-config/previewers/react-mounter"
-            ),
-            docsTemplate: require.resolve("demo-config/previewers/docs-template"),
-          },
+        components: [component],
+        config: {
+          configFile,
+          mounter: require.resolve(
+            variant.name === "vite"
+              ? "demo-config/previewers/static-mounter"
+              : "demo-config/previewers/react-mounter"
+          ),
+          docsTemplate: require.resolve("demo-config/previewers/docs-template"),
         },
         workspaceRoot,
         server: {
@@ -108,7 +105,7 @@ describe("prepared preview end-to-end", () => {
       expect(generatedEntry).toContain('.then((module) => module["Primary"])');
       expect(generatedEntry).toContain('.then((module) => module["MySecondDemo"])');
       proxy.updatePreparedComponents(env, prepared.runtime.server.basePath, prepared.components);
-      const harness = createHarness(env, prepared);
+      const harness = createHarness(env, prepared, workspaceRoot, component);
       const handle = await variant.startVendor(harness.runtime as never);
       stopVendor = () => handle.stop?.();
       proxy.updateServer(
@@ -159,11 +156,11 @@ describe("prepared preview end-to-end", () => {
         expect(entry).toContain("__webpack_hmr");
       }
 
-      const component = proxy.manifest().envs[0]?.components[0];
+      const manifestComponent = proxy.manifest().envs[0]?.components[0];
       expect(proxy.manifest().envs[0]?.env).toEqual(env);
-      expect(component?.overviewRoute).toBe(`/env/${variant.name}/#components%2Fsample`);
-      expect(component?.docsRoute).toContain("?preview=docs");
-      expect(component?.compositions).toEqual([
+      expect(manifestComponent?.overviewRoute).toBe(`/env/${variant.name}/#components%2Fsample`);
+      expect(manifestComponent?.docsRoute).toContain("?preview=docs");
+      expect(manifestComponent?.compositions).toEqual([
         {
           id: "primary/Primary",
           exportName: "Primary",
@@ -229,14 +226,36 @@ async function writeWebpackFixtureConfig(workspaceRoot: string) {
   return configFile;
 }
 
-function createHarness(env: ReturnType<typeof selectedEnv>, prepared: Awaited<ReturnType<typeof preparePreviewEnv>>) {
+function createHarness(
+  env: ReturnType<typeof selectedEnv>,
+  prepared: Awaited<ReturnType<typeof preparePreviewEnv>>,
+  workspaceRoot: string,
+  component: { id: string; rootDir: string; packageName: string }
+) {
   const messages: VendorMessage<PreviewServiceResult>[] = [];
-  const runtime: VendorRuntime<Record<string, unknown>, PreviewServiceResult, never, PreviewVendorRuntime> = {
+  const runtime: VendorRuntime<JsonObject, PreviewServiceResult, never, PreviewVendorRuntime> = {
     data: {
-      env,
-      components: [],
-      config: prepared.serviceConfig.config as Record<string, unknown>,
-      args: parseCliArguments([]),
+      context: {
+        version: 1,
+        workspace: {
+          rootDir: workspaceRoot,
+          configPath: path.join(workspaceRoot, "bit-lite.json"),
+          config: { components: [] },
+          components: [],
+        },
+        args: parseCliArguments([]),
+        env,
+        service: {
+          name: "preview",
+          source: {
+            identity: { packageName: env.packageName, version: env.installedVersion },
+            rootDir: workspaceRoot,
+            entryFile: path.join(workspaceRoot, "index.json"),
+          },
+        },
+      },
+      components: [component as never],
+      config: prepared.config as JsonObject,
       runtime: prepared.runtime,
     },
     postMessage(message) {

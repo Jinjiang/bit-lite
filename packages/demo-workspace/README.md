@@ -10,6 +10,12 @@ This fixture demonstrates three env identities:
   replaces test/preview services, inherits compile, and references its fixed-
   compiled `./webpack-react.js` beside the generated JSON entry.
 
+The inherited compile invocation therefore selects `@my-scope/env.react` in
+`context.env` while its `context.service.source` points to `demo-env-node`, the
+package that declared the compiler. Test and preview vendors receive the same
+version-1 context plus canonical components and command-prepared config/runtime,
+and return produced service data without echoing that context.
+
 Run the reproducible flow from the repository root:
 
 ```sh

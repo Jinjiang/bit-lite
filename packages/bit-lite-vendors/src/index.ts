@@ -24,7 +24,6 @@ export type {
 export type {
   RunVendorTasksOptions,
   StopVendorTasksOptions,
-  VendorServiceConfig,
   VendorTask,
   VendorTaskRunResult,
   VendorTaskStartOptions,
@@ -36,6 +35,7 @@ export type {
   JsonValue,
   OutputStream,
   VendorConfig,
+  VendorContext,
   VendorData,
   VendorDefinition,
   VendorErrorMessage,
@@ -49,3 +49,4 @@ export type {
   VendorRuntimeState,
   VendorStatusMessage,
 } from "./types/index.js";
+export { createVendorContext } from "./vendor-context.js";

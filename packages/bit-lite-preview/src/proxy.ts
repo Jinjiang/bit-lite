@@ -35,12 +35,6 @@ export type PreviewEnvState = {
   components: PreviewProxyComponent[];
 };
 
-export type PreviewSkippedEnv = {
-  env: SelectedEnvIdentity;
-  reason: string;
-  components: string[];
-};
-
 export type PreviewProxyManifest = {
   proxy: {
     origin: string;
@@ -48,14 +42,12 @@ export type PreviewProxyManifest = {
     port: number;
   };
   envs: PreviewEnvState[];
-  skipped: PreviewSkippedEnv[];
 };
 
 export class PreviewProxyServer {
   #envs = new Map<string, PreviewEnvState>();
   #server: http.Server | undefined;
   #sockets = new Set<Socket>();
-  #skipped: PreviewSkippedEnv[];
   #origin = "";
   #host = "";
   #port = 0;
@@ -66,11 +58,9 @@ export class PreviewProxyServer {
       taskId: string;
       vendor: string;
       status: string;
-      components: Array<{ id: string }>;
+      components: readonly { id: string }[];
     }>;
-    skipped: PreviewSkippedEnv[];
   }) {
-    this.#skipped = options.skipped;
     for (const env of options.envs) {
       this.#envs.set(getSelectedEnvKey(env.env), {
         env: env.env,
@@ -143,9 +133,6 @@ export class PreviewProxyServer {
     return {
       proxy: { origin: this.#origin, host: this.#host, port: this.#port },
       envs: Array.from(this.#envs.values()).sort((left, right) => getSelectedEnvKey(left.env).localeCompare(
-        getSelectedEnvKey(right.env)
-      )),
-      skipped: [...this.#skipped].sort((left, right) => getSelectedEnvKey(left.env).localeCompare(
         getSelectedEnvKey(right.env)
       )),
     };

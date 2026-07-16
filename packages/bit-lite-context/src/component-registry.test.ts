@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadComponentPackageRegistry } from "./component-registry.js";
+import { readWorkspace } from "./workspace.js";
 
 async function createWorkspace(records: unknown[]) {
   const root = await mkdtemp(path.join(os.tmpdir(), "bit-lite-registry-"));
@@ -22,7 +22,7 @@ async function createComponent(
   await writeFile(path.join(dir, entry), entry.endsWith(".json") ? '{"name":"env","services":{}}' : "export {};\n");
 }
 
-describe("component package registry", () => {
+describe("canonical workspace components", () => {
   it("resolves workspace envs through registered env components", async () => {
     const records = [
       { path: "components/env/react", id: "env/react", packageName: "@scope/env.react", env: { packageName: "env-node", version: "1.0.0" } },
@@ -31,9 +31,10 @@ describe("component package registry", () => {
     const root = await createWorkspace(records);
     await createComponent(root, "components/env/react", { kind: "env", dependencies: {} }, "index.json");
     await createComponent(root, "components/ui/button", { dependencies: {} });
-    const registry = await loadComponentPackageRegistry(root);
-    expect(registry.byId.get("env/react")?.kind).toBe("env");
-    expect(registry.byId.get("ui/button")?.internalEnvPackageName).toBe("@scope/env.react");
+    const workspace = await readWorkspace(root);
+    expect(workspace.components.find((component) => component.id === "env/react")?.kind).toBe("env");
+    expect(workspace.components.find((component) => component.id === "ui/button")?.internalEnvPackageName)
+      .toBe("@scope/env.react");
   });
 
   it("keeps normal versions external even for a same-named local env", async () => {
@@ -44,7 +45,8 @@ describe("component package registry", () => {
     const root = await createWorkspace(records);
     await createComponent(root, "components/env/react", { kind: "env" }, "index.json");
     await createComponent(root, "components/ui/button");
-    expect((await loadComponentPackageRegistry(root)).byId.get("ui/button")?.internalEnvPackageName).toBeUndefined();
+    expect((await readWorkspace(root)).components.find((component) => component.id === "ui/button")
+      ?.internalEnvPackageName).toBeUndefined();
   });
 
   it("rejects workspace targets outside the Bit registry or not marked env", async () => {
@@ -52,7 +54,7 @@ describe("component package registry", () => {
       { path: "components/ui/button", id: "ui/button", packageName: "@scope/ui.button", env: { packageName: "demo-config", version: "workspace:*" } },
     ]);
     await createComponent(missingRoot, "components/ui/button");
-    await expect(loadComponentPackageRegistry(missingRoot)).rejects.toThrow('no such Bit component exists');
+    await expect(readWorkspace(missingRoot)).rejects.toThrow('no such Bit component exists');
 
     const ordinaryRoot = await createWorkspace([
       { path: "components/lib/env", id: "lib/env", packageName: "@scope/lib.env", env: { packageName: "external-env", version: "1.0.0" } },
@@ -60,7 +62,7 @@ describe("component package registry", () => {
     ]);
     await createComponent(ordinaryRoot, "components/lib/env");
     await createComponent(ordinaryRoot, "components/ui/button");
-    await expect(loadComponentPackageRegistry(ordinaryRoot)).rejects.toThrow('target is not kind "env"');
+    await expect(readWorkspace(ordinaryRoot)).rejects.toThrow('target is not kind "env"');
   });
 
   it("requires env components to have index.json and validates dev conflicts", async () => {
@@ -68,12 +70,12 @@ describe("component package registry", () => {
       { path: "components/env/react", id: "env/react", packageName: "@scope/env.react", env: { packageName: "env-node", version: "1.0.0" } },
     ]);
     await createComponent(root, "components/env/react", { kind: "env" });
-    await expect(loadComponentPackageRegistry(root)).rejects.toThrow("supported env entry file (index.json)");
+    await expect(readWorkspace(root)).rejects.toThrow("supported env entry file (index.json)");
 
     const conflictRoot = await createWorkspace([
       { path: "components/lib/math", id: "lib/math", packageName: "@scope/lib.math", env: { packageName: "env-node", version: "1.0.0" } },
     ]);
     await createComponent(conflictRoot, "components/lib/math", { devDependencies: { "env-node": "2.0.0" } });
-    await expect(loadComponentPackageRegistry(conflictRoot)).rejects.toThrow("conflicts with .comp.json devDependency");
+    await expect(readWorkspace(conflictRoot)).rejects.toThrow("conflicts with .comp.json devDependency");
   });
 });

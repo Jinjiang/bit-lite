@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { loadComponentPackageRegistry } from "bit-lite-context";
+import { readWorkspace } from "bit-lite-context";
 import { describe, expect, it } from "vitest";
 import { linkComponentPackages } from "./commands/link.js";
 import { materializeLocalEnvComponents } from "./env-component-compiler.js";
@@ -9,9 +9,9 @@ import { materializeLocalEnvComponents } from "./env-component-compiler.js";
 describe("fixed local env component compiler", () => {
   it("copies the JSON entry, transpiles adjacent TypeScript, and publishes the JSON export", async () => {
     const root = await createEnvWorkspace("export default { value: 1 };\n");
-    const registry = await loadComponentPackageRegistry(root);
-    await linkComponentPackages(registry);
-    const materialized = await materializeLocalEnvComponents(registry);
+    const workspace = await readWorkspace(root);
+    await linkComponentPackages(workspace);
+    const materialized = await materializeLocalEnvComponents(workspace);
 
     expect(materialized.map((component) => component.packageName)).toEqual(["@scope/env.local"]);
     const packageRoot = path.join(root, "node_modules/@scope/env.local");
@@ -28,9 +28,9 @@ describe("fixed local env component compiler", () => {
     const root = await createEnvWorkspace("export default {;\n", {
       compile: { vendor: "this-vendor-must-not-run", config: { arbitrary: true } },
     });
-    const registry = await loadComponentPackageRegistry(root);
-    await linkComponentPackages(registry);
-    await expect(materializeLocalEnvComponents(registry)).rejects.toThrow("fixed env compiler failed");
+    const workspace = await readWorkspace(root);
+    await linkComponentPackages(workspace);
+    await expect(materializeLocalEnvComponents(workspace)).rejects.toThrow("fixed env compiler failed");
   });
 });
 

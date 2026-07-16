@@ -1,17 +1,27 @@
-import type { CliArguments, SelectedEnvIdentity } from "bit-lite-context";
-import type { JsonObject } from "bit-lite-vendors";
+import type { JsonObject, JsonValue } from "bit-lite-vendors";
 
-export type TestServiceResult = {
-  service: "test";
-  env: SelectedEnvIdentity;
-  vendor: string;
+export type TestServiceResult = JsonObject & {
   mode: "run" | "watch";
   run: number;
-  componentIds: string[];
-  args: CliArguments;
-  config: JsonObject;
-  total: number;
-  passed: number;
-  failed: number;
-  summary: string;
+  stats: JsonObject & {
+    total: number;
+    passed: number;
+    failed: number;
+    skipped: number;
+    summary: string;
+  };
+  componentResults: Array<JsonObject & {
+    componentId: string;
+    files: string[];
+    stats: JsonObject & {
+      total: number;
+      passed: number;
+      failed: number;
+      skipped: number;
+      summary: string;
+    };
+    durationMs: number;
+    errors: string[];
+  }>;
+  coverage?: JsonValue;
 };

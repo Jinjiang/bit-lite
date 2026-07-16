@@ -2,10 +2,33 @@ import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { groupSelectedComponentsByEnv, loadWorkspace, selectComponentRefs } from "./workspace.js";
+import {
+  getWorkspaceEnvs,
+  groupWorkspaceComponentsByEnv,
+  readWorkspace,
+  resolveWorkspace,
+  selectWorkspaceComponents,
+} from "./workspace.js";
 
-describe("workspace runtime", () => {
-  it("loads explicit components, external JSON envs, and deterministic groups", async () => {
+describe("workspace model", () => {
+  it("reads a deterministic JSON-safe base workspace before envs are installed", async () => {
+    const workspaceRoot = await createWorkspace([
+      component("components/vue/card", "vue/card", "@scope/vue.card", "@env/vue"),
+      component("components/lib/math", "lib/math", "@scope/lib.math", "@env/node"),
+      component("components/ui/button", "ui/button", "@scope/ui.button", "@env/react"),
+    ]);
+
+    const workspace = await readWorkspace(workspaceRoot);
+
+    expect(workspace.components.map((item) => item.id)).toEqual(["lib/math", "ui/button", "vue/card"]);
+    expect(Object.keys(workspace)).toEqual(["rootDir", "configPath", "config", "components"]);
+    expect(JSON.parse(JSON.stringify(workspace))).toEqual(workspace);
+    expect(structuredClone(workspace)).toEqual(workspace);
+    expect(workspace).not.toHaveProperty("envs");
+    expect(workspace).not.toHaveProperty("groups");
+  });
+
+  it("reuses canonical components through selection, context assembly, and grouping", async () => {
     const workspaceRoot = await createWorkspace([
       component("components/lib/math", "lib/math", "@scope/lib.math", "@env/node"),
       component("components/ui/button", "ui/button", "@scope/ui.button", "@env/react"),
@@ -19,30 +42,22 @@ describe("workspace runtime", () => {
       await installEnv(workspaceRoot, entry[0], entry[1]);
     }
 
-    const workspace = await loadWorkspace(workspaceRoot);
+    const workspace = await readWorkspace(workspaceRoot);
+    const context = await resolveWorkspace(workspace);
+    const selected = selectWorkspaceComponents(workspace, ["ui/*"]);
+    const groups = groupWorkspaceComponentsByEnv(context, selected);
 
-    expect(workspace.components.map((item) => [item.id, item.env.packageName])).toEqual([
-      ["lib/math", "@env/node"],
-      ["ui/button", "@env/react"],
-      ["vue/card", "@env/vue"],
+    expect(selected[0]).toBe(workspace.components[1]);
+    expect(context.components[1]?.component).toBe(workspace.components[1]);
+    expect(groups[0]?.components[0]).toBe(workspace.components[1]);
+    expect(groups[0]?.env).toBe(context.components[1]?.env);
+    expect(getWorkspaceEnvs(context).map((env) => env.env.packageName)).toEqual([
+      "@env/node", "@env/react", "@env/vue",
     ]);
-    expect(workspace.groups.map((group) => [
-      group.env.packageName,
-      group.env.requestedVersion,
-      group.env.installedVersion,
-      group.components.map((item) => item.id),
-    ])).toEqual([
-      ["@env/node", "1.0.0", "1.0.0", ["lib/math"]],
-      ["@env/react", "1.0.0", "1.0.0", ["ui/button"]],
-      ["@env/vue", "1.0.0", "1.0.0", ["vue/card"]],
-    ]);
-
-    expect(groupSelectedComponentsByEnv(workspace, [
-      { id: "vue/card", rootDir: path.join(workspaceRoot, "components/vue/card"), packageName: "@scope/vue.card" },
-      { id: "lib/math", rootDir: path.join(workspaceRoot, "components/lib/math"), packageName: "@scope/lib.math" },
-    ]).map((group) => group.env.packageName)).toEqual(["@env/node", "@env/vue"]);
-    expect(selectComponentRefs(workspace.components, ["ui/*"]).map((item) => item.id)).toEqual(["ui/button"]);
-    expect(() => selectComponentRefs(workspace.components, ["missing/**"]))
+    expect(context).not.toHaveProperty("config");
+    expect(context).not.toHaveProperty("envs");
+    expect(context).not.toHaveProperty("groups");
+    expect(() => selectWorkspaceComponents(workspace, ["missing/**"]))
       .toThrow("--filter did not match any components: missing/**");
   });
 
@@ -52,13 +67,9 @@ describe("workspace runtime", () => {
     ]);
     await mkdir(path.join(workspaceRoot, "components/unlisted"), { recursive: true });
     await writeFile(path.join(workspaceRoot, "components/unlisted/index.ts"), "export const hidden = true;\n");
-    await installEnv(workspaceRoot, "@scope/lib.math", "@env/node");
 
-    const workspace = await loadWorkspace(workspaceRoot);
+    const workspace = await readWorkspace(workspaceRoot);
     expect(workspace.components.map((item) => item.id)).toEqual(["lib/math"]);
-    expect(workspace.config.components).toEqual([
-      component("components/lib/math", "lib/math", "@scope/lib.math", "@env/node"),
-    ]);
   });
 });
 

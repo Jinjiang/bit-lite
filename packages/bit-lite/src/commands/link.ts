@@ -2,34 +2,34 @@ import { access, lstat, mkdir, readFile, readlink, rm, symlink, writeFile } from
 import path from "node:path";
 import {
   isWorkspaceProtocolSpec,
-  loadComponentPackageRegistry,
-  orderComponentsByInternalDependencies,
+  orderWorkspaceComponents,
+  readWorkspace,
 } from "bit-lite-context";
 import type {
-  ComponentPackage,
-  ComponentPackageRegistry,
   PackageRef,
   ParsedCliArgs,
+  Workspace,
+  WorkspaceComponent,
 } from "bit-lite-context";
 import { BitLiteError } from "../utils/errors.js";
 
-export type { ComponentPackage, ComponentPackageRegistry, PackageRef } from "bit-lite-context";
-export { isWorkspaceProtocolSpec, loadComponentPackageRegistry, orderComponentsByInternalDependencies };
+export type { PackageRef, Workspace, WorkspaceComponent } from "bit-lite-context";
+export { isWorkspaceProtocolSpec, orderWorkspaceComponents, readWorkspace };
 
 export async function runLinkCommand(parsed: ParsedCliArgs) {
-  const registry = await loadComponentPackageRegistry(parsed.workspaceRoot);
-  await linkComponentPackages(registry);
-  console.log(`Linked ${registry.components.length} component package${registry.components.length === 1 ? "" : "s"}.`);
-  for (const component of registry.components) console.log(`- ${component.id} -> ${component.packageName}`);
+  const workspace = await readWorkspace(parsed.workspaceRoot);
+  await linkComponentPackages(workspace);
+  console.log(`Linked ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}.`);
+  for (const component of workspace.components) console.log(`- ${component.id} -> ${component.packageName}`);
 }
 
-export async function linkComponentPackages(registry: ComponentPackageRegistry) {
-  for (const component of registry.components) {
-    const packageDir = getPackageDirectory(registry.workspaceRoot, component.packageName);
+export async function linkComponentPackages(workspace: Workspace) {
+  for (const component of workspace.components) {
+    const packageDir = getPackageDirectory(workspace.rootDir, component.packageName);
     await preparePackageDirectory(packageDir, component);
     await writeJsonFile(path.join(packageDir, "package.json"), createGeneratedPackageManifest(component));
     await ensureSourceSymlink(packageDir, component.rootDir);
-    await ensureComponentDependencyLinks(registry.workspaceRoot, packageDir, component);
+    await ensureComponentDependencyLinks(workspace.rootDir, packageDir, component);
     await mkdir(path.join(packageDir, "dist"), { recursive: true });
   }
 }
@@ -51,7 +51,7 @@ export async function writeJsonFile(filePath: string, value: unknown) {
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-function createGeneratedPackageManifest(component: ComponentPackage) {
+function createGeneratedPackageManifest(component: WorkspaceComponent) {
   const entry = component.kind === "env" ? "./dist/index.json" : "./dist/index.js";
   const manifest: Record<string, unknown> = {
     name: component.packageName,
@@ -83,7 +83,7 @@ function createGeneratedPackageManifest(component: ComponentPackage) {
   return manifest;
 }
 
-async function preparePackageDirectory(packageDir: string, component: ComponentPackage) {
+async function preparePackageDirectory(packageDir: string, component: WorkspaceComponent) {
   await mkdir(path.dirname(packageDir), { recursive: true });
   try {
     const stats = await lstat(packageDir);
@@ -125,7 +125,7 @@ async function ensureSourceSymlink(packageDir: string, componentRootDir: string)
 async function ensureComponentDependencyLinks(
   workspaceRoot: string,
   packageDir: string,
-  component: ComponentPackage
+  component: WorkspaceComponent
 ) {
   const dependencyDir = path.join(getComponentDependencyDirectory(workspaceRoot, component.packageName), "node_modules");
   await mkdir(dependencyDir, { recursive: true });

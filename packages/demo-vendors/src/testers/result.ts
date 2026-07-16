@@ -1,11 +1,10 @@
 import path from "node:path";
-import type { CliArguments, SelectedEnvIdentity } from "bit-lite-context";
 import type { JsonObject, JsonValue } from "bit-lite-vendors";
 import type { ComponentTestTarget } from "./files.js";
 
 export type TestVendorMode = "run" | "watch";
 
-export type TestStats = {
+export type TestStats = JsonObject & {
   total: number;
   passed: number;
   failed: number;
@@ -13,7 +12,7 @@ export type TestStats = {
   summary: string;
 };
 
-export type TestComponentResult = {
+export type TestComponentResult = JsonObject & {
   componentId: string;
   files: string[];
   stats: TestStats;
@@ -21,25 +20,27 @@ export type TestComponentResult = {
   errors: string[];
 };
 
-export type TestServiceResult = {
-  service: "test";
-  vendor: string;
+export type TestServiceResult = JsonObject & {
   mode: TestVendorMode;
   run: number;
-  context: {
-    env: SelectedEnvIdentity;
-    componentIds: string[];
-    args: CliArguments;
-    config: JsonObject;
-  };
   stats: TestStats;
   componentResults: TestComponentResult[];
+  coverage?: JsonValue;
 };
 
-export type MutableStats = Omit<TestStats, "summary">;
+export type MutableStats = {
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+};
 
-export type MutableComponentResult = Omit<TestComponentResult, "stats"> & {
+export type MutableComponentResult = {
+  componentId: string;
+  files: string[];
   stats: MutableStats;
+  durationMs: number;
+  errors: string[];
 };
 
 export function createEmptyComponentResults(targets: readonly ComponentTestTarget[]) {
@@ -65,13 +66,10 @@ export function finishComponentResults(results: readonly MutableComponentResult[
 }
 
 export function createTestServiceResult(options: {
-  env: SelectedEnvIdentity;
-  vendor: string;
   mode: TestVendorMode;
   run: number;
   componentResults: TestComponentResult[];
-  args: CliArguments;
-  config: Record<string, unknown>;
+  coverage?: JsonValue;
 }): TestServiceResult {
   const totals = options.componentResults.reduce(
     (acc, result) => {
@@ -85,18 +83,11 @@ export function createTestServiceResult(options: {
   );
 
   return {
-    service: "test",
-    vendor: options.vendor,
     mode: options.mode,
     run: options.run,
-    context: {
-      env: options.env,
-      componentIds: options.componentResults.map((result) => result.componentId),
-      args: options.args,
-      config: toJsonObject(options.config),
-    },
     stats: finishStats(totals),
     componentResults: options.componentResults,
+    ...(options.coverage === undefined ? {} : { coverage: options.coverage }),
   };
 }
 

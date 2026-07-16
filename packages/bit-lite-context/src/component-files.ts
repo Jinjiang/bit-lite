@@ -1,17 +1,20 @@
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
-import type { ComponentRef } from "./types/index.js";
+import type { WorkspaceComponent } from "./types/index.js";
 import { toPosixPath } from "./utils/path-utils.js";
 import { matchPattern } from "./utils/patterns.js";
 
 const ignoredDirs = new Set([".git", "dist", "node_modules"]);
 
 export type ComponentFileTarget = {
-  component: ComponentRef;
+  component: Pick<WorkspaceComponent, "id" | "rootDir">;
   files: string[];
 };
 
-export async function findComponentFiles(component: ComponentRef, patterns: readonly string[]) {
+export async function findComponentFiles(
+  component: Pick<WorkspaceComponent, "id" | "rootDir">,
+  patterns: readonly string[]
+) {
   if (patterns.length === 0) return [];
 
   const files: string[] = [];
@@ -26,7 +29,7 @@ export async function findComponentFiles(component: ComponentRef, patterns: read
 }
 
 export async function findComponentFileTargets(
-  components: readonly ComponentRef[],
+  components: readonly Pick<WorkspaceComponent, "id" | "rootDir">[],
   patterns: readonly string[]
 ) {
   const targets: ComponentFileTarget[] = [];

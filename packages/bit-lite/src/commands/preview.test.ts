@@ -1,11 +1,11 @@
 import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { parseCliArguments } from "bit-lite-context";
-import { getSelectedEnvKey } from "bit-lite-context";
+import { getSelectedEnvKey, parseCliArguments } from "bit-lite-context";
+import type { Workspace, WorkspaceEnvGroup } from "bit-lite-context";
 import { PreviewProxyServer } from "bit-lite-preview/node";
 import { describe, expect, it } from "vitest";
-import { isPreviewServiceResult, preparePreviewTasks, type PreviewTaskSpec } from "./preview.js";
+import { isPreviewServiceResult, preparePreviewTasks } from "./preview.js";
 
 describe("preview command preparation isolation", () => {
   it("starts valid env inputs while retaining failed env state and command-owned cleanup", async () => {
@@ -19,94 +19,136 @@ describe("preview command preparation isolation", () => {
       writeFile(path.join(failedRoot, "failed.docs.md"), "# Failed docs\n", "utf8"),
       writeFile(path.join(workspaceRoot, "vite.mjs"), "export default {};\n", "utf8"),
     ]);
-    const tasks: PreviewTaskSpec[] = [
-      createTask("valid", validRoot, "./vite.mjs", workspaceRoot),
-      createTask("failed", failedRoot, "./missing.mjs", workspaceRoot),
+    const groups: WorkspaceEnvGroup[] = [
+      createGroup("valid", validRoot, "./vite.mjs", workspaceRoot, "parent"),
+      createGroup("failed", failedRoot, "./missing.mjs", workspaceRoot),
     ];
+    const workspace = createWorkspace(workspaceRoot, groups);
     const proxy = new PreviewProxyServer({
-      envs: tasks.map((task) => ({
-        env: task.env,
-        taskId: getSelectedEnvKey(task.env),
+      envs: groups.map((group) => ({
+        env: group.env.env,
+        taskId: getSelectedEnvKey(group.env.env),
         vendor: "vite-preview",
         status: "starting",
-        components: task.components,
+        components: group.components,
       })),
-      skipped: [],
     });
 
-    const result = await preparePreviewTasks(tasks, workspaceRoot, "http://127.0.0.1:4000", "127.0.0.1", proxy);
-    expect(result.taskOptions).toHaveLength(1);
-    expect(result.preparedEnvs).toHaveLength(1);
+    const result = await preparePreviewTasks(
+      groups,
+      workspace,
+      parseCliArguments([]),
+      "http://127.0.0.1:4000",
+      "127.0.0.1",
+      proxy
+    );
+    const task = result.tasks[0];
+    expect(result.tasks).toHaveLength(1);
     expect(result.failures).toHaveLength(1);
-    expect(result.taskOptions[0]?.components).toEqual([]);
-    expect(result.taskOptions[0]?.runtime).toEqual(result.preparedEnvs[0]?.runtime);
-    expect(Object.keys(result.taskOptions[0]?.runtime ?? {})).toEqual(["server", "prepared", "workspace"]);
-    expect(result.taskOptions[0]?.runtime?.workspace).toEqual({
-      rootDir: workspaceRoot,
-      components: [{ packageName: "@scope/valid", sourceDir: validRoot }],
-    });
-    expect(result.taskOptions[0]?.workspaceRoot).toBe(workspaceRoot);
-    expect(result.taskOptions[0]?.service.declaredBy).toBe("valid");
+    expect(task?.options.components).toBe(groups[0]?.components);
+    expect(task?.options.runtime).toEqual(task?.prepared.runtime);
+    expect(Object.keys(task?.options.runtime ?? {})).toEqual(["server", "prepared", "aliases"]);
+    expect(task?.options.runtime?.aliases).toEqual([
+      { packageName: "@scope/valid", sourceDir: validRoot },
+    ]);
+    expect(task?.options.context.env.packageName).toBe("valid");
+    expect(task?.options.context.service.source.identity.packageName).toBe("parent");
     expect(proxy.manifest().envs).toMatchObject([
       { env: selectedEnv("failed"), status: "failed", error: expect.stringContaining("could not resolve") },
       { env: selectedEnv("valid"), status: "starting" },
     ]);
 
-    const tempDir = result.preparedEnvs[0]?.tempDir;
-    await Promise.all(result.preparedEnvs.map((prepared) => prepared.cleanup()));
+    const tempDir = task?.prepared.tempDir;
+    await Promise.all(result.tasks.map((preparedTask) => preparedTask.prepared.cleanup()));
     await expect(access(tempDir ?? "")).rejects.toThrow();
   });
 
-  it("accepts structured preview identity and rejects the legacy result field", () => {
-    const server = {
-      origin: "http://127.0.0.1:6000",
-      host: "127.0.0.1",
-      port: 6000,
-      basePath: "/env/valid/",
-    };
+  it("accepts additional JSON data without reserving historical field names", () => {
     expect(isPreviewServiceResult({
-      service: "preview",
-      vendor: "vite-preview",
-      env: selectedEnv("valid"),
       mode: "serve",
-      server,
+      vendorSpecific: true,
     })).toBe(true);
     expect(isPreviewServiceResult({
-      service: "preview",
-      vendor: "vite-preview",
       envName: "valid",
       mode: "serve",
-      server,
-    })).toBe(false);
+    })).toBe(true);
+    expect(isPreviewServiceResult({ mode: "serve", env: selectedEnv("valid") })).toBe(true);
+    expect(isPreviewServiceResult({ mode: "serve", server: { port: 6000 } })).toBe(true);
+    expect(isPreviewServiceResult({ mode: "invalid" })).toBe(false);
   });
 });
 
-function createTask(
+function createGroup(
   envPackageName: string,
   rootDir: string,
   configFile: string,
-  workspaceRoot: string
-): PreviewTaskSpec {
-  const serviceConfig = { vendor: "vite-preview", config: { configFile } };
-  const service = {
-    definition: serviceConfig,
-    declaredBy: envPackageName,
-    packageRoot: workspaceRoot,
-    entryUrl: new URL(`file://${path.join(workspaceRoot, "index.json")}`).href,
-    entryDirectory: workspaceRoot,
+  workspaceRoot: string,
+  serviceSourcePackageName = envPackageName
+): WorkspaceEnvGroup {
+  const serviceConfig = {
+    vendor: "data:text/javascript,export const meta = {}",
+    config: { configFile },
   };
-  const env = selectedEnv(envPackageName);
+  const envIdentity = selectedEnv(envPackageName);
+  const selectedSource = {
+    identity: { packageName: envPackageName, version: "0.0.0" },
+    rootDir: workspaceRoot,
+    entryFile: path.join(workspaceRoot, "index.json"),
+  };
+  const serviceSource = {
+    identity: { packageName: serviceSourcePackageName, version: "0.0.0" },
+    rootDir: workspaceRoot,
+    entryFile: path.join(workspaceRoot, "index.json"),
+  };
+  const service = {
+    name: "preview" as const,
+    definition: serviceConfig,
+    source: serviceSource,
+  };
+  const env = {
+    env: envIdentity,
+    package: selectedSource,
+    config: undefined,
+    services: { preview: service },
+    inheritance: serviceSourcePackageName === envPackageName
+      ? [selectedSource.identity]
+      : [serviceSource.identity, selectedSource.identity],
+  };
+  const component = {
+    id: `scope/${envPackageName}`,
+    path: `components/${envPackageName}`,
+    rootDir,
+    packageName: `@scope/${envPackageName}`,
+    kind: "component" as const,
+    env: { packageName: envPackageName, version: "workspace:*" },
+    mainFile: path.join(rootDir, "index.ts"),
+    mainFileRelative: "index.ts",
+    dependencies: {},
+    devDependencies: {},
+    peerDependencies: {},
+    internalDependencyPackageNames: [],
+    internalEnvPackageName: undefined,
+  };
   return {
     env,
-    components: [{ id: `scope/${envPackageName}`, rootDir, packageName: `@scope/${envPackageName}` }],
-    service,
-    taskOptions: {
-      env,
-      components: [{ id: `scope/${envPackageName}`, rootDir, packageName: `@scope/${envPackageName}` }],
-      args: parseCliArguments([]),
-      workspaceRoot,
-      service,
+    components: [component],
+  };
+}
+
+function createWorkspace(rootDir: string, groups: WorkspaceEnvGroup[]): Workspace {
+  const components = groups.flatMap((group) => group.components);
+  return {
+    rootDir,
+    configPath: path.join(rootDir, "bit-lite.json"),
+    config: {
+      components: components.map((component) => ({
+        path: component.path,
+        id: component.id,
+        packageName: component.packageName,
+        env: component.env,
+      })),
     },
+    components,
   };
 }
 

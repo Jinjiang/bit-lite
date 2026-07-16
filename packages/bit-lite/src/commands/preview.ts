@@ -1,12 +1,11 @@
 import {
   getSelectedEnvKey,
-  groupSelectedComponentsByEnv,
-  isSelectedEnvIdentity,
+  groupWorkspaceComponentsByEnv,
   resolveEnvModuleSpecifier,
-  selectComponentRefs,
-  toSelectedEnvIdentity,
+  resolveVendorSpecifier,
+  selectWorkspaceComponents,
 } from "bit-lite-context";
-import { watchVendorTasks } from "bit-lite-vendors";
+import { createVendorContext, watchVendorTasks } from "bit-lite-vendors";
 import { BitLiteError } from "../utils/errors.js";
 import {
   PreviewProxyServer,
@@ -14,38 +13,31 @@ import {
   findAvailablePort,
   preparePreviewEnv,
   type PreparedPreviewEnv,
-  type PreviewComponentRef,
   type PreviewPreparedRuntime,
   type PreviewServerInfo,
-  type PreviewSkippedEnv,
 } from "bit-lite-preview/node";
 import type {
+  CliArguments,
   CliOptionValue,
-  LoadedEnvServiceRuntime,
+  EnvContext,
   ParsedCliArgs,
-  SelectedEnvGroup,
-  SelectedEnvIdentity,
-  WorkspaceRuntime,
+  Workspace,
+  WorkspaceEnvGroup,
 } from "bit-lite-context";
-import type { EnvServiceConfig } from "bit-lite-env";
-import type { JsonObject, VendorMessage, VendorTask, VendorTaskStartOptions } from "bit-lite-vendors";
+import type {
+  JsonObject,
+  VendorMessage,
+  VendorTask,
+  VendorTaskStartOptions,
+} from "bit-lite-vendors";
 import { prepareWorkspaceForEnvLoading } from "../prepare-workspace.js";
 
 export type PreviewVendorRuntime = PreviewPreparedRuntime;
+export type PreviewServiceResult = JsonObject & { mode: "serve" };
 
-export type PreviewServiceResult = JsonObject & {
-  service: "preview";
-  vendor: string;
-  env: SelectedEnvIdentity;
-  mode: "serve";
-  server: PreviewServerInfo;
-};
-
-export type PreviewTaskSpec = {
-  env: SelectedEnvIdentity;
-  components: PreviewComponentRef[];
-  service: LoadedEnvServiceRuntime;
-  taskOptions: VendorTaskStartOptions;
+type PreparedPreviewTask = {
+  options: VendorTaskStartOptions;
+  prepared: PreparedPreviewEnv;
 };
 
 const serviceId = "preview";
@@ -55,12 +47,12 @@ const defaultProxyPort = 4000;
 const defaultVendorPort = 6000;
 
 export async function runPreviewCommand(parsed: ParsedCliArgs) {
-  const { workspace } = await prepareWorkspaceForEnvLoading(parsed.workspaceRoot);
-  const components = selectComponentRefs(workspace.components, parsed.componentFilters);
-  const groups = groupSelectedComponentsByEnv(workspace, components);
-  const { tasks, skipped } = createPreviewTaskSpecs(workspace, groups, parsed);
+  const { workspace, context } = await prepareWorkspaceForEnvLoading(parsed.workspaceRoot);
+  const components = selectWorkspaceComponents(workspace, parsed.componentFilters);
+  const groups = groupWorkspaceComponentsByEnv(context, components);
+  const previewGroups = groups.filter((group) => group.env.services.preview !== undefined);
 
-  if (tasks.length === 0) {
+  if (previewGroups.length === 0) {
     printNoPreviewTasks(groups);
     return;
   }
@@ -68,159 +60,151 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
   const host = readHost(parsed.args.options.host);
   const proxyPort = readPort(parsed.args.options.port, "--port", defaultProxyPort);
   const proxyServer = new PreviewProxyServer({
-    envs: tasks.map((task) => ({
-      env: task.env,
-      taskId: getSelectedEnvKey(task.env),
-      vendor: task.service.definition.vendor,
+    envs: previewGroups.map((group) => ({
+      env: group.env.env,
+      taskId: getSelectedEnvKey(group.env.env),
+      vendor: getPreviewService(group).definition.vendor,
       status: "starting",
-      components: task.components,
+      components: group.components,
     })),
-    skipped,
   });
   const proxy = await proxyServer.start(host, proxyPort);
-  const preparedEnvs: PreparedPreviewEnv[] = [];
+  let preparedTasks: PreparedPreviewTask[] = [];
   let proxyCleanupRegistered = false;
 
   try {
-    const prepared = await preparePreviewTasks(tasks, workspace.workspaceRoot, proxy.origin, host, proxyServer);
-    preparedEnvs.push(...prepared.preparedEnvs);
-    if (prepared.taskOptions.length === 0) {
+    const prepared = await preparePreviewTasks(
+      previewGroups,
+      workspace,
+      parsed.args,
+      proxy.origin,
+      host,
+      proxyServer
+    );
+    preparedTasks = prepared.tasks;
+    if (prepared.tasks.length === 0) {
       const failures = prepared.failures
-        .map(({ env, error }) => `${env.packageName}: ${formatError(error)}`)
+        .map(({ env, error }) => `${env.env.packageName}: ${formatError(error)}`)
         .join("; ");
       throw new BitLiteError(`Preview preparation failed for every selected env${failures ? ` (${failures})` : ""}`);
     }
-    const componentCounts = new Map(
-      prepared.preparedEnvs.map((preparedEnv) => [getSelectedEnvKey(preparedEnv.env), preparedEnv.components.length])
+    const preparedByEnv = new Map(
+      prepared.tasks.map((task) => [getSelectedEnvKey(task.prepared.env), task.prepared])
     );
     console.log(`Preview: ${proxyServer.origin}`);
-    await watchVendorTasks<PreviewServiceResult>(prepared.taskOptions, {
+    await watchVendorTasks<PreviewServiceResult>(prepared.tasks.map((task) => task.options), {
       serviceId,
       label,
       title: () => `Preview: ${proxyServer.origin}`,
-      formatResult(result) {
-        return formatPreviewResult(result, componentCounts);
+      formatResult: formatPreviewResult,
+      onResult(_result, task) {
+        const preparedEnv = preparedByEnv.get(getSelectedEnvKey(task.context.env));
+        if (!preparedEnv) return;
+        proxyServer.updateServer(
+          task.context.env,
+          toPreviewServerInfo(preparedEnv.runtime),
+          task.vendor.id
+        );
       },
-      onResult(result, task) {
-        proxyServer.updateServer(task.env, result.server, result.vendor);
-      },
-      onTasksStarted(tasks) {
+      onTasksStarted(startedTasks) {
         proxyCleanupRegistered = true;
-        const cleanupTaskListeners = attachPreviewTaskListeners(proxyServer, tasks);
+        const cleanupTaskListeners = attachPreviewTaskListeners(proxyServer, startedTasks);
         return async () => {
           cleanupTaskListeners();
           await proxyServer.close();
-          await Promise.all(prepared.preparedEnvs.map((preparedEnv) => preparedEnv.cleanup()));
+          await Promise.all(prepared.tasks.map((task) => task.prepared.cleanup()));
         };
       },
       formatStoppingMessage: (reason) => `Stopping bit-lite preview (${reason})...\n`,
     });
   } finally {
     if (!proxyCleanupRegistered) await proxyServer.close();
-    await Promise.all(preparedEnvs.map((preparedEnv) => preparedEnv.cleanup()));
+    await Promise.all(preparedTasks.map((task) => task.prepared.cleanup()));
   }
-}
-
-function createPreviewTaskSpecs(
-  workspace: WorkspaceRuntime,
-  groups: SelectedEnvGroup[],
-  parsed: ParsedCliArgs
-) {
-  const tasks: PreviewTaskSpec[] = [];
-  const skipped: PreviewSkippedEnv[] = [];
-  for (const group of groups) {
-    const serviceConfig = group.env.services[serviceId];
-    if (serviceConfig === undefined) {
-      skipped.push({
-        env: toSelectedEnvIdentity(group.env),
-        reason: `services.${serviceId} is not configured`,
-        components: group.components.map((component) => component.id),
-      });
-      continue;
-    }
-    const components = group.components.map(({ id, rootDir, packageName }) => ({ id, rootDir, packageName }));
-    tasks.push({
-      env: toSelectedEnvIdentity(group.env),
-      components,
-      service: serviceConfig,
-      taskOptions: {
-        env: toSelectedEnvIdentity(group.env),
-        components,
-        args: parsed.args,
-        workspaceRoot: workspace.workspaceRoot,
-        service: serviceConfig,
-      },
-    });
-  }
-  return { tasks, skipped };
 }
 
 export async function preparePreviewTasks(
-  tasks: PreviewTaskSpec[],
-  workspaceRoot: string,
+  groups: WorkspaceEnvGroup[],
+  workspace: Workspace,
+  args: CliArguments,
   proxyOrigin: string,
   host: string,
   proxyServer: PreviewProxyServer
 ) {
-  const taskOptions: VendorTaskStartOptions[] = [];
-  const preparedEnvs: PreparedPreviewEnv[] = [];
-  const failures: Array<{ env: SelectedEnvIdentity; error: unknown }> = [];
+  const tasks: PreparedPreviewTask[] = [];
+  const failures: Array<{ env: EnvContext; error: unknown }> = [];
   let nextPort = defaultVendorPort;
-  for (const task of tasks) {
-    const port = await findAvailablePort(host, nextPort);
-    nextPort = port + 1;
-    const server = {
-      host,
-      port,
-      basePath: `/env/${encodeRouteSegment(task.env.packageName)}/`,
-      proxyOrigin,
-    };
+  for (const group of groups) {
+    const service = getPreviewService(group);
     try {
+      const vendorUrl = await resolveVendorSpecifier({
+        specifier: service.definition.vendor,
+        service,
+        workspaceRoot: workspace.rootDir,
+        selectedEnv: group.env.env.packageName,
+        serviceName: serviceId,
+      });
+      const port = await findAvailablePort(host, nextPort);
+      nextPort = port + 1;
+      const server = {
+        host,
+        port,
+        basePath: `/env/${encodeRouteSegment(group.env.env.packageName)}/`,
+        proxyOrigin,
+      };
       const prepared = await preparePreviewEnv({
-        env: task.env,
-        components: task.components,
-        serviceConfig: task.service.definition,
-        workspaceRoot,
+        env: group.env.env,
+        components: group.components,
+        config: service.definition.config ?? {},
+        workspaceRoot: workspace.rootDir,
         server,
         resolveModule(specifier, field) {
           return resolveEnvModuleSpecifier({
             specifier,
-            service: task.service,
-            workspaceRoot,
+            service,
+            workspaceRoot: workspace.rootDir,
             field: `preview config.${field}`,
-            selectedEnv: task.env.packageName,
+            selectedEnv: group.env.env.packageName,
           });
         },
       });
-      preparedEnvs.push(prepared);
-      proxyServer.updatePreparedComponents(task.env, server.basePath, prepared.components);
-      taskOptions.push({
-        ...task.taskOptions,
-        components: [],
-        workspaceRoot,
-        service: {
-          ...task.service,
-          definition: prepared.serviceConfig as EnvServiceConfig,
+      proxyServer.updatePreparedComponents(group.env.env, server.basePath, prepared.components);
+      tasks.push({
+        prepared,
+        options: {
+          vendorUrl,
+          context: createVendorContext({ workspace, args, env: group.env, service }),
+          components: group.components,
+          config: prepared.config as JsonObject,
+          runtime: prepared.runtime,
         },
-        runtime: prepared.runtime,
       });
     } catch (error) {
-      failures.push({ env: task.env, error });
-      proxyServer.updatePreparationFailure(task.env, error);
+      failures.push({ env: group.env, error });
+      proxyServer.updatePreparationFailure(group.env.env, error);
     }
   }
-  return { taskOptions, preparedEnvs, failures };
+  return { tasks, failures };
 }
 
-function attachPreviewTaskListeners(proxyServer: PreviewProxyServer, tasks: VendorTask<unknown, PreviewServiceResult>[]) {
+function getPreviewService(group: WorkspaceEnvGroup) {
+  const service = group.env.services.preview;
+  if (!service) throw new BitLiteError(`selected env "${group.env.env.packageName}" does not define services.preview`);
+  return service;
+}
+
+function attachPreviewTaskListeners(
+  proxyServer: PreviewProxyServer,
+  tasks: VendorTask<unknown, PreviewServiceResult>[]
+) {
   const unsubscribers = tasks.map((task) => {
-    proxyServer.updateTask(task.env, {
+    proxyServer.updateTask(task.context.env, {
       taskId: task.id,
       vendor: task.vendor.id,
       status: task.status,
     });
     return task.onMessage?.((message) => {
-      proxyServer.updateTask(task.env, {
+      proxyServer.updateTask(task.context.env, {
         taskId: task.id,
         vendor: task.vendor.id,
         status: readTaskStatus(task, message),
@@ -232,47 +216,39 @@ function attachPreviewTaskListeners(proxyServer: PreviewProxyServer, tasks: Vend
   };
 }
 
-function readTaskStatus(task: VendorTask<unknown, PreviewServiceResult>, message: VendorMessage<PreviewServiceResult>) {
+function readTaskStatus(
+  task: VendorTask<unknown, PreviewServiceResult>,
+  message: VendorMessage<PreviewServiceResult>
+) {
   if (message.type === "result") return "ready";
   return task.status;
 }
 
-function formatPreviewResult(result: unknown, componentCounts: Map<string, number>) {
+function formatPreviewResult(result: unknown) {
   if (!isPreviewServiceResult(result)) return new Error("Invalid preview result");
-  const componentCount = componentCounts.get(getSelectedEnvKey(result.env)) ?? 0;
-  const componentLabel = componentCount === 1 ? "component" : "components";
-  return [`${componentCount} ${componentLabel} ${result.server.origin}`];
+  return ["Preview ready"];
 }
 
 export function isPreviewServiceResult(value: unknown): value is PreviewServiceResult {
-  return (
-    isRecord(value) &&
-    value.service === "preview" &&
-    typeof value.vendor === "string" &&
-    !("envName" in value) &&
-    isSelectedEnvIdentity(value.env) &&
-    value.mode === "serve" &&
-    isPreviewServerInfo(value.server)
-  );
+  return isJsonObject(value) && value.mode === "serve";
 }
 
-function isPreviewServerInfo(value: unknown): value is PreviewServerInfo {
-  return (
-    isRecord(value) &&
-    typeof value.origin === "string" &&
-    typeof value.host === "string" &&
-    typeof value.port === "number" &&
-    typeof value.basePath === "string"
-  );
+function toPreviewServerInfo(runtime: PreviewPreparedRuntime): PreviewServerInfo {
+  return {
+    origin: `http://${runtime.server.host}:${runtime.server.port}`,
+    host: runtime.server.host,
+    port: runtime.server.port,
+    basePath: runtime.server.basePath,
+  };
 }
 
-function printNoPreviewTasks(groups: SelectedEnvGroup[]) {
+function printNoPreviewTasks(groups: WorkspaceEnvGroup[]) {
   console.log("No preview tasks found.");
   if (groups.length === 0) {
     console.log("No components were selected from this workspace.");
     return;
   }
-  console.log(`Selected envs: ${groups.map((group) => group.env.packageName).join(", ")}`);
+  console.log(`Selected envs: ${groups.map((group) => group.env.env.packageName).join(", ")}`);
   console.log("Make sure each selected env defines services.preview in the workspace config.");
 }
 
@@ -289,6 +265,19 @@ function readPort(value: CliOptionValue | undefined, optionName: string, fallbac
     throw new BitLiteError(`${optionName} requires a port number between 1 and 65535`);
   }
   return port;
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  if (!isRecord(value)) return false;
+  return Object.values(value).every(isJsonValue);
+}
+
+function isJsonValue(value: unknown): value is JsonObject[keyof JsonObject] {
+  if (value === null) return true;
+  if (typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  return isJsonObject(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

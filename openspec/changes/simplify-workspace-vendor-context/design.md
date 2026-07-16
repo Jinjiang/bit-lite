@@ -158,7 +158,7 @@ Watch storage retains the parent task context and vendor identity rather than re
 
 ### 9. Migrate all maintained services atomically at the repository boundary
 
-The vendor context/data and result contracts are breaking. Maintained test, preview, compile, sample vendors, task helpers, result validators, result store fixtures, proxy fixtures, and docs migrate in the same change. Legacy output shapes containing echoed `service`, `vendor`, `env`, `args`, or `config` are not kept as a second long-term protocol.
+The vendor context/data and result contracts are breaking. Maintained test, preview, compile, sample vendors, task helpers, result validators, result store fixtures, proxy fixtures, and docs migrate in the same change. Maintained vendors no longer emit the old echoed metadata shape, while validators leave additional JSON-safe fields opaque rather than reserving historical field names.
 
 Existing command behavior, routes, terminal lifecycle, failure isolation, dependency ordering, hard-coded test discovery, and generated artifacts remain covered by regression tests.
 
@@ -168,7 +168,7 @@ Existing command behavior, routes, terminal lifecycle, failure isolation, depend
 - [VendorContext makes the Workspace schema a public vendor contract] → Version the context, document additive evolution, keep internal indexes and heavy resolution out, and use canonical domain names rather than implementation-specific maps.
 - [Vendors may bypass command-owned preparation using raw workspace data] → Preserve normative ownership rules and regression tests; access to context enables extensions but does not transfer lifecycle, preview discovery, or install orchestration ownership.
 - [Unknown options may conflict across vendors] → Preserve the exact parsed/raw forms, document that vendor-specific flags belong to the selected service vendors, and reserve centrally interpreted flags only when parent behavior depends on them.
-- [Removing echoed result metadata breaks consumers] → Migrate maintained vendors, validators, stores, manifests, and docs atomically; expose task context in parent-owned result wrappers and reject legacy maintained-vendor fixtures.
+- [Removing echoed result metadata breaks consumers] → Migrate maintained vendors, stores, manifests, and docs atomically; expose task context in parent-owned result wrappers while allowing validators to preserve additional JSON-safe vendor fields.
 - [Service origin paths expose filesystem layout] → Vendors already execute trusted code with filesystem access; treat paths as execution context, not a security boundary.
 - [Compile still uses a different lifecycle entry] → Unify the data envelope now; defer forcing short-lived compile into the long-running terminal/worker lifecycle until a concrete need appears.
 
@@ -180,7 +180,7 @@ Existing command behavior, routes, terminal lifecycle, failure isolation, depend
 4. Migrate maintained test vendors and results, then watch storage, to context-based inputs and produced-data-only outputs.
 5. Migrate preview tasks/vendors/proxy state while preserving prepared runtime, selected components, routes, failures, and cleanup.
 6. Migrate compile vendors to the common context/data envelope and remove echoed compile identity/output fields while preserving per-component layering.
-7. Remove obsolete workspace/runtime/ref types, service-copy adapters, `runtime.workspaceRoot`, echoed result validators, and compatibility fixtures.
+7. Remove obsolete workspace/runtime/ref types, service-copy adapters, `runtime.workspaceRoot`, echoed-input equality validation, and compatibility projections.
 8. Update public documentation and run focused plus repository-wide typecheck, test, build, and demo end-to-end verification.
 
 Rollback is a source revert of the workspace and vendor contract migration. No persisted user data or config migration is required because authoring formats remain unchanged.

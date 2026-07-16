@@ -83,10 +83,15 @@ export type CreateRunnerOptions<Data = unknown> = {
 export type Runner<Data = unknown, ChildMessage = unknown, ParentMessage = never, ResultData = unknown> = {
   kind: RunnerKind;
   exitPromise: Promise<RunnerExitCode>;
+  /** Subscribe to application messages sent from the target through `RunnerRuntime.postMessage()`. */
   onMessage(listener: RunnerMessageListener<ChildMessage>): Unsubscribe;
+  /** Subscribe to the target's stdout and stderr chunks. Inline runners do not emit output here. */
   onOutput(listener: RunnerOutputListener): Unsubscribe;
+  /** Send an application-level message from the parent to the target. */
   postMessage(message: ParentMessage): void;
+  /** Send an application or built-in control message, such as `{ type: "shutdown" }`, to the target. */
   send(message: RunnerParentMessage<ParentMessage>): void;
+  /** Write raw input to the worker's stdin. This is a no-op for inline runners. */
   writeInput(chunk: Buffer | string): void;
   start(): ResultData | undefined | Promise<ResultData | undefined>;
   stop(): void | Promise<void>;

@@ -15,11 +15,6 @@ describe("preview proxy", () => {
           components: [{ id: "scope/button" }],
         },
       ],
-      skipped: [{
-        env: selectedEnv("skipped"),
-        reason: "services.preview is not configured",
-        components: ["scope/skipped"],
-      }],
     });
     await proxy.start("127.0.0.1", 43_000);
 
@@ -50,8 +45,7 @@ describe("preview proxy", () => {
     const manifest = await fetch(`${proxy.origin}/__bit-lite/manifest.json`).then((response) => response.json());
     expect(manifest.envs[0].env).toEqual(env);
     expect(manifest.envs[0]).not.toHaveProperty("envName");
-    expect(manifest.skipped[0].env).toEqual(selectedEnv("skipped"));
-    expect(manifest.skipped[0]).not.toHaveProperty("envName");
+    expect(manifest).not.toHaveProperty("skipped");
     expect(manifest.envs[0].components[0]).toEqual({
       componentId: "scope/button",
       overviewRoute: "/env/react%20env/#scope%2Fbutton",
@@ -94,7 +88,6 @@ describe("preview proxy", () => {
           components: [],
         },
       ],
-      skipped: [],
     });
     await proxy.start("127.0.0.1", 43_100);
     proxy.updateServer(

@@ -1,4 +1,11 @@
-import type { CliArguments, ComponentRef, SelectedEnvIdentity } from "bit-lite-context";
+import type {
+  CliArguments,
+  PackageLocation,
+  SelectedEnvIdentity,
+  Workspace,
+  WorkspaceComponent,
+} from "bit-lite-context";
+import type { SupportedEnvServiceName } from "bit-lite-env";
 import type { ManagedTerminalItem, RawOutputBuffer } from "bit-lite-terminal";
 import type {
   Runner,
@@ -48,16 +55,26 @@ export type VendorMessage<Data extends JsonValue = JsonValue> =
 
 export type VendorParentMessage<Message extends JsonValue = JsonValue> = RunnerParentMessage<Message>;
 
-export type VendorConfig = Record<string, unknown>;
+export type VendorConfig = JsonObject;
+
+export type VendorContext = {
+  readonly version: 1;
+  readonly workspace: Workspace;
+  readonly args: CliArguments;
+  readonly env: SelectedEnvIdentity;
+  readonly service: {
+    readonly name: SupportedEnvServiceName;
+    readonly source: PackageLocation;
+  };
+};
 
 export type VendorData<
   Config extends VendorConfig = VendorConfig,
   Runtime extends JsonObject = JsonObject,
 > = {
-  env: SelectedEnvIdentity;
-  components: ComponentRef[];
+  context: VendorContext;
+  components: readonly WorkspaceComponent[];
   config: Config;
-  args: CliArguments;
   runtime?: Runtime;
 };
 

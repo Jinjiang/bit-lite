@@ -1,11 +1,7 @@
 import { createRunner } from "./runner/index.js";
 import { ManagedTerminal, RawOutputBuffer } from "bit-lite-terminal";
-import { getSelectedEnvKey, resolveVendorSpecifier } from "bit-lite-context";
 import type {
-  CliArguments,
-  ComponentRef,
-  LoadedEnvServiceRuntime,
-  SelectedEnvIdentity,
+  WorkspaceComponent,
 } from "bit-lite-context";
 import type {
   ManagedTerminalItem,
@@ -19,30 +15,24 @@ import type {
   JsonObject,
   JsonValue,
   VendorConfig,
+  VendorContext,
   VendorData,
   VendorDefinition,
   VendorMessage,
   VendorRunner,
 } from "./types/index.js";
 
-export type VendorServiceConfig = {
-  vendor: string;
-  config: VendorConfig;
-};
-
 export type VendorTaskStartOptions = {
-  env: SelectedEnvIdentity;
-  components: ComponentRef[];
-  args: CliArguments;
-  workspaceRoot: string;
-  service: LoadedEnvServiceRuntime;
+  vendorUrl: string;
+  context: VendorContext;
+  components: readonly WorkspaceComponent[];
+  config: VendorConfig;
   runtime?: JsonObject | undefined;
 };
 
 export type VendorTaskRunResult<RunResult = unknown> = {
-  service: string;
-  env: SelectedEnvIdentity;
-  vendor: string;
+  context: VendorContext;
+  vendor: VendorDefinition;
   data: RunResult;
 };
 
@@ -51,7 +41,7 @@ export type VendorTask<
   EventResult extends JsonValue = JsonValue,
   InputMessage extends JsonValue = JsonValue,
 > = ManagedTerminalItem & {
-  env: SelectedEnvIdentity;
+  context: VendorContext;
   vendor: VendorDefinition;
   result: Promise<VendorTaskRunResult<RunResult>>;
   exitPromise?: Promise<RunnerExitCode> | undefined;
@@ -367,31 +357,16 @@ async function createVendorTask<
   runnerOptions: { worker?: WorkerRunnerOptions | undefined },
   resultOptions: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>
 ): Promise<VendorTask<RunResult, EventResult, InputMessage>> {
-  const serviceConfig = readVendorServiceConfig(
-    options.service.definition,
-    resultOptions.serviceId,
-    options.env.packageName
-  );
-  const vendorUrl = await resolveVendorSpecifier({
-    specifier: serviceConfig.vendor,
-    service: options.service,
-    workspaceRoot: options.workspaceRoot,
-    selectedEnv: options.env.packageName,
-    serviceName: resultOptions.serviceId,
-  });
   const vendor = await loadVendor(
-    vendorUrl,
-    serviceConfig.vendor,
+    options.vendorUrl,
     resultOptions.serviceId,
-    options.env.packageName,
-    options.service.declaredBy
+    options.context
   );
 
   return createStartedVendorTask<RunResult, EventResult, InputMessage>(
     { ...options, worker: runnerOptions.worker },
     resultOptions,
-    vendor,
-    serviceConfig.config
+    vendor
   );
 }
 
@@ -402,14 +377,12 @@ function createStartedVendorTask<
 >(
   options: CreateVendorTaskOptions,
   resultOptions: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>,
-  vendor: VendorDefinition,
-  config: VendorConfig
+  vendor: VendorDefinition
 ): VendorTask<RunResult, EventResult, InputMessage> {
   const data: VendorData<VendorConfig> = {
-    env: options.env,
+    context: options.context,
     components: options.components,
-    config,
-    args: options.args,
+    config: options.config,
     ...(options.runtime === undefined ? {} : { runtime: options.runtime }),
   };
   const runner = createRunner<VendorData<VendorConfig>, VendorMessage<EventResult>, InputMessage, RunResult>({
@@ -428,9 +401,9 @@ function createStartedVendorTask<
   });
 
   const task: ManagedVendorTask<RunResult, EventResult, InputMessage> = {
-    id: `${getSelectedEnvKey(options.env)}:${vendor.id}`,
-    label: `${vendor.label} (${options.env.packageName})`,
-    env: options.env,
+    id: `${getVendorContextKey(options.context)}:${vendor.id}`,
+    label: `${vendor.label} (${options.context.env.packageName})`,
+    context: options.context,
     vendor,
     serviceId: resultOptions.serviceId,
     serviceLabel: resultOptions.label,
@@ -564,9 +537,8 @@ function recordVendorRunResult<
   if (task.runResult === undefined) {
     task.completed = true;
     task.resolveResult?.({
-      service: task.serviceId,
-      env: task.env,
-      vendor: task.vendor.id,
+      context: task.context,
+      vendor: task.vendor,
       data: result as RunResult,
     });
     return;
@@ -580,9 +552,8 @@ function recordVendorRunResult<
 
   task.completed = true;
   task.resolveResult?.({
-    service: task.serviceId,
-    env: task.env,
-    vendor: task.vendor.id,
+    context: task.context,
+    vendor: task.vendor,
     data: formatted,
   });
 }
@@ -631,33 +602,10 @@ function callFormatResult<Result>(
   }
 }
 
-function readVendorServiceConfig(value: unknown, serviceId: string, selectedEnvPackageName: string): VendorServiceConfig {
-  if (!isRecord(value)) {
-    throw new Error(`${serviceId} service config for env "${selectedEnvPackageName}" must be an object`);
-  }
-
-  if (typeof value.vendor !== "string" || value.vendor.length === 0) {
-    throw new Error(`${serviceId} service config for env "${selectedEnvPackageName}" must define a vendor`);
-  }
-
-  if (value.config !== undefined && !isRecord(value.config)) {
-    throw new Error(
-      `${serviceId} service config for env "${selectedEnvPackageName}" field "config" must be an object`
-    );
-  }
-
-  return {
-    vendor: value.vendor,
-    config: value.config === undefined ? {} : { ...value.config },
-  };
-}
-
 async function loadVendor(
   resolvedUrl: string,
-  specifier: string,
   serviceId: string,
-  selectedEnvPackageName: string,
-  declaredBy: string
+  context: VendorContext
 ): Promise<VendorDefinition> {
   let vendorModule: unknown;
   try {
@@ -665,15 +613,16 @@ async function loadVendor(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Failed to import ${serviceId} vendor "${specifier}" for selected env "${selectedEnvPackageName}" ` +
-      `(declared by "${declaredBy}"): ${message}`
+      `Failed to import ${serviceId} vendor for selected env "${context.env.packageName}" ` +
+      `(declared by "${context.service.source.identity.packageName}") from ${resolvedUrl}: ${message}`
     );
   }
 
   if (!isRecord(vendorModule) || !isVendorDefinition(vendorModule.meta)) {
     throw new Error(
-      `${serviceId} vendor "${specifier}" for selected env "${selectedEnvPackageName}" ` +
-      `(declared by "${declaredBy}") must export const meta: VendorDefinition`
+      `${serviceId} vendor for selected env "${context.env.packageName}" ` +
+      `(declared by "${context.service.source.identity.packageName}") at ${resolvedUrl} ` +
+      `must export const meta: VendorDefinition`
     );
   }
 
@@ -688,6 +637,10 @@ function isVendorDefinition(value: unknown): value is VendorDefinition {
     typeof value.hint === "string" &&
     (typeof value.moduleUrl === "string" || value.moduleUrl instanceof URL)
   );
+}
+
+function getVendorContextKey(context: VendorContext) {
+  return JSON.stringify([context.env.packageName, context.env.requestedVersion]);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

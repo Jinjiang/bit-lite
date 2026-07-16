@@ -1,23 +1,15 @@
 import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { SelectedEnvIdentity } from "bit-lite-context";
-import type { VendorDefinition } from "bit-lite-vendors";
+import type { JsonObject, VendorData, VendorDefinition } from "bit-lite-vendors";
 
 type TypeScriptModule = typeof import("typescript");
 
-export type TypeScriptCompileInput = {
-  env: SelectedEnvIdentity;
-  component?: {
-    id: string;
-    rootDir: string;
-    packageName: string;
-  };
-  componentId?: string;
-  componentRootDir?: string;
+export type TypeScriptCompileRuntime = JsonObject & {
   mainFileRelative: string;
   distDir: string;
-  config?: Record<string, unknown>;
 };
+
+export type TypeScriptCompileInput = VendorData<JsonObject, TypeScriptCompileRuntime>;
 
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const staticAssetExtensions = new Set([".vue", ".css", ".scss", ".sass", ".less", ".json"]);
@@ -32,29 +24,31 @@ export const meta: VendorDefinition = {
 };
 
 export async function compileComponent(input: TypeScriptCompileInput) {
-  const componentId = input.component?.id ?? input.componentId;
-  const componentRootDir = input.component?.rootDir ?? input.componentRootDir;
-  if (!componentId || !componentRootDir) throw new Error("TypeScript compiler requires component identity and root");
+  const component = input.components[0];
+  const runtime = input.runtime;
+  if (!component || input.components.length !== 1 || !runtime) {
+    throw new Error("TypeScript compiler requires exactly one component and compile runtime");
+  }
   const ts = await import("typescript");
-  await rm(input.distDir, { recursive: true, force: true });
-  await mkdir(input.distDir, { recursive: true });
+  await rm(runtime.distDir, { recursive: true, force: true });
+  await mkdir(runtime.distDir, { recursive: true });
 
-  const sourceFiles = await findComponentSourceFiles(componentRootDir);
+  const sourceFiles = await findComponentSourceFiles(component.rootDir);
   for (const sourceFile of sourceFiles) {
     const extension = path.extname(sourceFile);
 
     if (sourceExtensions.has(extension) && !sourceFile.endsWith(".d.ts")) {
-      await transpileSourceFile(ts, componentRootDir, sourceFile, input.distDir);
+      await transpileSourceFile(ts, component.rootDir, sourceFile, runtime.distDir);
       continue;
     }
 
     if (staticAssetExtensions.has(extension) || sourceFile.endsWith(".d.ts")) {
-      await copyStaticFile(componentRootDir, sourceFile, input.distDir);
+      await copyStaticFile(component.rootDir, sourceFile, runtime.distDir);
     }
   }
 
-  await ensureEntryDeclaration({ ...input, componentId, componentRootDir });
-  return { service: "compile" as const, componentId, outputDir: input.distDir };
+  await ensureEntryDeclaration(runtime);
+  return { artifactCount: sourceFiles.length };
 }
 
 async function transpileSourceFile(
@@ -126,7 +120,7 @@ async function copyStaticFile(componentRootDir: string, sourceFile: string, dist
   await copyFile(sourceFile, outputPath);
 }
 
-async function ensureEntryDeclaration(input: TypeScriptCompileInput) {
+async function ensureEntryDeclaration(input: TypeScriptCompileRuntime) {
   const entryDeclarationPath = path.join(input.distDir, "index.d.ts");
   const mainExtension = path.extname(input.mainFileRelative);
   if (mainExtension === ".ts" || mainExtension === ".tsx") return;

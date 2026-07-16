@@ -1,55 +1,42 @@
 import path from "node:path";
 import {
-  loadWorkspace,
+  readWorkspace,
   resolveVendorSpecifier,
-  selectComponentRefs,
-  toSelectedEnvIdentity,
+  resolveWorkspace,
+  selectWorkspaceComponents,
+} from "bit-lite-context";
+import { createVendorContext } from "bit-lite-vendors";
+import type {
+  CliArguments,
+  ComponentContext,
+  ParsedCliArgs,
+  Workspace,
+  WorkspaceComponent,
 } from "bit-lite-context";
 import type {
-  ComponentPackage,
-  ComponentPackageRegistry,
-  ComponentRuntime,
-  LoadedEnvServiceRuntime,
-  ParsedCliArgs,
-  SelectedEnvIdentity,
-} from "bit-lite-context";
-import type { JsonObject } from "bit-lite-env";
+  JsonObject,
+  JsonValue,
+  VendorData,
+  VendorDefinition,
+} from "bit-lite-vendors";
 import { BitLiteError } from "../utils/errors.js";
 import { materializeLocalEnvComponents } from "../env-component-compiler.js";
-import {
-  getPackageDirectory,
-  linkComponentPackages,
-  loadComponentPackageRegistry,
-} from "./link.js";
+import { getPackageDirectory, linkComponentPackages } from "./link.js";
 
-export type CompileVendorInput = {
-  env: SelectedEnvIdentity;
-  component: {
-    id: string;
-    rootDir: string;
-    packageName: string;
-  };
+export type CompileVendorRuntime = JsonObject & {
   mainFileRelative: string;
   distDir: string;
-  config: JsonObject;
 };
 
-export type CompileServiceResult = {
-  service: "compile";
-  componentId: string;
-  outputDir: string;
-};
+export type CompileVendorInput = VendorData<JsonObject, CompileVendorRuntime>;
 
 type CompilerVendor = {
-  meta: {
-    id: string;
-    label: string;
-  };
+  meta: VendorDefinition;
   compileComponent(input: CompileVendorInput): Promise<unknown>;
 };
 
 type CompileFailure = {
-  component: ComponentPackage;
+  component: WorkspaceComponent;
   error: Error;
 };
 
@@ -58,29 +45,28 @@ export async function runCompileCommand(parsed: ParsedCliArgs) {
     throw new BitLiteError("bit-lite compile does not accept positional arguments; use --filter");
   }
 
-  const registry = await loadComponentPackageRegistry(parsed.workspaceRoot);
-  await linkComponentPackages(registry);
-  const selectedIds = selectComponentRefs(
-    registry.components,
-    parsed.componentFilters
-  ).map((component) => component.id);
-  const compiled = await compileComponentPackages(registry, selectedIds);
+  const workspace = await readWorkspace(parsed.workspaceRoot);
+  await linkComponentPackages(workspace);
+  const selectedIds = selectWorkspaceComponents(workspace, parsed.componentFilters)
+    .map((component) => component.id);
+  const compiled = await compileComponentPackages(workspace, selectedIds, parsed.args);
   printCompiledComponents(compiled);
 }
 
 export async function compileComponentPackages(
-  registry: ComponentPackageRegistry,
-  selectedIds?: string[]
+  workspace: Workspace,
+  selectedIds?: string[],
+  args: CliArguments = { raw: [], positional: [], options: {}, passthrough: [] }
 ) {
-  await materializeLocalEnvComponents(registry);
-  const workspace = await loadWorkspace(registry.workspaceRoot, { registry });
-  const selected = new Set(selectedIds ?? registry.components.map((component) => component.id));
-  const ordinary = registry.components.filter(
+  await materializeLocalEnvComponents(workspace);
+  const context = await resolveWorkspace(workspace);
+  const selected = new Set(selectedIds ?? workspace.components.map((component) => component.id));
+  const ordinary = workspace.components.filter(
     (component) => component.kind === "component" && selected.has(component.id)
   );
-  const runtimeById = new Map(workspace.components.map((component) => [component.id, component]));
-  const layers = createCompileLayers(registry, ordinary);
-  const completed: ComponentPackage[] = [];
+  const contextById = new Map(context.components.map((component) => [component.component.id, component]));
+  const layers = createCompileLayers(workspace, ordinary);
+  const completed: WorkspaceComponent[] = [];
   const failedPackages = new Set<string>();
   const failures: CompileFailure[] = [];
   const vendorCache = new Map<string, Promise<CompilerVendor>>();
@@ -98,9 +84,9 @@ export async function compileComponentPackages(
     });
     const results = await Promise.allSettled(
       runnable.map(async (component) => {
-        const runtime = runtimeById.get(component.id);
-        if (!runtime) throw new BitLiteError(`component runtime "${component.id}" is unavailable`);
-        await compileOrdinaryComponent(registry, component, runtime, vendorCache);
+        const componentContext = contextById.get(component.id);
+        if (!componentContext) throw new BitLiteError(`component context "${component.id}" is unavailable`);
+        await compileOrdinaryComponent(workspace, component, componentContext, args, vendorCache);
         return component;
       })
     );
@@ -125,36 +111,40 @@ export async function compileComponentPackages(
 }
 
 async function compileOrdinaryComponent(
-  registry: ComponentPackageRegistry,
-  component: ComponentPackage,
-  runtime: ComponentRuntime,
+  workspace: Workspace,
+  component: WorkspaceComponent,
+  componentContext: ComponentContext,
+  args: CliArguments,
   vendorCache: Map<string, Promise<CompilerVendor>>
 ) {
-  const service = runtime.env.services.compile;
+  const service = componentContext.env.services.compile;
   if (!service) {
-    throw new BitLiteError(`selected env "${runtime.env.packageName}" does not define services.compile`);
+    throw new BitLiteError(`selected env "${componentContext.env.env.packageName}" does not define services.compile`);
   }
   const vendorUrl = await resolveVendorSpecifier({
     specifier: service.definition.vendor,
     service,
-    workspaceRoot: registry.workspaceRoot,
-    selectedEnv: runtime.env.packageName,
+    workspaceRoot: workspace.rootDir,
+    selectedEnv: componentContext.env.env.packageName,
     serviceName: "compile",
   });
-  const vendor = await loadCompilerVendor(vendorUrl, service, runtime.env.packageName, vendorCache);
-  const distDir = path.join(getPackageDirectory(registry.workspaceRoot, component.packageName), "dist");
+  const vendor = await loadCompilerVendor(
+    vendorUrl,
+    componentContext.env.env.packageName,
+    service.source.identity.packageName,
+    vendorCache
+  );
+  const distDir = path.join(getPackageDirectory(workspace.rootDir, component.packageName), "dist");
   const result = await vendor.compileComponent({
-    env: toSelectedEnvIdentity(runtime.env),
-    component: {
-      id: component.id,
-      rootDir: component.rootDir,
-      packageName: component.packageName,
+    context: createVendorContext({ workspace, args, env: componentContext.env, service }),
+    components: [component],
+    config: service.definition.config ?? {},
+    runtime: {
+      mainFileRelative: component.mainFileRelative,
+      distDir,
     },
-    mainFileRelative: component.mainFileRelative,
-    distDir,
-    config: (service.definition.config ?? {}) as JsonObject,
   });
-  if (!isCompileServiceResult(result, component.id, distDir)) {
+  if (!isCompileProducedResult(result)) {
     throw new BitLiteError(
       `compile vendor "${vendor.meta.id}" returned an invalid result for component "${component.id}"`
     );
@@ -163,8 +153,8 @@ async function compileOrdinaryComponent(
 
 async function loadCompilerVendor(
   vendorUrl: string,
-  service: LoadedEnvServiceRuntime,
   selectedEnv: string,
+  declaredBy: string,
   cache: Map<string, Promise<CompilerVendor>>
 ) {
   const existing = cache.get(vendorUrl);
@@ -176,13 +166,13 @@ async function loadCompilerVendor(
     } catch (error) {
       throw new BitLiteError(
         `failed to import compile vendor for selected env "${selectedEnv}" declared by ` +
-        `"${service.declaredBy}" from ${vendorUrl}: ${asError(error).message}`
+        `"${declaredBy}" from ${vendorUrl}: ${asError(error).message}`
       );
     }
     if (!isCompilerVendor(module)) {
       throw new BitLiteError(
-        `compile vendor for selected env "${selectedEnv}" declared by "${service.declaredBy}" ` +
-        `must export meta and compileComponent()`
+        `compile vendor for selected env "${selectedEnv}" declared by "${declaredBy}" ` +
+        `must export meta: VendorDefinition and compileComponent()`
       );
     }
     return module;
@@ -191,11 +181,11 @@ async function loadCompilerVendor(
   return promise;
 }
 
-function createCompileLayers(registry: ComponentPackageRegistry, components: ComponentPackage[]) {
+function createCompileLayers(workspace: Workspace, components: WorkspaceComponent[]) {
   const included = new Set(components.map((component) => component.packageName));
   const remaining = new Map(components.map((component) => [component.packageName, component]));
   const completed = new Set<string>();
-  const layers: ComponentPackage[][] = [];
+  const layers: WorkspaceComponent[][] = [];
   while (remaining.size > 0) {
     const layer = [...remaining.values()]
       .filter((component) => component.internalDependencyPackageNames.every(
@@ -203,7 +193,7 @@ function createCompileLayers(registry: ComponentPackageRegistry, components: Com
       ))
       .sort((left, right) => left.id.localeCompare(right.id));
     if (layer.length === 0) {
-      throw new BitLiteError(`component package dependency cycle prevents compile in ${registry.workspaceRoot}`);
+      throw new BitLiteError(`component package dependency cycle prevents compile in ${workspace.rootDir}`);
     }
     layers.push(layer);
     for (const component of layer) {
@@ -215,19 +205,34 @@ function createCompileLayers(registry: ComponentPackageRegistry, components: Com
 }
 
 function isCompilerVendor(value: unknown): value is CompilerVendor {
-  return isRecord(value) && isRecord(value.meta) &&
-    typeof value.meta.id === "string" && typeof value.meta.label === "string" &&
-    typeof value.compileComponent === "function";
+  return isRecord(value) && isVendorDefinition(value.meta) && typeof value.compileComponent === "function";
 }
 
-function isCompileServiceResult(value: unknown, componentId: string, outputDir: string) {
-  return isRecord(value) && value.service === "compile" && value.componentId === componentId &&
-    typeof value.outputDir === "string" && path.resolve(value.outputDir) === path.resolve(outputDir);
+function isVendorDefinition(value: unknown): value is VendorDefinition {
+  return isRecord(value) && typeof value.id === "string" && typeof value.label === "string" &&
+    typeof value.hint === "string" && (typeof value.moduleUrl === "string" || value.moduleUrl instanceof URL);
 }
 
-function printCompiledComponents(components: ComponentPackage[]) {
+export function isCompileProducedResult(value: unknown) {
+  return value === undefined || isJsonObject(value);
+}
+
+function printCompiledComponents(components: WorkspaceComponent[]) {
   console.log(`Compiled ${components.length} component package${components.length === 1 ? "" : "s"}.`);
   for (const component of components) console.log(`- ${component.packageName}`);
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  if (!isRecord(value)) return false;
+  return Object.values(value).every(isJsonValue);
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null) return true;
+  if (typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  return isJsonObject(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

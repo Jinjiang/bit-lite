@@ -2,12 +2,12 @@ import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadComponentPackageRegistry } from "./component-registry.js";
 import {
   loadEnvForComponent,
-  loadWorkspaceEnvs,
+  loadWorkspaceEnvContexts,
   resolveEnvModuleSpecifier,
 } from "./env-loader.js";
+import { readWorkspace } from "./workspace.js";
 
 describe("JSON env package loading", () => {
   it("loads external inheritance with shallow config merge and whole-service replacement", async () => {
@@ -39,16 +39,17 @@ describe("JSON env package loading", () => {
     await linkPackage(path.join(child, "node_modules", "@env", "parent"), parent);
     await installEnvForComponent(root, "@scope/lib.math", "@env/child", child);
 
-    const registry = await loadComponentPackageRegistry(root);
-    const loaded = await loadEnvForComponent(registry.components[0]!, registry);
+    const workspace = await readWorkspace(root);
+    const loaded = await loadEnvForComponent(workspace.components[0]!, workspace);
 
-    expect(loaded.requestedVersion).toBe("^1.0.0");
-    expect(loaded.installedVersion).toBe("1.0.0");
-    expect(loaded.inheritanceChain).toEqual(["@env/grand", "@env/parent", "@env/child"]);
-    expect(loaded.effectiveDefinition.config).toEqual({ grandOnly: true, shared: "child", parentOnly: true });
+    expect(loaded.env.requestedVersion).toBe("^1.0.0");
+    expect(loaded.env.installedVersion).toBe("1.0.0");
+    expect(loaded.inheritance.map((identity) => identity.packageName))
+      .toEqual(["@env/grand", "@env/parent", "@env/child"]);
+    expect(loaded.config).toEqual({ grandOnly: true, shared: "child", parentOnly: true });
     expect(loaded.services.test?.definition.config).toEqual({ inherited: false });
-    expect(loaded.services.test?.declaredBy).toBe("@env/child");
-    expect(loaded.services.compile?.declaredBy).toBe("@env/grand");
+    expect(loaded.services.test?.source.identity.packageName).toBe("@env/child");
+    expect(loaded.services.compile?.source.identity.packageName).toBe("@env/grand");
     const parentVendor = await resolveEnvModuleSpecifier({
       specifier: "./grand-vendor.js",
       service: loaded.services.compile ?? loaded.services.test!,
@@ -85,12 +86,13 @@ describe("JSON env package loading", () => {
       services: { compile: { vendor: "local-compiler", config: {} } },
     }));
 
-    const registry = await loadComponentPackageRegistry(root);
-    const loaded = await loadEnvForComponent(registry.byId.get("lib/math")!, registry);
-    expect(loaded.packageName).toBe("@scope/env.local");
-    expect(loaded.requestedVersion).toBe("workspace:*");
-    expect(loaded.installedVersion).toBe("0.0.0");
-    expect(loaded.packageRoot).toBe(await realpath(generated));
+    const workspace = await readWorkspace(root);
+    const selectedComponent = workspace.components.find((candidate) => candidate.id === "lib/math")!;
+    const loaded = await loadEnvForComponent(selectedComponent, workspace);
+    expect(loaded.env.packageName).toBe("@scope/env.local");
+    expect(loaded.env.requestedVersion).toBe("workspace:*");
+    expect(loaded.env.installedVersion).toBe("0.0.0");
+    expect(loaded.package.rootDir).toBe(await realpath(generated));
   });
 
   it("keeps a normal-version same-name env external and rejects workspace-root shadowing", async () => {
@@ -103,12 +105,13 @@ describe("JSON env package loading", () => {
       services: { compile: { vendor: "external", config: {} } },
     });
     await linkPackage(path.join(root, "node_modules", "@scope", "env.collision"), external);
-    const registry = await loadComponentPackageRegistry(root);
-    await expect(loadEnvForComponent(registry.byId.get("lib/math")!, registry))
+    const workspace = await readWorkspace(root);
+    const selectedComponent = workspace.components.find((candidate) => candidate.id === "lib/math")!;
+    await expect(loadEnvForComponent(selectedComponent, workspace))
       .rejects.toThrow("is not installed in component development context");
 
     await installEnvForComponent(root, "@scope/lib.math", "@scope/env.collision", external);
-    const loaded = await loadEnvForComponent(registry.byId.get("lib/math")!, registry);
+    const loaded = await loadEnvForComponent(selectedComponent, workspace);
     expect(loaded.services.compile?.definition.vendor).toBe("external");
   });
 
@@ -127,8 +130,8 @@ describe("JSON env package loading", () => {
     }, { devDependencies: { "@env/parent": "1.0.0" } });
     await linkPackage(path.join(child, "node_modules", "@env", "parent"), parent);
     await installEnvForComponent(root, "@scope/lib.math", "@env/child", child);
-    const registry = await loadComponentPackageRegistry(root);
-    await expect(loadEnvForComponent(registry.components[0]!, registry))
+    const workspace = await readWorkspace(root);
+    await expect(loadEnvForComponent(workspace.components[0]!, workspace))
       .rejects.toThrow("declared only as a development dependency");
 
     await writeFile(path.join(child, "package.json"), JSON.stringify({
@@ -143,7 +146,7 @@ describe("JSON env package loading", () => {
       dependencies: { "@env/child": "1.0.0" },
     }));
     await linkPackage(path.join(parent, "node_modules", "@env", "child"), child);
-    await expect(loadEnvForComponent(registry.components[0]!, registry, new Map()))
+    await expect(loadEnvForComponent(workspace.components[0]!, workspace, new Map()))
       .rejects.toThrow("inheritance cycle");
   });
 
@@ -158,8 +161,8 @@ describe("JSON env package loading", () => {
     });
     await installEnvForComponent(root, "@scope/lib.a", "@env/shared", env);
     await installEnvForComponent(root, "@scope/lib.b", "@env/shared", env);
-    const registry = await loadComponentPackageRegistry(root);
-    const loaded = await loadWorkspaceEnvs(registry);
+    const workspace = await readWorkspace(root);
+    const loaded = await loadWorkspaceEnvContexts(workspace);
     expect(loaded.get("lib/a")).toBe(loaded.get("lib/b"));
   });
 
@@ -172,25 +175,25 @@ describe("JSON env package loading", () => {
       services: {},
     });
     await installEnvForComponent(root, "@scope/lib.math", "@env/broken", env);
-    const registry = await loadComponentPackageRegistry(root);
+    const workspace = await readWorkspace(root);
 
     await writeFile(path.join(env, "index.json"), "{ broken");
-    await expect(loadEnvForComponent(registry.components[0]!, registry)).rejects.toThrow("failed parsing env JSON");
+    await expect(loadEnvForComponent(workspace.components[0]!, workspace)).rejects.toThrow("failed parsing env JSON");
 
     await writeFile(path.join(env, "index.json"), JSON.stringify({ name: "@env/other", services: {} }));
-    await expect(loadEnvForComponent(registry.components[0]!, registry)).rejects.toThrow("env definition name mismatch");
+    await expect(loadEnvForComponent(workspace.components[0]!, workspace)).rejects.toThrow("env definition name mismatch");
 
     await writeFile(path.join(env, "index.json"), JSON.stringify({ name: "@env/broken", services: {} }));
     await writeFile(path.join(env, "package.json"), JSON.stringify({
       name: "@env/broken", version: "2.0.0", type: "module", exports: { ".": "./index.json" },
     }));
-    await expect(loadEnvForComponent(registry.components[0]!, registry)).rejects.toThrow("does not satisfy \"1.0.0\"");
+    await expect(loadEnvForComponent(workspace.components[0]!, workspace)).rejects.toThrow("does not satisfy \"1.0.0\"");
 
     await writeFile(path.join(env, "package.json"), JSON.stringify({
       name: "@env/broken", version: "1.0.0", type: "module", exports: { ".": "./index.js" },
     }));
     await writeFile(path.join(env, "index.js"), "export default {};\n");
-    await expect(loadEnvForComponent(registry.components[0]!, registry)).rejects.toThrow("default entry must be JSON");
+    await expect(loadEnvForComponent(workspace.components[0]!, workspace)).rejects.toThrow("default entry must be JSON");
   });
 });
 

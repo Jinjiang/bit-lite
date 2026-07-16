@@ -30,6 +30,11 @@ Use `--filter` to restrict the command input to matching component ids. Exact
 component ids and the workspace pattern syntax (`*` and `**`) are supported, and
 the flag may be repeated.
 
+Command setup follows two workspace phases. It first reads the JSON-safe base
+`Workspace` used by install/link/materialization, then resolves the parent-only
+`WorkspaceContext` needed for inherited services. Derived selections and env
+groups reuse the canonical workspace component objects.
+
 Local env components always use Bit-lite's fixed, non-configurable compiler to
 copy JSON and transpile adjacent TypeScript support files. Ordinary components
 use their own effective `services.compile`; one dependency graph may therefore
@@ -56,16 +61,31 @@ preview vendor receives server coordinates, the prepared entry/HTML paths, and
 the current env's `{ packageName, sourceDir }` alias descriptors; it does not
 receive raw components or MDX options in runtime JSON.
 
-The parent-side vendor task retains selected-env and declaring-env origins so
-vendors and module-valued config fields resolve from the defining env package.
-Worker data is limited to JSON-safe env identity, components, config, CLI args,
-and explicit command runtime.
+Every command uses the common vendor envelope `{ context, components, config,
+runtime? }`. Version-1 context contains the base workspace, all parsed argument
+forms, selected env identity, service name, and declaring-service package
+location. Parent orchestration consumes lifecycle options such as `--watch`,
+`--filter`, and preview server coordinates; unrecognized extension options stay
+available to vendors through `context.args.options` and passthrough arguments.
+
+The parent-side task resolves vendors and command-owned module fields from the
+effective service's declaring package. This matters for inherited services: the
+selected child remains `context.env`, while `context.service.source` identifies
+the parent that declared the tester, previewer, or compiler. Worker data never
+contains the heavier `WorkspaceContext`, loaded modules, maps, or resolver
+callbacks.
 
 That selected-env identity is
 `{ packageName, requestedVersion, installedVersion }` end to end: vendor task
 input/results, test result context and storage, compile vendor input, preview
-prepared/skipped state, and the preview manifest. Public preview URLs remain
+prepared state, and the preview manifest. Public preview URLs remain
 package-name-based; the adjacent manifest preserves both version values.
+
+Test, preview, and compile vendor outputs contain only execution-produced data.
+They do not repeat env, vendor, service, arguments, config, components, server,
+or output paths. The parent attaches its retained task metadata after validating
+the required fields and preserves additional JSON-safe fields such as coverage
+or compiler artifact details.
 
 Every runtime value export in a sorted `*.demo.*` file is one demo. For example,
 `export const MySecondDemo = ...` in `primary.demo.ts` has ID

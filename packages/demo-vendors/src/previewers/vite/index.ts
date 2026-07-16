@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createServer, type Plugin, type ViteDevServer } from "vite";
-import type { VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
+import type { JsonObject, VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
 import {
   createPreviewServiceResult,
   isShutdownMessage,
@@ -20,10 +20,10 @@ export const meta: VendorDefinition = {
 };
 
 export default async function startVitePreviewVendor(
-  runtime: VendorRuntime<Record<string, unknown>, PreviewServiceResult, never, PreviewVendorRuntime>
+  runtime: VendorRuntime<JsonObject, PreviewServiceResult, never, PreviewVendorRuntime>
 ): Promise<VendorStartResult<PreviewServiceResult>> {
   const previewRuntime = readPreviewRuntime(runtime.data.runtime);
-  const workspaceRoot = previewRuntime.workspace.rootDir;
+  const workspaceRoot = runtime.data.context.workspace.rootDir;
   const configFile = readPreviewConfigFile(runtime.data.config);
   let server: ViteDevServer | undefined;
   let stopped = false;
@@ -40,7 +40,7 @@ export default async function startVitePreviewVendor(
     const html = await readFile(previewRuntime.prepared.htmlFile, "utf8");
     server = await createServer({
       root: workspaceRoot,
-      cacheDir: createVitePreviewCacheDir(previewRuntime),
+      cacheDir: createVitePreviewCacheDir(previewRuntime, workspaceRoot),
       configFile,
       base: previewRuntime.server.basePath,
       appType: "custom",
@@ -59,14 +59,14 @@ export default async function startVitePreviewVendor(
     });
     await server.listen();
 
-    const data = createPreviewServiceResult(previewRuntime, runtime.data.env, meta.id);
+    const data = createPreviewServiceResult();
     runtime.postMessage({ type: "result", data });
     runtime.postMessage({ type: "status", status: "ready" });
     return { stop };
   } catch (error) {
     runtime.postMessage({ type: "status", status: "error" });
     await stop().catch(() => undefined);
-    throw withPreviewVendorContext(error, runtime.data.env, meta.id);
+    throw withPreviewVendorContext(error, runtime.data.context.env, meta.id);
   }
 
   async function stop() {
@@ -85,15 +85,15 @@ export default async function startVitePreviewVendor(
 }
 
 export function createViteWorkspaceAliases(runtime: PreviewVendorRuntime) {
-  return runtime.workspace.components.map(({ packageName, sourceDir }) => ({
+  return runtime.aliases.map(({ packageName, sourceDir }) => ({
     find: packageName,
     replacement: sourceDir,
   }));
 }
 
-export function createVitePreviewCacheDir(runtime: PreviewVendorRuntime) {
+export function createVitePreviewCacheDir(runtime: PreviewVendorRuntime, workspaceRoot: string) {
   return path.join(
-    runtime.workspace.rootDir,
+    workspaceRoot,
     ".bit-lite",
     "vite-preview",
     sanitizeFileName(runtime.server.basePath)

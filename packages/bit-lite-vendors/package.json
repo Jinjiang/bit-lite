@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "bit-lite-context": "workspace:*",
+    "bit-lite-env": "workspace:*",
     "bit-lite-terminal": "workspace:*"
   },
   "devDependencies": {

@@ -1,101 +1,46 @@
-import { isSelectedEnvIdentity, parseCliArguments } from "bit-lite-context";
+import { parseCliArguments } from "bit-lite-context";
 import { RawOutputBuffer } from "bit-lite-terminal";
 import { describe, expect, it, vi } from "vitest";
 import { runVendorTasks, stopVendorTasks, watchVendorTasks } from "bit-lite-vendors";
-import type { CliArguments, ComponentRef, SelectedEnvIdentity } from "bit-lite-context";
-import type { JsonObject } from "./types/index.js";
+import type {
+  SelectedEnvIdentity,
+  Workspace,
+  WorkspaceComponent,
+  WorkspaceComponentConfig,
+} from "bit-lite-context";
+import type { JsonObject, VendorContext } from "./types/index.js";
 import type { VendorTask, VendorTaskRunResult, VendorTaskStartOptions } from "bit-lite-vendors";
 
-type TestServiceResult = {
-  service: "test";
-  env: SelectedEnvIdentity;
-  vendor: string;
+type TestServiceResult = JsonObject & {
   mode: "run" | "watch";
   run: number;
-  componentIds: string[];
-  args: CliArguments;
-  config: JsonObject;
-  total: number;
-  passed: number;
-  failed: number;
   summary: string;
+  componentIds: string[];
+  observed: JsonObject;
 };
 
-type MixedRunResult = {
-  service: "mixed";
+type MixedRunResult = JsonObject & {
   phase: "complete";
   componentCount: number;
   summary: string;
 };
 
-type MixedEventResult = {
-  service: "mixed";
+type MixedEventResult = JsonObject & {
   phase: "progress";
-  env: SelectedEnvIdentity;
   componentCount: number;
   detail: string;
 };
 
-const testXVendorSpecifier = createTestVendorSpecifier({
-  id: "test-x",
-  label: "Test X",
-  vendor: "x",
-  multiplier: 2,
-});
-const testYVendorSpecifier = createTestVendorSpecifier({
-  id: "test-y",
-  label: "Test Y",
-  vendor: "y",
-  multiplier: 3,
-});
-const mixedResultsVendorSpecifier = createMixedResultsVendorSpecifier();
-
-const fixtureGroups: Record<string, {
-  components: ComponentRef[];
-  services: Record<string, { vendor: string; config: Record<string, unknown> }>;
-}> = {
-  demo: {
-    components: [{
-      id: "components/demo/button",
-      rootDir: "/workspace/components/demo/button",
-      packageName: "@fixture/demo.button",
-    }],
-    services: {
-      test: {
-        vendor: testXVendorSpecifier,
-        config: { label: "demo test", shard: "unit", retries: 1, coverage: true },
-      },
-    },
-  },
-  react: {
-    components: [{
-      id: "components/react/card",
-      rootDir: "/workspace/components/react/card",
-      packageName: "@fixture/react.card",
-    }],
-    services: {
-      test: {
-        vendor: testYVendorSpecifier,
-        config: { label: "react test", shard: "browser", retries: 2, coverage: false },
-      },
-    },
-  },
-  mixed: {
-    components: [{
-      id: "components/demo/button",
-      rootDir: "/workspace/components/demo/button",
-      packageName: "@fixture/demo.button",
-    }],
-    services: { mixed: { vendor: mixedResultsVendorSpecifier, config: {} } },
-  },
-};
+const testVendorUrl = createTestVendorUrl();
+const mixedResultsVendorUrl = createMixedResultsVendorUrl();
 
 describe("vendor task helpers", () => {
-  it("runs a test vendor once through the run helper", async () => {
+  it("runs produced data once and wraps it with parent-owned context and vendor metadata", async () => {
     let printedResults: VendorTaskRunResult<TestServiceResult>[] | undefined;
     let printedTasks: VendorTask<TestServiceResult>[] | undefined;
+    const options = createTaskOptions(testVendorUrl, []);
 
-    const results = await runVendorTasks<TestServiceResult>([createTaskOptions("demo", "test", [])], {
+    const results = await runVendorTasks<TestServiceResult>([options], {
       serviceId: "test",
       label: "Test",
       formatResult: formatTestRunResult,
@@ -105,68 +50,55 @@ describe("vendor task helpers", () => {
       },
     });
 
-    expect(results).toMatchObject([
-      {
-        service: "test",
-        env: selectedEnv("demo"),
-        vendor: "test-x",
-        data: {
-          service: "test",
-          env: selectedEnv("demo"),
-          vendor: "x",
-          mode: "run",
-          componentIds: ["components/demo/button"],
-          total: 2,
-          passed: 2,
-          failed: 0,
-          summary: "2/2 passed",
-          config: {
-            shard: "unit",
-            retries: 1,
-            coverage: true,
-          },
-        },
+    expect(results[0]?.context).toBe(options.context);
+    expect(results[0]?.vendor.id).toBe("test-fixture");
+    expect(results[0]?.data).toMatchObject({
+      mode: "run",
+      run: 1,
+      summary: "1 component(s)",
+      componentIds: ["components/demo/button"],
+      observed: {
+        workspaceComponents: 1,
+        serviceSource: "fixture-env",
       },
-    ]);
+    });
+    expect(results[0]?.data).not.toHaveProperty("env");
+    expect(results[0]?.data).not.toHaveProperty("vendor");
+    expect(results[0]?.data).not.toHaveProperty("args");
     expect(printedResults).toBe(results);
-    expect(printedTasks?.[0]?.label).toBe("Test X (demo)");
+    expect(printedTasks?.[0]?.label).toBe("Test Fixture (fixture-env)");
   });
 
-  it("does not depend on result events in run once mode", async () => {
-    const results = await runVendorTasks<MixedRunResult>([createTaskOptions("mixed", "mixed", [])], {
-      serviceId: "mixed",
+  it("uses run data independently from event data", async () => {
+    const results = await runVendorTasks<MixedRunResult>([createTaskOptions(mixedResultsVendorUrl, [])], {
+      serviceId: "test",
       label: "Mixed",
       formatResult: formatMixedRunResult,
       printResults() {},
     });
 
-    expect(results).toEqual([
-      {
-        service: "mixed",
-        env: selectedEnv("mixed"),
-        vendor: "mixed-results",
-        data: {
-          service: "mixed",
-          phase: "complete",
-          componentCount: 1,
-          summary: "run saw 1 component(s)",
-        },
-      },
-    ]);
+    expect(results[0]?.data).toEqual({
+      phase: "complete",
+      componentCount: 1,
+      summary: "run saw 1 component(s)",
+    });
   });
 
-  it("uses event result data for watch details", async () => {
+  it("crosses the worker boundary with the same serializable context", async () => {
     const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
     let receivedResult: MixedEventResult | undefined;
+    let receivedTask: VendorTask<unknown, MixedEventResult> | undefined;
 
     try {
-      const tasks = await watchVendorTasks<MixedEventResult>([createTaskOptions("mixed", "mixed", ["--watch"])], {
-        serviceId: "mixed",
+      const options = createTaskOptions(mixedResultsVendorUrl, ["--watch", "--coverage", "--", "fixture.ts"]);
+      const tasks = await watchVendorTasks<MixedEventResult>([options], {
+        serviceId: "test",
         label: "Mixed",
         title: "mixed watch",
         formatResult: formatMixedWatchResult,
-        onResult(result) {
+        onResult(result, task) {
           receivedResult = result;
+          receivedTask = task;
           process.emit("SIGTERM");
         },
       });
@@ -174,11 +106,35 @@ describe("vendor task helpers", () => {
       expect(tasks).toHaveLength(1);
       expect(tasks[0]?.details).toEqual(["event: event saw 1 component(s)"]);
       expect(tasks[0]?.canAttach).toBe(true);
-      expect(receivedResult?.env).toEqual(selectedEnv("mixed"));
-      expect(receivedResult).not.toHaveProperty("envName");
+      expect(receivedTask?.context).toEqual(options.context);
+      expect(receivedTask?.context.args.options.coverage).toBe(true);
+      expect(receivedTask?.context.args.passthrough).toEqual(["fixture.ts"]);
+      expect(receivedResult).not.toHaveProperty("env");
+      expect(receivedTask?.context).not.toHaveProperty("envs");
+      expect(receivedTask?.context).not.toHaveProperty("groups");
     } finally {
       kill.mockRestore();
     }
+  });
+
+  it("transports a representative large workspace without resolved env graphs", async () => {
+    const workspace = createWorkspace(400);
+    const options = createTaskOptions(testVendorUrl, ["--coverage"], workspace);
+    const serialized = JSON.stringify(options.context);
+
+    const results = await runVendorTasks<TestServiceResult>([options], {
+      serviceId: "test",
+      label: "Test",
+      formatResult: formatTestRunResult,
+      printResults() {},
+    });
+
+    expect(results[0]?.data.observed.workspaceComponents).toBe(400);
+    expect(structuredClone(options.context)).toEqual(options.context);
+    expect(serialized).not.toContain('"envs"');
+    expect(serialized).not.toContain('"groups"');
+    expect(serialized).not.toContain('"services"');
+    expect(serialized).not.toContain('"inheritance"');
   });
 
   it("does not wait forever for hung task termination", async () => {
@@ -189,7 +145,7 @@ describe("vendor task helpers", () => {
       label: "Hung Test",
       status: "running",
       rawOutput: new RawOutputBuffer(),
-      env: selectedEnv("hung"),
+      context: createVendorContext(createWorkspace(1), []),
       vendor: {
         id: "hung",
         label: "Hung",
@@ -209,149 +165,143 @@ describe("vendor task helpers", () => {
     expect(terminate).toHaveBeenCalledOnce();
   });
 
-  it("rejects an env service config without a vendor", async () => {
-    const taskOptions = createTaskOptions("demo", "test", []);
-
-    await expect(
-      runVendorTasks<TestServiceResult>(
-        [
-          {
-            ...taskOptions,
-            service: {
-              ...taskOptions.service,
-              definition: {
-                config: { label: "missing vendor" },
-              } as never,
-            },
-          },
-        ],
-        {
-          serviceId: "test",
-          label: "Test",
-          formatResult: formatTestRunResult,
-          printResults() {},
-        }
-      )
-    ).rejects.toThrow('test service config for env "demo" must define a vendor');
+  it("rejects a resolved vendor module without valid metadata", async () => {
+    const invalidVendorUrl = toDataModule("export const nope = true;");
+    await expect(runVendorTasks<TestServiceResult>([createTaskOptions(invalidVendorUrl, [])], {
+      serviceId: "test",
+      label: "Test",
+      formatResult: formatTestRunResult,
+      printResults() {},
+    })).rejects.toThrow("must export const meta: VendorDefinition");
   });
 });
 
-function createTaskOptions(fixtureName: string, serviceId: string, rawArgs: string[]): VendorTaskStartOptions {
-  const group = fixtureGroups[fixtureName];
-  if (!group) throw new Error(`Missing fixture group "${fixtureName}"`);
-  const definition = group.services[serviceId];
-  if (!definition) throw new Error(`Missing fixture service "${fixtureName}.${serviceId}"`);
-
+function createTaskOptions(
+  vendorUrl: string,
+  rawArgs: string[],
+  workspace = createWorkspace(1)
+): VendorTaskStartOptions {
   return {
-    env: selectedEnv(fixtureName),
-    components: group.components,
-    args: parseCliArguments(rawArgs),
-    workspaceRoot: "/workspace",
-    service: {
-      definition: definition as never,
-      declaredBy: fixtureName,
-      packageRoot: "/workspace",
-      entryUrl: "file:///workspace/index.json",
-      entryDirectory: "/workspace",
-    },
-    runtime: { workspaceRoot: "/workspace" },
+    vendorUrl,
+    context: createVendorContext(workspace, rawArgs),
+    components: [workspace.components[0]!],
+    config: { shard: "unit", retries: 1, coverage: true },
   };
 }
 
-function createTestVendorSpecifier(options: {
-  id: string;
-  label: string;
-  vendor: string;
-  multiplier: number;
-}) {
+function createVendorContext(workspace: Workspace, rawArgs: string[]): VendorContext {
+  return {
+    version: 1,
+    workspace,
+    args: parseCliArguments(rawArgs),
+    env: selectedEnv("fixture-env"),
+    service: {
+      name: "test",
+      source: {
+        identity: { packageName: "fixture-env", version: "0.0.0" },
+        rootDir: "/workspace/env",
+        entryFile: "/workspace/env/index.json",
+      },
+    },
+  };
+}
+
+function createWorkspace(count: number): Workspace {
+  const components = Array.from({ length: count }, (_, index) => createComponent(index));
+  return {
+    rootDir: "/workspace",
+    configPath: "/workspace/bit-lite.json",
+    config: {
+      components: components.map<WorkspaceComponentConfig>((component) => ({
+        id: component.id,
+        path: component.path,
+        packageName: component.packageName,
+        env: component.env,
+      })),
+    },
+    components,
+  };
+}
+
+function createComponent(index: number): WorkspaceComponent {
+  const id = index === 0 ? "components/demo/button" : `components/demo/item-${index}`;
+  const packageName = index === 0 ? "@fixture/demo.button" : `@fixture/demo.item-${index}`;
+  return {
+    id,
+    path: id,
+    rootDir: `/workspace/${id}`,
+    packageName,
+    kind: "component",
+    env: { packageName: "fixture-env", version: "workspace:*" },
+    mainFile: `/workspace/${id}/index.ts`,
+    mainFileRelative: "index.ts",
+    dependencies: {},
+    devDependencies: {},
+    peerDependencies: {},
+    internalDependencyPackageNames: [],
+    internalEnvPackageName: undefined,
+  };
+}
+
+function createTestVendorUrl() {
   const targetModule = toDataModule(`
     export default function start(runtime) {
       const componentIds = runtime.data.components.map((component) => component.id);
-      const mode = runtime.data.args.options.watch === true ? "watch" : "run";
-      const total = componentIds.length * ${JSON.stringify(options.multiplier)};
+      const mode = runtime.data.context.args.options.watch === true ? "watch" : "run";
       const data = {
-        service: "test",
-        env: runtime.data.env,
-        vendor: ${JSON.stringify(options.vendor)},
         mode,
         run: 1,
+        summary: componentIds.length + " component(s)",
         componentIds,
-        args: runtime.data.args,
-        config: toJsonObject(runtime.data.config),
-        total,
-        passed: total,
-        failed: 0,
-        summary: total + "/" + total + " passed",
+        observed: {
+          workspaceComponents: runtime.data.context.workspace.components.length,
+          serviceSource: runtime.data.context.service.source.identity.packageName,
+          coverage: runtime.data.context.args.options.coverage === true,
+        },
       };
-
       runtime.postMessage({ type: "ready" });
-
       if (mode === "watch") {
-        runtime.postMessage({ type: "status", status: "watching" });
         runtime.postMessage({ type: "result", data });
-        return {
-          stop() {
-            runtime.postMessage({ type: "status", status: "stopped" });
-          },
-        };
+        return { stop() {} };
       }
-
-      runtime.postMessage({ type: "status", status: "success" });
       return { data };
     }
-
-    function toJsonObject(config) {
-      return config && typeof config === "object" && !Array.isArray(config) ? config : {};
-    }
   `);
-
   return toDataModule(`
     export const meta = {
-      id: ${JSON.stringify(options.id)},
-      label: ${JSON.stringify(options.label)},
-      hint: ${JSON.stringify(`${options.label} fixture`)},
+      id: "test-fixture",
+      label: "Test Fixture",
+      hint: "Test fixture",
       moduleUrl: ${JSON.stringify(targetModule)}
     };
   `);
 }
 
-function createMixedResultsVendorSpecifier() {
+function createMixedResultsVendorUrl() {
   const targetModule = toDataModule(`
-    export default async function start(runtime) {
+    export default function start(runtime) {
       const componentCount = runtime.data.components.length;
-
       runtime.postMessage({ type: "ready" });
-      runtime.postMessage({ type: "status", status: "running" });
-      runtime.postMessage({
-        type: "result",
-        data: {
-          service: "mixed",
-          phase: "progress",
-          env: runtime.data.env,
-          componentCount,
-          detail: "event saw " + componentCount + " component(s)",
-        },
-      });
-
+      runtime.postMessage({ type: "result", data: {
+        phase: "progress",
+        componentCount,
+        detail: "event saw " + componentCount + " component(s)",
+      }});
       return {
         data: {
-          service: "mixed",
           phase: "complete",
           componentCount,
           summary: "run saw " + componentCount + " component(s)",
         },
-        stop() {
-          runtime.postMessage({ type: "status", status: "stopped" });
-        },
+        stop() {},
       };
     }
   `);
-
   return toDataModule(`
     export const meta = {
       id: "mixed-results",
       label: "Mixed Results",
-      hint: "Mixed result fixture",
+      hint: "Mixed fixture",
       moduleUrl: ${JSON.stringify(targetModule)}
     };
   `);
@@ -362,81 +312,29 @@ function toDataModule(source: string) {
 }
 
 function formatTestRunResult(result: unknown) {
-  if (!isTestServiceResult(result)) return new Error("Invalid test run result");
-  return result;
-}
-
-function isTestServiceResult(value: unknown): value is TestServiceResult {
-  return (
-    isRecord(value) &&
-    value.service === "test" &&
-    !("envName" in value) &&
-    isSelectedEnvIdentity(value.env) &&
-    typeof value.vendor === "string" &&
-    (value.mode === "run" || value.mode === "watch") &&
-    typeof value.run === "number" &&
-    Array.isArray(value.componentIds) &&
-    value.componentIds.every((componentId) => typeof componentId === "string") &&
-    isRecord(value.args) &&
-    isJsonObject(value.config) &&
-    typeof value.total === "number" &&
-    typeof value.passed === "number" &&
-    typeof value.failed === "number" &&
-    typeof value.summary === "string"
-  );
+  return isRecord(result) && (result.mode === "run" || result.mode === "watch") &&
+    typeof result.run === "number" && typeof result.summary === "string" &&
+    Array.isArray(result.componentIds) && isRecord(result.observed)
+    ? result as TestServiceResult
+    : new Error("Invalid test run result");
 }
 
 function formatMixedRunResult(value: unknown): MixedRunResult | Error {
-  return isMixedRunResult(value) ? value : new Error("Invalid mixed run result");
+  return isRecord(value) && value.phase === "complete" && typeof value.componentCount === "number" &&
+    typeof value.summary === "string" ? value as MixedRunResult : new Error("Invalid mixed run result");
 }
 
 function formatMixedWatchResult(value: unknown) {
-  if (!isMixedEventResult(value)) return new Error("Invalid mixed event result");
+  if (!isRecord(value) || value.phase !== "progress" || typeof value.detail !== "string") {
+    return new Error("Invalid mixed event result");
+  }
   return [`event: ${value.detail}`];
-}
-
-function isMixedRunResult(value: unknown): value is MixedRunResult {
-  return (
-    isRecord(value) &&
-    value.service === "mixed" &&
-    value.phase === "complete" &&
-    typeof value.componentCount === "number" &&
-    typeof value.summary === "string"
-  );
-}
-
-function isMixedEventResult(value: unknown): value is MixedEventResult {
-  return (
-    isRecord(value) &&
-    value.service === "mixed" &&
-    value.phase === "progress" &&
-    isSelectedEnvIdentity(value.env) &&
-    typeof value.componentCount === "number" &&
-    typeof value.detail === "string"
-  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isJsonObject(value: unknown): value is JsonObject {
-  if (!isRecord(value)) return false;
-  return Object.values(value).every(isJsonValue);
-}
-
-function isJsonValue(value: unknown): value is JsonObject[keyof JsonObject] {
-  if (value === null) return true;
-  if (typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  return isJsonObject(value);
-}
-
 function selectedEnv(packageName: string): SelectedEnvIdentity {
-  return {
-    packageName,
-    requestedVersion: "workspace:*",
-    installedVersion: "0.0.0",
-  };
+  return { packageName, requestedVersion: "workspace:*", installedVersion: "0.0.0" };
 }

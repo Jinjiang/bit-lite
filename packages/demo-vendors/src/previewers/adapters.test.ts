@@ -12,7 +12,7 @@ import startVitePreviewVendor, {
 } from "./vite/index.js";
 import startWebpackPreviewVendor, { createWebpackWorkspaceAliases } from "./webpack/index.js";
 import type { PreviewServiceResult, PreviewVendorRuntime } from "./core.js";
-import type { VendorMessage, VendorRuntime } from "bit-lite-vendors";
+import type { JsonObject, VendorMessage, VendorRuntime } from "bit-lite-vendors";
 
 describe("thin preview vendor adapters", () => {
   it.each([
@@ -93,9 +93,10 @@ describe("thin preview vendor adapters", () => {
       "/env/vue/"
     );
 
-    expect(createVitePreviewCacheDir(nodeRuntime)).toBe("/workspace/.bit-lite/vite-preview/env-node");
-    expect(createVitePreviewCacheDir(vueRuntime)).toBe("/workspace/.bit-lite/vite-preview/env-vue");
-    expect(createVitePreviewCacheDir(nodeRuntime)).not.toBe(createVitePreviewCacheDir(vueRuntime));
+    expect(createVitePreviewCacheDir(nodeRuntime, "/workspace")).toBe("/workspace/.bit-lite/vite-preview/env-node");
+    expect(createVitePreviewCacheDir(vueRuntime, "/workspace")).toBe("/workspace/.bit-lite/vite-preview/env-vue");
+    expect(createVitePreviewCacheDir(nodeRuntime, "/workspace"))
+      .not.toBe(createVitePreviewCacheDir(vueRuntime, "/workspace"));
   });
 
   it("merges exact Webpack workspace aliases and preserves only unrelated user aliases", () => {
@@ -153,14 +154,33 @@ async function createFixture(configSource: string) {
 
 function createHarness(configFile: string, entryFile: string, htmlFile: string, port: number) {
   const messages: VendorMessage<PreviewServiceResult>[] = [];
-  const runtime: VendorRuntime<Record<string, unknown>, PreviewServiceResult, never, PreviewVendorRuntime> = {
+  const workspaceRoot = path.dirname(configFile);
+  const env = selectedEnv("test-env");
+  const runtime: VendorRuntime<JsonObject, PreviewServiceResult, never, PreviewVendorRuntime> = {
     data: {
-      env: selectedEnv("test-env"),
+      context: {
+        version: 1,
+        workspace: {
+          rootDir: workspaceRoot,
+          configPath: path.join(workspaceRoot, "bit-lite.json"),
+          config: { components: [] },
+          components: [],
+        },
+        args: parseCliArguments([]),
+        env,
+        service: {
+          name: "preview",
+          source: {
+            identity: { packageName: "test-env", version: "1.0.0" },
+            rootDir: workspaceRoot,
+            entryFile: path.join(workspaceRoot, "index.json"),
+          },
+        },
+      },
       components: [],
       config: { configFile },
-      args: parseCliArguments([]),
       runtime: {
-        ...createPreviewRuntime(path.dirname(configFile), entryFile, htmlFile, port),
+        ...createPreviewRuntime(workspaceRoot, entryFile, htmlFile, port),
       },
     },
     postMessage(message) {
@@ -192,13 +212,10 @@ function createPreviewRuntime(
       proxyOrigin: "http://127.0.0.1:4000",
     },
     prepared: { entryFile, htmlFile },
-    workspace: {
-      rootDir: workspaceRoot,
-      components: [
-        { packageName: "@scope/example", sourceDir: "/workspace/components/example" },
-        { packageName: "@scope/second", sourceDir: "/workspace/components/second" },
-      ],
-    },
+    aliases: [
+      { packageName: "@scope/example", sourceDir: "/workspace/components/example" },
+      { packageName: "@scope/second", sourceDir: "/workspace/components/second" },
+    ],
   };
 }
 

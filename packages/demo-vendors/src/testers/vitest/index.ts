@@ -1,7 +1,7 @@
 import path from "node:path";
 import { createVitest, startVitest } from "vitest/node";
 import type { Reporter, TestModule, TestRunResult, Vitest } from "vitest/node";
-import type { VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
+import type { JsonObject, VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
 import { readTestVendorConfig } from "../config.js";
 import { findComponentTestTargets } from "../files.js";
 import {
@@ -23,10 +23,10 @@ export const meta: VendorDefinition = {
 };
 
 export default async function startVitestVendor(
-  runtime: VendorRuntime<Record<string, unknown>, TestServiceResult>
+  runtime: VendorRuntime<JsonObject, TestServiceResult>
 ): Promise<VendorStartResult<TestServiceResult>> {
-  const workspaceRoot = readWorkspaceRoot(runtime.data.runtime) ?? process.cwd();
-  const watch = runtime.data.args.options.watch === true && isInteractiveTerminal();
+  const workspaceRoot = runtime.data.context.workspace.rootDir;
+  const watch = runtime.data.context.args.options.watch === true && isInteractiveTerminal();
   const mode = watch ? "watch" : "run";
   let run = 0;
   let stopped = false;
@@ -67,7 +67,7 @@ export default async function startVitestVendor(
     run += 1;
     runtime.postMessage({ type: "status", status: "running" });
 
-    const vendorConfig = readTestVendorConfig(runtime.data.config, workspaceRoot);
+    const vendorConfig = await readTestVendorConfig(runtime.data.config, runtime.data.context);
     const targets = await findComponentTestTargets(runtime.data.components);
     const componentResults = createEmptyComponentResults(targets);
     const allFiles = targets.flatMap((target) => target.files);
@@ -75,13 +75,10 @@ export default async function startVitestVendor(
 
     applyVitestResults(targets, componentResults, testRun);
     const data = createTestServiceResult({
-      env: runtime.data.env,
-      vendor: meta.id,
       mode,
       run,
       componentResults: finishComponentResults(componentResults),
-      args: runtime.data.args,
-      config: runtime.data.config,
+      ...(runtime.data.context.args.options.coverage === true ? { coverage: { enabled: true } } : {}),
     });
 
     runtime.postMessage({ type: "result", data });
@@ -90,20 +87,17 @@ export default async function startVitestVendor(
   }
 
   async function runWatch() {
-    const vendorConfig = readTestVendorConfig(runtime.data.config, workspaceRoot);
+    const vendorConfig = await readTestVendorConfig(runtime.data.config, runtime.data.context);
     const targets = await findComponentTestTargets(runtime.data.components);
     const allFiles = targets.flatMap((target) => target.files);
 
     if (allFiles.length === 0) {
       run += 1;
       const data = createTestServiceResult({
-        env: runtime.data.env,
-        vendor: meta.id,
         mode,
         run,
         componentResults: finishComponentResults(createEmptyComponentResults(targets)),
-        args: runtime.data.args,
-        config: runtime.data.config,
+        ...(runtime.data.context.args.options.coverage === true ? { coverage: { enabled: true } } : {}),
       });
       runtime.postMessage({ type: "result", data });
       return;
@@ -153,13 +147,10 @@ export default async function startVitestVendor(
           unhandledErrors: Array.from(unhandledErrors),
         } as TestRunResult);
         const data = createTestServiceResult({
-          env: runtime.data.env,
-          vendor: meta.id,
           mode,
           run,
           componentResults: finishComponentResults(componentResults),
-          args: runtime.data.args,
-          config: runtime.data.config,
+          ...(runtime.data.context.args.options.coverage === true ? { coverage: { enabled: true } } : {}),
         });
 
         runtime.postMessage({ type: "result", data });
@@ -195,10 +186,6 @@ export default async function startVitestVendor(
 
     return stoppingVitest;
   }
-}
-
-function readWorkspaceRoot(runtime: Record<string, unknown> | undefined) {
-  return runtime && typeof runtime.workspaceRoot === "string" ? runtime.workspaceRoot : undefined;
 }
 
 function applyVitestResults(

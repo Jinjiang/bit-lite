@@ -7,7 +7,7 @@ import webpack from "webpack";
 import webpackDevMiddleware from "webpack-dev-middleware";
 import webpackHotMiddleware from "webpack-hot-middleware";
 import type { Server } from "node:http";
-import type { VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
+import type { JsonObject, VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
 import type { Configuration, Stats } from "webpack";
 import {
   createPreviewServiceResult,
@@ -43,10 +43,10 @@ type WebpackPreviewMiddlewareHandler = (
 type WebpackHotMiddleware = ReturnType<typeof webpackHotMiddleware> & { close(): void };
 
 export default async function startWebpackPreviewVendor(
-  runtime: VendorRuntime<Record<string, unknown>, PreviewServiceResult, never, PreviewVendorRuntime>
+  runtime: VendorRuntime<JsonObject, PreviewServiceResult, never, PreviewVendorRuntime>
 ): Promise<VendorStartResult<PreviewServiceResult>> {
   const previewRuntime = readPreviewRuntime(runtime.data.runtime);
-  const workspaceRoot = previewRuntime.workspace.rootDir;
+  const workspaceRoot = runtime.data.context.workspace.rootDir;
   const configFile = readPreviewConfigFile(runtime.data.config);
   let server: Server | undefined;
   let middleware: WebpackPreviewMiddleware | undefined;
@@ -101,14 +101,14 @@ export default async function startWebpackPreviewVendor(
     await listen(server, previewRuntime.server.host, previewRuntime.server.port);
     await waitUntilValid(middleware);
 
-    const data = createPreviewServiceResult(previewRuntime, runtime.data.env, meta.id);
+    const data = createPreviewServiceResult();
     runtime.postMessage({ type: "result", data });
     runtime.postMessage({ type: "status", status: "ready" });
     return { stop };
   } catch (error) {
     runtime.postMessage({ type: "status", status: "error" });
     await stop().catch(() => undefined);
-    throw withPreviewVendorContext(error, runtime.data.env, meta.id);
+    throw withPreviewVendorContext(error, runtime.data.context.env, meta.id);
   }
 
   async function stop() {
@@ -171,10 +171,10 @@ export function createWebpackWorkspaceAliases(
   userAliases: WebpackAliases | undefined,
   runtime: PreviewVendorRuntime
 ): WebpackAliases {
-  const workspacePackageNames = new Set(runtime.workspace.components.map(({ packageName }) => packageName));
+  const workspacePackageNames = new Set(runtime.aliases.map(({ packageName }) => packageName));
   if (Array.isArray(userAliases)) {
     return [
-      ...runtime.workspace.components.map(({ packageName, sourceDir }) => ({
+      ...runtime.aliases.map(({ packageName, sourceDir }) => ({
         name: packageName,
         alias: sourceDir,
         onlyModule: true,
@@ -183,7 +183,7 @@ export function createWebpackWorkspaceAliases(
     ];
   }
   const generatedAliases = Object.fromEntries(
-    runtime.workspace.components.map(({ packageName, sourceDir }) => [`${packageName}$`, sourceDir])
+    runtime.aliases.map(({ packageName, sourceDir }) => [`${packageName}$`, sourceDir])
   );
   const preservedAliases = Object.fromEntries(
     Object.entries(userAliases ?? {}).filter(([alias]) => !workspacePackageNames.has(stripExactAliasSuffix(alias)))

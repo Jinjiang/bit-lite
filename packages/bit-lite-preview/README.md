@@ -31,10 +31,17 @@ demo. Type-only exports are ignored, helpers must remain unexported, and bare
 `export *` is rejected. Existing exports retain HMR; catalog changes require a
 preview restart.
 
-Prepared env state, skipped env state, and proxy manifest entries carry
+Prepared env state and proxy manifest entries carry
 `env: { packageName, requestedVersion, installedVersion }`. Internal proxy keys
 derive from the package reference, while public `/env/<package-name>/` routes
 remain unchanged for this single-version phase.
+
+The preview command passes selected canonical `WorkspaceComponent` objects in
+the common vendor data and keeps generated files, server coordinates, and
+package aliases in command-specific runtime. The parent owns discovery, mounter
+and docs-template resolution, routes, proxy state, and cleanup. Preview vendors
+report produced readiness/lifecycle data only; they do not echo env, server,
+config, or component identity.
 
 ```sh
 pnpm --filter bit-lite-preview test

@@ -1,12 +1,4 @@
-import type { LoadedEnvRuntime, PackageRef, SelectedEnvIdentity } from "./types/index.js";
-
-export function toSelectedEnvIdentity(env: LoadedEnvRuntime): SelectedEnvIdentity {
-  return {
-    packageName: env.packageName,
-    requestedVersion: env.requestedVersion,
-    installedVersion: env.installedVersion,
-  };
-}
+import type { PackageRef, SelectedEnvIdentity } from "./types/index.js";
 
 export function getSelectedEnvKey(
   env: Pick<SelectedEnvIdentity, "packageName" | "requestedVersion">

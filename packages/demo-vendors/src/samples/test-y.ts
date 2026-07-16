@@ -1,6 +1,5 @@
 import type {
   JsonObject,
-  JsonValue,
   VendorDefinition,
   VendorStartResult,
   VendorRuntime,
@@ -16,9 +15,9 @@ export const meta: VendorDefinition = {
 };
 
 export default async function startTestYVendor(
-  runtime: VendorRuntime<Record<string, unknown>, TestServiceResult>
+  runtime: VendorRuntime<JsonObject, TestServiceResult>
 ): Promise<VendorStartResult<TestServiceResult>> {
-  const watch = runtime.data.args.options.watch === true && isInteractiveTerminal();
+  const watch = runtime.data.context.args.options.watch === true && isInteractiveTerminal();
   const mode = watch ? "watch" : "run";
   const componentIds = runtime.data.components.map((component) => component.id);
   let finished = false;
@@ -41,25 +40,39 @@ export default async function startTestYVendor(
     const passed = total - failed;
 
     return {
-      service: "test",
-      env: runtime.data.env,
-      vendor: "y",
       mode,
       run,
-      componentIds,
-      args: runtime.data.args,
-      config: toJsonObject(runtime.data.config),
-      total,
-      passed,
-      failed,
-      summary: failed === 0 ? `${passed}/${total} passed` : `${failed}/${total} failed`,
+      stats: {
+        total,
+        passed,
+        failed,
+        skipped: 0,
+        summary: failed === 0 ? `${passed}/${total} passed` : `${failed}/${total} failed`,
+      },
+      componentResults: componentIds.map((componentId, index) => {
+        const componentFailed = failed > 0 && index === 0 ? 1 : 0;
+        return {
+          componentId,
+          files: [],
+          stats: {
+            total: 3,
+            passed: 3 - componentFailed,
+            failed: componentFailed,
+            skipped: 0,
+            summary: componentFailed ? "1/3 failed" : "3/3 passed",
+          },
+          durationMs: 0,
+          errors: componentFailed ? ["sample failure"] : [],
+        };
+      }),
+      ...(runtime.data.context.args.options.coverage === true ? { coverage: { enabled: true } } : {}),
     } satisfies TestServiceResult;
   };
 
   const emitResult = () => {
     const data = createResult();
-    const stream = data.failed === 0 ? console.log : console.error;
-    stream(`[test-y] ${mode} #${run}: ${data.summary}`);
+    const stream = data.stats.failed === 0 ? console.log : console.error;
+    stream(`[test-y] ${mode} #${run}: ${data.stats.summary}`);
     runtime.postMessage({ type: "result", data });
   };
 
@@ -91,22 +104,6 @@ export default async function startTestYVendor(
     finish("success");
     return data;
   }
-}
-
-function toJsonObject(config: Record<string, unknown>): JsonObject {
-  const result: JsonObject = {};
-  for (const [key, value] of Object.entries(config)) {
-    if (isJsonValue(value)) result[key] = value;
-  }
-  return result;
-}
-
-function isJsonValue(value: unknown): value is JsonValue {
-  if (value === null) return true;
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return true;
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  if (typeof value === "object") return Object.values(value).every(isJsonValue);
-  return false;
 }
 
 function isInteractiveTerminal() {

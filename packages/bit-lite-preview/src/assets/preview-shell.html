@@ -104,14 +104,6 @@
         text-decoration: underline;
       }
 
-      .skipped {
-        margin-top: 24px;
-        padding: 16px;
-        background: #fffbeb;
-        border: 1px solid #f59e0b;
-        border-radius: 8px;
-      }
-
       .empty {
         padding: 18px 0;
         color: #6b7280;
@@ -154,14 +146,8 @@
       }
 
       function renderManifest(manifest) {
-        const envs = manifest.envs.map(renderEnv).join("")
+        return manifest.envs.map(renderEnv).join("")
           || '<div class="empty">No preview envs are running.</div>';
-        const skipped = manifest.skipped.length > 0
-          ? '<section class="skipped"><strong>Skipped envs</strong>'
-            + manifest.skipped.map(renderSkipped).join("")
-            + "</section>"
-          : "";
-        return envs + skipped;
       }
 
       function renderEnv(env) {
@@ -195,10 +181,6 @@
             <span class="links">${docs}${demos}</span>
           </div>
         `;
-      }
-
-      function renderSkipped(env) {
-        return `<p><strong>${escapeHtml(formatEnvIdentity(env.env))}</strong>: ${escapeHtml(env.reason)} (${env.components.map(escapeHtml).join(", ")})</p>`;
       }
 
       function formatEnvIdentity(env) {

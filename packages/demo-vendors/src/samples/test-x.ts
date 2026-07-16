@@ -1,6 +1,5 @@
 import type {
   JsonObject,
-  JsonValue,
   VendorDefinition,
   VendorStartResult,
   VendorRuntime,
@@ -16,9 +15,9 @@ export const meta: VendorDefinition = {
 };
 
 export default async function startTestXVendor(
-  runtime: VendorRuntime<Record<string, unknown>, TestServiceResult>
+  runtime: VendorRuntime<JsonObject, TestServiceResult>
 ): Promise<VendorStartResult<TestServiceResult>> {
-  const watch = runtime.data.args.options.watch === true && isInteractiveTerminal();
+  const watch = runtime.data.context.args.options.watch === true && isInteractiveTerminal();
   const mode = watch ? "watch" : "run";
   const componentIds = runtime.data.components.map((component) => component.id);
   let finished = false;
@@ -41,24 +40,23 @@ export default async function startTestXVendor(
     const passed = total - failed;
 
     return {
-      service: "test",
-      env: runtime.data.env,
-      vendor: "x",
       mode,
       run,
-      componentIds,
-      args: runtime.data.args,
-      config: toJsonObject(runtime.data.config),
-      total,
-      passed,
-      failed,
-      summary: `${passed}/${total} passed`,
+      stats: { total, passed, failed, skipped: 0, summary: `${passed}/${total} passed` },
+      componentResults: componentIds.map((componentId) => ({
+        componentId,
+        files: [],
+        stats: { total: 2, passed: 2, failed: 0, skipped: 0, summary: "2/2 passed" },
+        durationMs: 0,
+        errors: [],
+      })),
+      ...(runtime.data.context.args.options.coverage === true ? { coverage: { enabled: true } } : {}),
     } satisfies TestServiceResult;
   };
 
   const emitResult = () => {
     const data = createResult();
-    console.log(`[test-x] ${mode} #${run}: ${data.summary}`);
+    console.log(`[test-x] ${mode} #${run}: ${data.stats.summary}`);
     runtime.postMessage({ type: "result", data });
   };
 
@@ -90,22 +88,6 @@ export default async function startTestXVendor(
     finish("success");
     return data;
   }
-}
-
-function toJsonObject(config: Record<string, unknown>): JsonObject {
-  const result: JsonObject = {};
-  for (const [key, value] of Object.entries(config)) {
-    if (isJsonValue(value)) result[key] = value;
-  }
-  return result;
-}
-
-function isJsonValue(value: unknown): value is JsonValue {
-  if (value === null) return true;
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return true;
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  if (typeof value === "object") return Object.values(value).every(isJsonValue);
-  return false;
 }
 
 function isInteractiveTerminal() {

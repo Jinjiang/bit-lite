@@ -5,17 +5,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { getSelectedEnvKey } from "bit-lite-context";
-import type { SelectedEnvIdentity } from "bit-lite-context";
+import type { SelectedEnvIdentity, WorkspaceComponent } from "bit-lite-context";
 import { formatCompositionRoute, formatDocsRoute, formatOverviewRoute } from "./routes.js";
 import type { PreviewPreparedRuntime } from "./types.js";
 
 const previewHtmlTemplate = readFileSync(new URL("./assets/preview-entry.html", import.meta.url), "utf8");
-
-export type PreviewComponentRef = {
-  id: string;
-  rootDir: string;
-  packageName: string;
-};
 
 export type PreparedPreviewDocs = {
   title: string;
@@ -46,7 +40,7 @@ export type ResolvedPreviewServiceConfig = Record<string, unknown> & {
 export type PreparedPreviewEnv = {
   env: SelectedEnvIdentity;
   components: PreparedPreviewComponent[];
-  serviceConfig: Record<string, unknown>;
+  config: ResolvedPreviewServiceConfig;
   runtime: PreviewPreparedRuntime;
   tempDir: string;
   cleanup(): Promise<void>;
@@ -56,8 +50,8 @@ export type PreviewServerRuntime = PreviewPreparedRuntime["server"];
 
 type PreparePreviewEnvOptions = {
   env: SelectedEnvIdentity;
-  components: PreviewComponentRef[];
-  serviceConfig: unknown;
+  components: readonly WorkspaceComponent[];
+  config: unknown;
   workspaceRoot: string;
   server: PreviewServerRuntime;
   browserModulePath?: string;
@@ -66,9 +60,9 @@ type PreparePreviewEnvOptions = {
 
 export async function preparePreviewEnv(options: PreparePreviewEnvOptions): Promise<PreparedPreviewEnv> {
   const components = await discoverPreviewComponents(options.components);
-  const workspace = createPreviewWorkspaceRuntime(options.workspaceRoot, options.components);
-  const { serviceConfig, config } = await resolvePreviewServiceConfig(
-    options.serviceConfig,
+  const aliases = createPreviewPackageAliases(options.components);
+  const config = await resolvePreviewServiceConfig(
+    options.config,
     options.workspaceRoot,
     options.env.packageName,
     options.resolveModule
@@ -103,11 +97,11 @@ export async function preparePreviewEnv(options: PreparePreviewEnvOptions): Prom
   return {
     env: options.env,
     components,
-    serviceConfig,
+    config,
     runtime: {
       server: options.server,
       prepared: { entryFile, htmlFile },
-      workspace,
+      aliases,
     },
     tempDir,
     async cleanup() {
@@ -118,7 +112,7 @@ export async function preparePreviewEnv(options: PreparePreviewEnvOptions): Prom
   };
 }
 
-function createPreviewWorkspaceRuntime(workspaceRoot: string, components: PreviewComponentRef[]) {
+function createPreviewPackageAliases(components: readonly WorkspaceComponent[]) {
   const seenPackageNames = new Set<string>();
   const aliases = [...components]
     .sort((left, right) => left.packageName.localeCompare(right.packageName) || left.id.localeCompare(right.id))
@@ -136,29 +130,25 @@ function createPreviewWorkspaceRuntime(workspaceRoot: string, components: Previe
       };
     });
 
-  return {
-    rootDir: path.resolve(workspaceRoot),
-    components: aliases,
-  };
+  return aliases;
 }
 
-export async function discoverPreviewComponents(components: PreviewComponentRef[]): Promise<PreparedPreviewComponent[]> {
+export async function discoverPreviewComponents(
+  components: readonly WorkspaceComponent[]
+): Promise<PreparedPreviewComponent[]> {
   const sorted = [...components].sort((left, right) => left.id.localeCompare(right.id));
   return Promise.all(sorted.map(discoverPreviewComponent));
 }
 
 export async function resolvePreviewServiceConfig(
-  serviceConfig: unknown,
+  config: unknown,
   workspaceRoot: string,
   selectedEnvPackageName: string,
   resolveModule?: ((specifier: string, field: string) => Promise<string>) | undefined
-): Promise<{ serviceConfig: Record<string, unknown>; config: ResolvedPreviewServiceConfig }> {
-  if (!isRecord(serviceConfig)) throw new PreviewPreparationError(`preview env "${selectedEnvPackageName}" service config must be an object`);
-  if (!isRecord(serviceConfig.config)) {
-    throw new PreviewPreparationError(`preview env "${selectedEnvPackageName}" service config must define a config object`);
+): Promise<ResolvedPreviewServiceConfig> {
+  if (!isRecord(config)) {
+    throw new PreviewPreparationError(`preview env "${selectedEnvPackageName}" service config must be an object`);
   }
-
-  const config = serviceConfig.config;
   const configFile = readRequiredSpecifier(config.configFile, selectedEnvPackageName, "configFile");
   const mounter = readOptionalSpecifier(config.mounter, selectedEnvPackageName, "mounter");
   const docsTemplate = readOptionalSpecifier(config.docsTemplate, selectedEnvPackageName, "docsTemplate");
@@ -173,10 +163,7 @@ export async function resolvePreviewServiceConfig(
       : {}),
   } as ResolvedPreviewServiceConfig;
 
-  return {
-    config: resolved,
-    serviceConfig: { ...serviceConfig, config: resolved },
-  };
+  return resolved;
 }
 
 export function createPreviewEntrySource(options: {
@@ -233,7 +220,7 @@ export function createPreviewHtml() {
   return previewHtmlTemplate.replace("{{PREVIEW_SCRIPT_PATH}}", "./__bit-lite/preview.js");
 }
 
-async function discoverPreviewComponent(component: PreviewComponentRef): Promise<PreparedPreviewComponent> {
+async function discoverPreviewComponent(component: WorkspaceComponent): Promise<PreparedPreviewComponent> {
   const entries = await readdir(component.rootDir, { withFileTypes: true });
   const fileNames = entries
     .filter((entry) => entry.isFile())

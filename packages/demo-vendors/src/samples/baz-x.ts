@@ -1,5 +1,5 @@
 import type { CliArguments } from "bit-lite-context";
-import type { VendorDefinition, VendorStartResult, VendorRuntime } from "bit-lite-vendors";
+import type { JsonObject, VendorDefinition, VendorStartResult, VendorRuntime } from "bit-lite-vendors";
 import { isShutdownMessage } from "./vendor-utils.js";
 
 export type BazXResult = {
@@ -17,13 +17,13 @@ export const meta: VendorDefinition = {
   moduleUrl: import.meta.url,
 };
 
-export default function startBazXVendor(runtime: VendorRuntime<Record<string, unknown>>): VendorStartResult {
+export default function startBazXVendor(runtime: VendorRuntime<JsonObject>): VendorStartResult {
   const calls: string[] = [];
   const data: BazXResult = {
     service: "baz",
     vendor: "x",
     componentIds: runtime.data.components.map((component) => component.id),
-    args: runtime.data.args,
+    args: runtime.data.context.args,
     calls,
   };
 

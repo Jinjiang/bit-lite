@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCli } from "../cli.js";
 import { createResultStore } from "../result-store.js";
 import { isTestServiceResult, runTestCommand, type TestServiceResult } from "./test.js";
-import type { VendorTask, VendorTaskStartOptions, WatchVendorTasksOptions } from "bit-lite-vendors";
+import type { JsonObject, VendorTask, VendorTaskStartOptions, WatchVendorTasksOptions } from "bit-lite-vendors";
 
 describe("test command", () => {
   let logs: string[];
@@ -71,10 +71,17 @@ describe("test command", () => {
       const tasks: VendorTask<unknown, TestServiceResult>[] = [];
 
       for (const taskOption of taskOptions) {
-        const result = createWatchResult(taskOption.env);
+        expect(taskOption.context.args.options.coverage).toBe(true);
+        const result = createWatchResult(taskOption.context.env, { lines: 100 });
         const task = {
-          id: `${taskOption.env.packageName}:${result.vendor}`,
-          env: taskOption.env,
+          id: `${taskOption.context.env.packageName}:${taskOption.context.env.packageName}`,
+          context: taskOption.context,
+          vendor: {
+            id: taskOption.context.env.packageName,
+            label: taskOption.context.env.packageName,
+            hint: "fixture",
+            moduleUrl: taskOption.vendorUrl,
+          },
         } as VendorTask<unknown, TestServiceResult>;
 
         (options as WatchVendorTasksOptions<TestServiceResult>).onResult?.(result, task);
@@ -85,7 +92,7 @@ describe("test command", () => {
     });
 
     try {
-      await runTestCommand(createParsedTestArgs(workspaceRoot, { watch: true }), {
+      await runTestCommand(createParsedTestArgs(workspaceRoot, { watch: true, coverage: true }), {
         resultStore: store,
       });
     } finally {
@@ -101,12 +108,11 @@ describe("test command", () => {
         env: selectedEnv("jest"),
         vendor: "jest",
         json: {
-          service: "test",
-          vendor: "jest",
           run: 1,
           stats: {
             summary: "2/2 passed",
           },
+          coverage: { lines: 100 },
         },
         text: expect.stringMatching(
           /^# jest run 1 @ .+\njest: 2\/2 passed\ncomponents\/jest\/math: 2\/2 passed \(2 files\)$/
@@ -117,12 +123,11 @@ describe("test command", () => {
         env: selectedEnv("vitest"),
         vendor: "vitest",
         json: {
-          service: "test",
-          vendor: "vitest",
           run: 1,
           stats: {
             summary: "2/2 passed",
           },
+          coverage: { lines: 100 },
         },
         text: expect.stringMatching(
           /^# vitest run 1 @ .+\nvitest: 2\/2 passed\ncomponents\/vitest\/math: 2\/2 passed \(2 files\)$/
@@ -144,28 +149,39 @@ describe("test command", () => {
     expect(store.entries()).toEqual([]);
   });
 
-  it("rejects the legacy package-name-only result context", () => {
+  it("accepts extensible JSON data without reserving historical field names", () => {
     const result = createWatchResult(selectedEnv("jest"));
+    expect(isTestServiceResult({ ...result, coverage: { lines: 100 } })).toBe(true);
     expect(isTestServiceResult({
       ...result,
-      context: {
-        ...result.context,
-        envName: result.context.env.packageName,
-        env: undefined,
-      },
-    })).toBe(false);
+      env: selectedEnv("jest"),
+      service: "test",
+      config: {},
+    })).toBe(true);
   });
 });
 
-function createParsedTestArgs(workspaceRoot: string, options: { watch?: boolean } = {}) {
-  const raw = ["test", "--workspace", workspaceRoot, ...(options.watch === true ? ["--watch"] : [])];
+function createParsedTestArgs(
+  workspaceRoot: string,
+  options: { watch?: boolean; coverage?: boolean } = {}
+) {
+  const raw = [
+    "test",
+    "--workspace",
+    workspaceRoot,
+    ...(options.watch === true ? ["--watch"] : []),
+    ...(options.coverage === true ? ["--coverage"] : []),
+  ];
+  const parsedOptions: Record<string, boolean> = {};
+  if (options.watch === true) parsedOptions.watch = true;
+  if (options.coverage === true) parsedOptions.coverage = true;
 
   return {
     command: "test",
     args: {
       raw,
       positional: [],
-      options: options.watch === true ? { watch: true } : {},
+      options: parsedOptions,
       passthrough: [],
     },
     workspaceRoot,
@@ -174,25 +190,15 @@ function createParsedTestArgs(workspaceRoot: string, options: { watch?: boolean 
   };
 }
 
-function createWatchResult(env: VendorTaskStartOptions["env"]): TestServiceResult {
+function createWatchResult(
+  env: VendorTaskStartOptions["context"]["env"],
+  coverage?: JsonObject
+): TestServiceResult {
   const componentId = `components/${env.packageName}/math`;
 
-  return {
-    service: "test",
-    vendor: env.packageName,
+  const result: TestServiceResult = {
     mode: "watch",
     run: 1,
-    context: {
-      env,
-      componentIds: [componentId],
-      args: {
-        raw: ["test", "--watch"],
-        positional: [],
-        options: { watch: true },
-        passthrough: [],
-      },
-      config: {},
-    },
     stats: {
       total: 2,
       passed: 2,
@@ -216,6 +222,8 @@ function createWatchResult(env: VendorTaskStartOptions["env"]): TestServiceResul
       },
     ],
   };
+  if (coverage !== undefined) result.coverage = coverage;
+  return result;
 }
 
 function selectedEnv(packageName: string): SelectedEnvIdentity {
