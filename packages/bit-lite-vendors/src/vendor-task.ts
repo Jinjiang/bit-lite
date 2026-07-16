@@ -1,5 +1,6 @@
 import { createRunner } from "./runner/index.js";
 import { ManagedTerminal, RawOutputBuffer } from "bit-lite-terminal";
+import { getSelectedEnvKey } from "bit-lite-context";
 import type {
   WorkspaceComponent,
 } from "bit-lite-context";
@@ -68,18 +69,35 @@ export type RunVendorTasksOptions<
 export type WatchVendorTasksOptions<
   EventResult extends JsonValue = JsonValue,
   InputMessage extends JsonValue = JsonValue,
+> = CreateWatchVendorTasksOptions<EventResult, InputMessage> &
+  SuperviseVendorTasksOptions<EventResult, InputMessage>;
+
+export type CreateWatchVendorTasksOptions<
+  EventResult extends JsonValue = JsonValue,
+  InputMessage extends JsonValue = JsonValue,
 > = {
   serviceId: string;
   label: string;
-  title: ManagedTerminalOptions<VendorTask<unknown, EventResult, InputMessage>>["title"];
-  canAttach?: ManagedTerminalOptions<VendorTask<unknown, EventResult, InputMessage>>["canAttach"];
   formatResult(result: unknown): string[] | Error;
   onResult?(result: EventResult, task: VendorTask<unknown, EventResult, InputMessage>): void;
+  worker?: WorkerRunnerOptions | undefined;
+};
+
+export type SuperviseVendorTasksOptions<
+  EventResult extends JsonValue = JsonValue,
+  InputMessage extends JsonValue = JsonValue,
+> = {
+  title: ManagedTerminalOptions<VendorTask<unknown, EventResult, InputMessage>>["title"];
+  canAttach?: ManagedTerminalOptions<VendorTask<unknown, EventResult, InputMessage>>["canAttach"];
   formatStoppingMessage?(reason: string): string | undefined;
   onTasksStarted?(
     tasks: VendorTask<unknown, EventResult, InputMessage>[]
   ): void | (() => void | Promise<void>) | Promise<void | (() => void | Promise<void>)>;
-  worker?: WorkerRunnerOptions | undefined;
+  interactive?: boolean | undefined;
+  terminal?: Pick<
+    ManagedTerminalOptions<VendorTask<unknown, EventResult, InputMessage>>,
+    "stdin" | "stdout" | "stderr"
+  > | undefined;
 };
 
 type WatchVendorTasksShutdownReason = ManagedTerminalQuitReason | "sigint" | "sigterm" | "completed";
@@ -160,8 +178,19 @@ export async function watchVendorTasks<
   taskOptions: VendorTaskStartOptions[],
   options: WatchVendorTasksOptions<EventResult, InputMessage>
 ) {
-  const interactive = isInteractiveTerminal();
-  const tasks = await createVendorTasks<unknown, EventResult, InputMessage>(
+  const tasks = await createWatchVendorTasks(taskOptions, options);
+  await superviseVendorTasks(tasks, options);
+  return tasks;
+}
+
+export function createWatchVendorTasks<
+  EventResult extends JsonValue = JsonValue,
+  InputMessage extends JsonValue = JsonValue,
+>(
+  taskOptions: VendorTaskStartOptions[],
+  options: CreateWatchVendorTasksOptions<EventResult, InputMessage>
+) {
+  return createVendorTasks<unknown, EventResult, InputMessage>(
     taskOptions,
     "worker",
     {
@@ -176,6 +205,16 @@ export async function watchVendorTasks<
       worker: options.worker,
     }
   );
+}
+
+export async function superviseVendorTasks<
+  EventResult extends JsonValue = JsonValue,
+  InputMessage extends JsonValue = JsonValue,
+>(
+  tasks: VendorTask<unknown, EventResult, InputMessage>[],
+  options: SuperviseVendorTasksOptions<EventResult, InputMessage>
+) {
+  const interactive = options.interactive ?? isInteractiveTerminal();
 
   if (tasks.length === 0) return tasks;
 
@@ -184,8 +223,10 @@ export async function watchVendorTasks<
   let tasksStartedCleanedUp = false;
   let cleanupTasksStarted: (() => void | Promise<void>) | undefined;
   let resolveShutdown!: () => void;
-  const shutdownPromise = new Promise<void>((resolve) => {
+  let rejectShutdown!: (error: unknown) => void;
+  const shutdownPromise = new Promise<void>((resolve, reject) => {
     resolveShutdown = resolve;
+    rejectShutdown = reject;
   });
   const terminal = interactive
     ? new ManagedTerminal<VendorTask<unknown, EventResult, InputMessage>>({
@@ -193,8 +234,9 @@ export async function watchVendorTasks<
         items: tasks,
         canAttach: options.canAttach ?? ((item) => item.canAttach === true),
         onQuit(reason) {
-          void shutdown(reason);
+          requestShutdown(reason);
         },
+        ...(options.terminal ?? {}),
       })
     : undefined;
 
@@ -212,10 +254,10 @@ export async function watchVendorTasks<
   ]);
 
   const handleSigint = () => {
-    void shutdown("sigint");
+    requestShutdown("sigint");
   };
   const handleSigterm = () => {
-    void shutdown("sigterm");
+    requestShutdown("sigterm");
   };
 
   process.once("SIGINT", handleSigint);
@@ -228,11 +270,14 @@ export async function watchVendorTasks<
     terminal?.start();
     await shutdownPromise;
   } finally {
-    cleanupWatchListeners();
     if (!shuttingDown) await shutdown("completed");
   }
 
   return tasks;
+
+  function requestShutdown(reason: Exclude<WatchVendorTasksShutdownReason, "completed">) {
+    void shutdown(reason).catch(rejectShutdown);
+  }
 
   async function shutdown(reason: WatchVendorTasksShutdownReason) {
     if (shuttingDown) return;
@@ -244,10 +289,13 @@ export async function watchVendorTasks<
       if (message) process.stdout.write(message);
     }
 
-    await cleanupTasksStartedHook();
-    await stopVendorTasks(tasks);
+    try {
+      await stopVendorTasks(tasks);
+    } finally {
+      cleanupWatchListeners();
+      await cleanupTasksStartedHook();
+    }
     resolveShutdown();
-    cleanupWatchListeners();
     killProcessForShutdownReason(reason);
   }
 
@@ -357,9 +405,15 @@ async function createVendorTask<
   runnerOptions: { worker?: WorkerRunnerOptions | undefined },
   resultOptions: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>
 ): Promise<VendorTask<RunResult, EventResult, InputMessage>> {
+  if (resultOptions.serviceId !== options.context.service.name) {
+    throw new Error(
+      `Vendor task service "${resultOptions.serviceId}" does not match context service ` +
+      `"${options.context.service.name}" for selected env "${options.context.env.packageName}"`
+    );
+  }
   const vendor = await loadVendor(
     options.vendorUrl,
-    resultOptions.serviceId,
+    options.context.service.name,
     options.context
   );
 
@@ -401,11 +455,13 @@ function createStartedVendorTask<
   });
 
   const task: ManagedVendorTask<RunResult, EventResult, InputMessage> = {
-    id: `${getVendorContextKey(options.context)}:${vendor.id}`,
-    label: `${vendor.label} (${options.context.env.packageName})`,
+    id: `${options.context.service.name}:${getSelectedEnvKey(options.context.env)}:${vendor.id}`,
+    label: options.mode === "worker"
+      ? `${resultOptions.label}: ${vendor.label} (${options.context.env.packageName})`
+      : `${vendor.label} (${options.context.env.packageName})`,
     context: options.context,
     vendor,
-    serviceId: resultOptions.serviceId,
+    serviceId: options.context.service.name,
     serviceLabel: resultOptions.label,
     hint: vendor.hint,
     status: "starting",
@@ -637,10 +693,6 @@ function isVendorDefinition(value: unknown): value is VendorDefinition {
     typeof value.hint === "string" &&
     (typeof value.moduleUrl === "string" || value.moduleUrl instanceof URL)
   );
-}
-
-function getVendorContextKey(context: VendorContext) {
-  return JSON.stringify([context.env.packageName, context.env.requestedVersion]);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

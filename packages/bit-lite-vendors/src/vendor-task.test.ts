@@ -1,7 +1,14 @@
+import { EventEmitter } from "node:events";
 import { parseCliArguments } from "bit-lite-context";
 import { RawOutputBuffer } from "bit-lite-terminal";
 import { describe, expect, it, vi } from "vitest";
-import { runVendorTasks, stopVendorTasks, watchVendorTasks } from "bit-lite-vendors";
+import {
+  createWatchVendorTasks,
+  runVendorTasks,
+  stopVendorTasks,
+  superviseVendorTasks,
+  watchVendorTasks,
+} from "bit-lite-vendors";
 import type {
   SelectedEnvIdentity,
   Workspace,
@@ -9,6 +16,7 @@ import type {
   WorkspaceComponentConfig,
 } from "bit-lite-context";
 import type { JsonObject, VendorContext } from "./types/index.js";
+import type { ManagedTerminalInputStream } from "bit-lite-terminal";
 import type { VendorTask, VendorTaskRunResult, VendorTaskStartOptions } from "bit-lite-vendors";
 
 type TestServiceResult = JsonObject & {
@@ -137,6 +145,144 @@ describe("vendor task helpers", () => {
     expect(serialized).not.toContain('"inheritance"');
   });
 
+  it("creates caller-owned watch tasks without process or terminal supervision", async () => {
+    const sigintListeners = process.listenerCount("SIGINT");
+    const sigtermListeners = process.listenerCount("SIGTERM");
+    const options = createTaskOptions(testVendorUrl, ["--watch"]);
+    const tasks = await createWatchVendorTasks<TestServiceResult>([options], {
+      serviceId: "test",
+      label: "Test",
+      formatResult(result) {
+        const formatted = formatTestRunResult(result);
+        return formatted instanceof Error ? formatted : [formatted.summary];
+      },
+    });
+
+    try {
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0]).toMatchObject({
+        id: 'test:["fixture-env","workspace:*"]:test-fixture',
+        label: "Test: Test Fixture (fixture-env)",
+        context: options.context,
+        canAttach: true,
+      });
+      expect(process.listenerCount("SIGINT")).toBe(sigintListeners);
+      expect(process.listenerCount("SIGTERM")).toBe(sigtermListeners);
+      await vi.waitFor(() => expect(tasks[0]?.details).toEqual(["1 component(s)"]));
+    } finally {
+      await stopVendorTasks(tasks);
+    }
+  });
+
+  it("derives otherwise identical task IDs from the context service", async () => {
+    const testOptions = createTaskOptions(testVendorUrl, ["--watch"]);
+    const previewOptions = {
+      ...testOptions,
+      context: {
+        ...testOptions.context,
+        service: { ...testOptions.context.service, name: "preview" as const },
+      },
+    };
+    const formatResult = (result: unknown) => {
+      const formatted = formatTestRunResult(result);
+      return formatted instanceof Error ? formatted : [formatted.summary];
+    };
+    const testTasks = await createWatchVendorTasks([testOptions], {
+      serviceId: "test",
+      label: "Test",
+      formatResult,
+    });
+    const previewTasks = await createWatchVendorTasks([previewOptions], {
+      serviceId: "preview",
+      label: "Preview",
+      formatResult,
+    });
+
+    try {
+      expect(testTasks[0]?.id).toBe('test:["fixture-env","workspace:*"]:test-fixture');
+      expect(previewTasks[0]?.id).toBe('preview:["fixture-env","workspace:*"]:test-fixture');
+      expect(new Set([...testTasks, ...previewTasks].map((task) => task.id)).size).toBe(2);
+    } finally {
+      await stopVendorTasks([...testTasks, ...previewTasks]);
+    }
+  });
+
+  it("supervises task output and input through one interactive terminal", async () => {
+    const input = new FakeInput();
+    const output = new FakeOutput();
+    const firstInput = vi.fn();
+    const secondInput = vi.fn();
+    const first = createFakeTask("test:first", "First", firstInput);
+    const second = createFakeTask("preview:second", "Second", secondInput);
+    first.rawOutput.append("stdout", "first buffered\n");
+    second.rawOutput.append("stdout", "second buffered\n");
+
+    await superviseVendorTasks([first, second], {
+      title: "Combined",
+      interactive: true,
+      terminal: {
+        stdin: input as unknown as ManagedTerminalInputStream,
+        stdout: output as unknown as NodeJS.WriteStream,
+        stderr: output as unknown as NodeJS.WriteStream,
+      },
+      onTasksStarted() {
+        setImmediate(() => {
+          input.emit("keypress", undefined, { name: "down" });
+          input.emit("keypress", "\r", { name: "return" });
+          input.emit("keypress", "x", { name: "x" });
+          input.emit("keypress", undefined, { name: "escape" });
+          input.emit("keypress", "q", { name: "q" });
+        });
+      },
+    });
+
+    expect(firstInput).not.toHaveBeenCalled();
+    expect(secondInput).toHaveBeenCalledWith("x");
+    expect(output.text()).toContain("second buffered");
+    expect(first.stop).toHaveBeenCalledOnce();
+    expect(second.stop).toHaveBeenCalledOnce();
+  });
+
+  it("stops tasks and detaches listeners before contribution cleanup", async () => {
+    const events: string[] = [];
+    const task = createFakeTask("test:signal", "Signal", vi.fn(), events);
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
+
+    try {
+      await superviseVendorTasks([task], {
+        title: "Signal",
+        interactive: false,
+        onTasksStarted() {
+          setImmediate(() => {
+            process.emit("SIGTERM");
+            process.emit("SIGTERM");
+          });
+          return () => {
+            events.push("cleanup");
+          };
+        },
+      });
+
+      expect(events).toEqual(["stop", "unsubscribe-message", "unsubscribe-output", "cleanup"]);
+      expect(kill).toHaveBeenCalledWith(process.pid, "SIGTERM");
+    } finally {
+      kill.mockRestore();
+    }
+  });
+
+  it("stops tasks when supervision setup fails", async () => {
+    const task = createFakeTask("test:setup", "Setup", vi.fn());
+
+    await expect(superviseVendorTasks([task], {
+      title: "Setup",
+      interactive: false,
+      onTasksStarted() {
+        throw new Error("setup failed");
+      },
+    })).rejects.toThrow("setup failed");
+    expect(task.stop).toHaveBeenCalledOnce();
+  });
+
   it("does not wait forever for hung task termination", async () => {
     const stop = vi.fn();
     const terminate = vi.fn(() => new Promise<void>(() => undefined));
@@ -187,6 +333,79 @@ function createTaskOptions(
     components: [workspace.components[0]!],
     config: { shard: "unit", retries: 1, coverage: true },
   };
+}
+
+function createFakeTask(
+  id: string,
+  label: string,
+  writeInput: ReturnType<typeof vi.fn>,
+  events: string[] = []
+) {
+  const baseContext = createVendorContext(createWorkspace(1), ["--watch"]);
+  const context: VendorContext = id.startsWith("preview:")
+    ? { ...baseContext, service: { ...baseContext.service, name: "preview" } }
+    : baseContext;
+  return {
+    id,
+    label,
+    context,
+    vendor: {
+      id: "fixture",
+      label: "Fixture",
+      hint: "Fixture task",
+      moduleUrl: "data:text/javascript,export default function start() {}",
+    },
+    status: "watching",
+    rawOutput: new RawOutputBuffer(),
+    result: new Promise(() => undefined),
+    exitPromise: Promise.resolve(0 as const),
+    postMessage() {},
+    writeInput,
+    canAttach: true,
+    stop: vi.fn(() => {
+      events.push("stop");
+    }),
+    terminate: vi.fn(),
+    onMessage() {
+      return () => events.push("unsubscribe-message");
+    },
+    onOutput() {
+      return () => events.push("unsubscribe-output");
+    },
+  } satisfies VendorTask;
+}
+
+class FakeInput extends EventEmitter {
+  isRaw = false;
+  isTTY = true;
+
+  pause() {
+    return this;
+  }
+
+  resume() {
+    return this;
+  }
+
+  setRawMode(mode: boolean) {
+    this.isRaw = mode;
+    return this as unknown as NodeJS.ReadStream;
+  }
+}
+
+class FakeOutput extends EventEmitter {
+  columns = 100;
+  rows = 30;
+  chunks: string[] = [];
+
+  write(chunk: string | Uint8Array) {
+    this.chunks.push(Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk));
+    return true;
+  }
+
+  text() {
+    return this.chunks.join("");
+  }
 }
 
 function createVendorContext(workspace: Workspace, rawArgs: string[]): VendorContext {

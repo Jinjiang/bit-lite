@@ -23,14 +23,18 @@ export type {
   ResolvedPreviewServiceConfig,
 } from "./preparation.js";
 export {
+  createPreviewPresentationRoutes,
+  createPreviewServiceRoutes,
   encodeRouteSegment,
   findAvailablePort,
   PreviewProxyServer,
+  PreviewProxyState,
 } from "./proxy.js";
 export type {
   PreviewEnvState,
   PreviewProxyComponent,
   PreviewProxyManifest,
+  PreviewProxyStateOptions,
   PreviewServerInfo,
 } from "./proxy.js";
 

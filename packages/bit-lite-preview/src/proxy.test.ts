@@ -1,4 +1,5 @@
 import http from "node:http";
+import net from "node:net";
 import { describe, expect, it } from "vitest";
 import { PreviewProxyServer } from "./proxy.js";
 
@@ -103,6 +104,54 @@ describe("preview proxy", () => {
     await proxy.close();
     await new Promise<void>((resolve, reject) => upstream.close((error) => (error ? reject(error) : resolve())));
   });
+
+  it("forwards WebSocket upgrades through an encoded env route", async () => {
+    const env = selectedEnv("react env");
+    let receivedUrl = "";
+    const upstream = http.createServer();
+    upstream.on("upgrade", (request, socket) => {
+      receivedUrl = request.url ?? "";
+      socket.end("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\npreview-ready");
+    });
+    const upstreamPort = await listen(upstream);
+    const proxy = new PreviewProxyServer({
+      envs: [
+        {
+          env,
+          taskId: "react env",
+          vendor: "vite-preview",
+          status: "starting",
+          components: [],
+        },
+      ],
+    });
+    const endpoint = await proxy.start("127.0.0.1", 43_200);
+    proxy.updateServer(
+      env,
+      {
+        origin: `http://127.0.0.1:${upstreamPort}`,
+        host: "127.0.0.1",
+        port: upstreamPort,
+        basePath: "/env/react%20env/",
+      },
+      "vite-preview"
+    );
+
+    const response = await rawRequest(endpoint.port, [
+      "GET /env/react%20env/__vite_hmr HTTP/1.1",
+      `Host: ${endpoint.host}:${endpoint.port}`,
+      "Connection: Upgrade",
+      "Upgrade: websocket",
+      "",
+      "",
+    ].join("\r\n"));
+    expect(response).toContain("101 Switching Protocols");
+    expect(response).toContain("preview-ready");
+    expect(receivedUrl).toBe("/env/react%20env/__vite_hmr");
+
+    await proxy.close();
+    await new Promise<void>((resolve, reject) => upstream.close((error) => (error ? reject(error) : resolve())));
+  });
 });
 
 function listen(server: http.Server) {
@@ -113,6 +162,16 @@ function listen(server: http.Server) {
       if (!address || typeof address === "string") reject(new Error("Could not listen"));
       else resolve(address.port);
     });
+  });
+}
+
+function rawRequest(port: number, request: string) {
+  return new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const socket = net.connect(port, "127.0.0.1", () => socket.write(request));
+    socket.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    socket.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    socket.on("error", reject);
   });
 }
 

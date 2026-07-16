@@ -2,10 +2,15 @@ import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { getSelectedEnvKey, parseCliArguments } from "bit-lite-context";
-import type { Workspace, WorkspaceEnvGroup } from "bit-lite-context";
+import { stopVendorTasks } from "bit-lite-vendors";
+import type { ParsedCliArgs, Workspace, WorkspaceContext, WorkspaceEnvGroup } from "bit-lite-context";
 import { PreviewProxyServer } from "bit-lite-preview/node";
-import { describe, expect, it } from "vitest";
-import { isPreviewServiceResult, preparePreviewTasks } from "./preview.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  createPreviewCommandContribution,
+  isPreviewServiceResult,
+  preparePreviewTasks,
+} from "./preview.js";
 
 describe("preview command preparation isolation", () => {
   it("starts valid env inputs while retaining failed env state and command-owned cleanup", async () => {
@@ -76,6 +81,63 @@ describe("preview command preparation isolation", () => {
     expect(isPreviewServiceResult({ mode: "serve", server: { port: 6000 } })).toBe(true);
     expect(isPreviewServiceResult({ mode: "invalid" })).toBe(false);
   });
+
+  it("returns caller-owned tasks and routes from a shared selection without process supervision", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "bit-lite-preview-contribution-"));
+    const componentRoot = path.join(workspaceRoot, "components", "valid");
+    await mkdir(componentRoot, { recursive: true });
+    await Promise.all([
+      writeFile(path.join(workspaceRoot, "package.json"), '{"type":"module"}\n', "utf8"),
+      writeFile(path.join(componentRoot, "valid.docs.md"), "# Valid docs\n", "utf8"),
+      writeFile(path.join(workspaceRoot, "vite.mjs"), "export default {};\n", "utf8"),
+    ]);
+    const vendor = previewVendorUrl();
+    const group = createGroup("valid", componentRoot, "./vite.mjs", workspaceRoot, "parent", vendor);
+    const workspace = createWorkspace(workspaceRoot, [group]);
+    const context: WorkspaceContext = {
+      workspace,
+      components: group.components.map((component) => ({ component, env: group.env })),
+    };
+    const parsed: ParsedCliArgs = {
+      command: "start",
+      args: {
+        raw: ["start", "--unknown", "value", "--", "fixture.ts"],
+        positional: [],
+        options: { unknown: "value" },
+        passthrough: ["fixture.ts"],
+      },
+      workspaceRoot,
+      componentFilters: [],
+      help: false,
+    };
+    const selection = { parsed, context, components: workspace.components, groups: [group] };
+    const sigintListeners = process.listenerCount("SIGINT");
+    const sigtermListeners = process.listenerCount("SIGTERM");
+    const contribution = await createPreviewCommandContribution(selection, {
+      proxy: { origin: "http://127.0.0.1:4000", host: "127.0.0.1", port: 4000 },
+    });
+
+    try {
+      expect(contribution.tasks).toHaveLength(1);
+      expect(contribution.routes).toHaveLength(1);
+      expect(contribution.tasks[0]?.context.workspace).toBe(workspace);
+      expect(contribution.tasks[0]?.context.env).toEqual(selectedEnv("valid"));
+      expect(contribution.tasks[0]?.context.service.source.identity.packageName).toBe("parent");
+      expect(contribution.tasks[0]?.context.args).toBe(parsed.args);
+      expect(process.listenerCount("SIGINT")).toBe(sigintListeners);
+      expect(process.listenerCount("SIGTERM")).toBe(sigtermListeners);
+      await vi.waitFor(() => expect(contribution.manifest().envs[0]).toMatchObject({
+        env: selectedEnv("valid"),
+        vendor: "preview-fixture",
+        status: "ready",
+      }));
+      expect(contribution.manifest().envs[0]).not.toHaveProperty("envName");
+    } finally {
+      await stopVendorTasks(contribution.tasks);
+      await contribution.dispose();
+      await contribution.dispose();
+    }
+  });
 });
 
 function createGroup(
@@ -83,10 +145,11 @@ function createGroup(
   rootDir: string,
   configFile: string,
   workspaceRoot: string,
-  serviceSourcePackageName = envPackageName
+  serviceSourcePackageName = envPackageName,
+  vendor = "data:text/javascript,export const meta = {}"
 ): WorkspaceEnvGroup {
   const serviceConfig = {
-    vendor: "data:text/javascript,export const meta = {}",
+    vendor,
     config: { configFile },
   };
   const envIdentity = selectedEnv(envPackageName);
@@ -154,4 +217,26 @@ function createWorkspace(rootDir: string, groups: WorkspaceEnvGroup[]): Workspac
 
 function selectedEnv(packageName: string) {
   return { packageName, requestedVersion: "workspace:*", installedVersion: "0.0.0" };
+}
+
+function previewVendorUrl() {
+  const target = toDataModule(`
+    export default function start(runtime) {
+      runtime.postMessage({ type: "ready" });
+      runtime.postMessage({ type: "result", data: { mode: "serve" } });
+      return { stop() {} };
+    }
+  `);
+  return toDataModule(`
+    export const meta = {
+      id: "preview-fixture",
+      label: "Preview Fixture",
+      hint: "Preview fixture",
+      moduleUrl: ${JSON.stringify(target)}
+    };
+  `);
+}
+
+function toDataModule(source: string) {
+  return `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
 }

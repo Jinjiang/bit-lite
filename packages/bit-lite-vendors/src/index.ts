@@ -1,5 +1,11 @@
 export { createInlineRunner, createRunner, createWorkerRunner } from "./runner/index.js";
-export { runVendorTasks, stopVendorTasks, watchVendorTasks } from "./vendor-task.js";
+export {
+  createWatchVendorTasks,
+  runVendorTasks,
+  stopVendorTasks,
+  superviseVendorTasks,
+  watchVendorTasks,
+} from "./vendor-task.js";
 export type {
   CreateRunnerOptions,
   Runner,
@@ -22,8 +28,10 @@ export type {
   WorkerRunnerOptions,
 } from "./runner/index.js";
 export type {
+  CreateWatchVendorTasksOptions,
   RunVendorTasksOptions,
   StopVendorTasksOptions,
+  SuperviseVendorTasksOptions,
   VendorTask,
   VendorTaskRunResult,
   VendorTaskStartOptions,

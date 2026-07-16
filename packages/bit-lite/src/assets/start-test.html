@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>bit-lite tests</title>
+    <style>
+      body { margin: 0; background: #f8fafc; color: #111827; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      main { width: min(1000px, calc(100vw - 32px)); margin: 0 auto; padding: 32px 0 48px; }
+      a { color: #0f766e; font-weight: 600; text-decoration: none; }
+      h1 { margin: 12px 0 6px; overflow-wrap: anywhere; }
+      .meta, .notice { color: #4b5563; }
+      .notice { margin: 8px 0; padding: 10px 12px; background: #fffbeb; border: 1px solid #f59e0b; border-radius: 6px; }
+      section { margin-top: 20px; padding: 18px; background: white; border: 1px solid #d1d5db; border-radius: 8px; }
+      dl { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px 12px; }
+      dt { color: #4b5563; } dd { margin: 0; overflow-wrap: anywhere; }
+      pre { margin: 0; padding: 14px; overflow: auto; background: #111827; color: #e5e7eb; border-radius: 6px; white-space: pre-wrap; }
+      .error { color: #991b1b; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a href="/">← start</a>
+      <h1 id="title">Component tests</h1>
+      <div id="meta" class="meta">Loading latest test state...</div>
+      <div id="notices"></div>
+      <section>
+        <h2>Latest structured result</h2>
+        <div id="result">Waiting for a component result.</div>
+      </section>
+      <section>
+        <h2>Environment terminal output</h2>
+        <pre id="terminal">Waiting for terminal output.</pre>
+      </section>
+    </main>
+    <script>
+      const componentId = new URLSearchParams(location.search).get("component") || "";
+      const title = document.getElementById("title");
+      const meta = document.getElementById("meta");
+      const notices = document.getElementById("notices");
+      const result = document.getElementById("result");
+      const terminal = document.getElementById("terminal");
+      title.textContent = componentId ? `Tests: ${componentId}` : "Component tests";
+
+      async function refresh() {
+        const url = new URL("/__bit-lite/test-results.json", location.origin);
+        url.searchParams.set("component", componentId);
+        const response = await fetch(url, { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+        render(data);
+        setTimeout(() => refresh().catch(renderError), 1500);
+      }
+
+      function render(data) {
+        meta.textContent = `${formatEnv(data.env)} · ${data.task.vendor} · ${data.task.status}`;
+        notices.replaceChildren(...data.notices.map((text) => element("p", text, "notice")));
+        result.replaceChildren(data.result ? renderResult(data.result) : element("p", "No structured result has been observed for this component yet."));
+        terminal.textContent = data.terminal.text || "No terminal output has been retained yet.";
+      }
+
+      function formatEnv(env) {
+        return `${env.packageName}@${env.requestedVersion} (installed ${env.installedVersion})`;
+      }
+
+      function renderResult(value) {
+        const list = document.createElement("dl");
+        const rows = [
+          ["Observed", value.observedAt],
+          ["Run", String(value.run)],
+          ["Summary", value.stats.summary],
+          ["Passed", String(value.stats.passed)],
+          ["Failed", String(value.stats.failed)],
+          ["Skipped", String(value.stats.skipped)],
+          ["Duration", `${value.durationMs} ms`],
+          ["Files", value.files.join("\n") || "None"],
+          ["Errors", value.errors.join("\n") || "None"],
+        ];
+        for (const [name, text] of rows) {
+          list.append(element("dt", name));
+          list.append(element("dd", text, name === "Errors" && value.errors.length ? "error" : ""));
+        }
+        return list;
+      }
+
+      function element(tag, text, className = "") {
+        const node = document.createElement(tag);
+        node.textContent = text;
+        if (className) node.className = className;
+        return node;
+      }
+
+      function renderError(error) {
+        meta.textContent = error instanceof Error ? error.message : String(error);
+        meta.className = "error";
+      }
+
+      refresh().catch(renderError);
+    </script>
+  </body>
+</html>

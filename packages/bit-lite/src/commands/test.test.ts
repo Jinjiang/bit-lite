@@ -1,13 +1,20 @@
 import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import * as vendorTasks from "bit-lite-vendors";
+import { stopVendorTasks } from "bit-lite-vendors";
 import type { SelectedEnvIdentity } from "bit-lite-context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCli } from "../cli.js";
+import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
 import { createResultStore } from "../utils/result-store.js";
-import { isTestServiceResult, runTestCommand, type TestServiceResult } from "./test.js";
-import type { JsonObject, VendorTask, VendorTaskStartOptions, WatchVendorTasksOptions } from "bit-lite-vendors";
+import {
+  createTestWatchArguments,
+  createTestWatchContribution,
+  isTestServiceResult,
+  runTestCommand,
+  type TestServiceResult,
+} from "./test.js";
+import type { JsonObject, VendorTaskStartOptions } from "bit-lite-vendors";
 
 describe("test command", () => {
   let logs: string[];
@@ -66,45 +73,34 @@ describe("test command", () => {
   it("records watch results into an injected store", async () => {
     const workspaceRoot = await createWorkspace();
     const store = createResultStore<TestServiceResult>();
-    const restoreTerminal = setInteractiveTerminal(true);
-    const watchVendorTasks = vi.spyOn(vendorTasks, "watchVendorTasks").mockImplementation(async (taskOptions, options) => {
-      const tasks: VendorTask<unknown, TestServiceResult>[] = [];
-
-      for (const taskOption of taskOptions) {
-        expect(taskOption.context.args.options.coverage).toBe(true);
-        const result = createWatchResult(taskOption.context.env, { lines: 100 });
-        const task = {
-          id: `${taskOption.context.env.packageName}:${taskOption.context.env.packageName}`,
-          context: taskOption.context,
-          vendor: {
-            id: taskOption.context.env.packageName,
-            label: taskOption.context.env.packageName,
-            hint: "fixture",
-            moduleUrl: taskOption.vendorUrl,
-          },
-        } as VendorTask<unknown, TestServiceResult>;
-
-        (options as WatchVendorTasksOptions<TestServiceResult>).onResult?.(result, task);
-        tasks.push(task);
-      }
-
-      return tasks;
-    });
+    const parsed = createParsedTestArgs(workspaceRoot, { watch: true, coverage: true });
+    const selection = await prepareResolvedCommandSelection(parsed);
+    const sigintListeners = process.listenerCount("SIGINT");
+    const sigtermListeners = process.listenerCount("SIGTERM");
+    const contribution = await createTestWatchContribution(selection, { resultStore: store });
 
     try {
-      await runTestCommand(createParsedTestArgs(workspaceRoot, { watch: true, coverage: true }), {
-        resultStore: store,
-      });
+      expect(contribution.tasks).toHaveLength(2);
+      expect(contribution.bindings).toHaveLength(2);
+      expect(contribution.effectiveArgs.options).toEqual({ watch: true, coverage: true });
+      expect(contribution.effectiveArgs.raw).toEqual(parsed.args.raw);
+      expect(contribution.effectiveArgs).not.toBe(parsed.args);
+      expect(parsed.args.options).toEqual({ watch: true, coverage: true });
+      expect(contribution.tasks.every((task) => task.context.workspace === selection.context.workspace)).toBe(true);
+      expect(process.listenerCount("SIGINT")).toBe(sigintListeners);
+      expect(process.listenerCount("SIGTERM")).toBe(sigtermListeners);
+      await vi.waitFor(() => expect(store.entries()).toHaveLength(2));
     } finally {
-      restoreTerminal();
+      await stopVendorTasks(contribution.tasks);
+      await contribution.dispose();
+      await contribution.dispose();
     }
 
     const entries = store.entries().sort((left, right) => left.vendor.localeCompare(right.vendor));
 
-    expect(watchVendorTasks).toHaveBeenCalledOnce();
     expect(entries).toMatchObject([
       {
-        taskId: "jest:jest",
+        taskId: 'test:["jest","1.0.0"]:jest',
         env: selectedEnv("jest"),
         vendor: "jest",
         json: {
@@ -112,14 +108,14 @@ describe("test command", () => {
           stats: {
             summary: "2/2 passed",
           },
-          coverage: { lines: 100 },
+          coverage: { enabled: true },
         },
         text: expect.stringMatching(
           /^# jest run 1 @ .+\njest: 2\/2 passed\ncomponents\/jest\/math: 2\/2 passed \(2 files\)$/
         ),
       },
       {
-        taskId: "vitest:vitest",
+        taskId: 'test:["vitest","1.0.0"]:vitest',
         env: selectedEnv("vitest"),
         vendor: "vitest",
         json: {
@@ -127,7 +123,7 @@ describe("test command", () => {
           stats: {
             summary: "2/2 passed",
           },
-          coverage: { lines: 100 },
+          coverage: { enabled: true },
         },
         text: expect.stringMatching(
           /^# vitest run 1 @ .+\nvitest: 2\/2 passed\ncomponents\/vitest\/math: 2\/2 passed \(2 files\)$/
@@ -158,6 +154,29 @@ describe("test command", () => {
       service: "test",
       config: {},
     })).toBe(true);
+  });
+
+  it("enables contribution watch mode without mutating or discarding arguments", () => {
+    const args = {
+      raw: ["start", "custom-positional", "--unknown", "value", "--", "fixture.ts"],
+      positional: ["custom-positional"],
+      options: { unknown: "value" },
+      passthrough: ["fixture.ts"],
+    };
+
+    const effective = createTestWatchArguments(args);
+
+    expect(effective).toEqual({
+      raw: args.raw,
+      positional: args.positional,
+      options: { unknown: "value", watch: true },
+      passthrough: args.passthrough,
+    });
+    expect(effective).not.toBe(args);
+    expect(effective.raw).not.toBe(args.raw);
+    expect(effective.positional).not.toBe(args.positional);
+    expect(effective.passthrough).not.toBe(args.passthrough);
+    expect(args.options).toEqual({ unknown: "value" });
   });
 });
 
@@ -232,34 +251,6 @@ function selectedEnv(packageName: string): SelectedEnvIdentity {
     requestedVersion: "1.0.0",
     installedVersion: "1.0.0",
   };
-}
-
-function setInteractiveTerminal(value: boolean) {
-  const stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
-  const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
-
-  Object.defineProperty(process.stdin, "isTTY", {
-    configurable: true,
-    value,
-  });
-  Object.defineProperty(process.stdout, "isTTY", {
-    configurable: true,
-    value,
-  });
-
-  return () => {
-    restoreProperty(process.stdin, "isTTY", stdinDescriptor);
-    restoreProperty(process.stdout, "isTTY", stdoutDescriptor);
-  };
-}
-
-function restoreProperty(target: NodeJS.ReadStream | NodeJS.WriteStream, property: "isTTY", descriptor: PropertyDescriptor | undefined) {
-  if (descriptor === undefined) {
-    delete target[property];
-    return;
-  }
-
-  Object.defineProperty(target, property, descriptor);
 }
 
 async function createWorkspace() {

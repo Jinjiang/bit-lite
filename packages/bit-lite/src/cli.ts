@@ -3,6 +3,7 @@ import { runCompileCommand } from "./commands/compile.js";
 import { runLinkCommand } from "./commands/link.js";
 import { runInstallCommand } from "./commands/install.js";
 import { runPreviewCommand } from "./commands/preview.js";
+import { runStartCommand } from "./commands/start.js";
 import { runTestCommand } from "./commands/test.js";
 import type { ParsedCliArgs } from "bit-lite-context";
 import { BitLiteError } from "./utils/errors.js";
@@ -14,6 +15,7 @@ const commands: Record<string, CommandHandler> = {
   install: runInstallCommand,
   link: runLinkCommand,
   preview: runPreviewCommand,
+  start: runStartCommand,
   test: runTestCommand,
 };
 
@@ -50,6 +52,7 @@ Commands:
   compile noop placeholder for package compilation experiments
   install noop placeholder for package installation experiments
   preview serve component docs and compositions
+  start   serve preview and live test results in one watch session
   test    run the configured test service
 `);
 }

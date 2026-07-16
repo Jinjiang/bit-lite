@@ -14,6 +14,8 @@ bit-lite install --workspace <dir>
 bit-lite install --workspace <dir> --compile
 bit-lite preview --workspace <dir>
 bit-lite preview --workspace <dir> --filter <component-pattern> --port 4000
+bit-lite start --workspace <dir>
+bit-lite start --workspace <dir> --filter <component-pattern> --port 4000
 ```
 
 Every component has an explicit `{ packageName, version }` env reference.
@@ -60,6 +62,15 @@ Preview preparation owns docs/demo discovery and literal dynamic imports. A
 preview vendor receives server coordinates, the prepared entry/HTML paths, and
 the current env's `{ packageName, sourceDir }` alias descriptors; it does not
 receive raw components or MDX options in runtime JSON.
+
+`bit-lite start` composes preview and test watch tasks for the same filtered
+component selection. It opens one public proxy and one managed terminal, keeps
+preview vendor servers internal, and serves a combined component index at the
+proxy root. Component test pages are read-only: structured results are
+component-scoped, while terminal text is explicitly labeled as the latest
+retained output for the whole selected env and may include sibling components.
+Test watch mode is enabled automatically by `start`; a rerun control is not
+provided.
 
 Every command uses the common vendor envelope `{ context, components, config,
 runtime? }`. Version-1 context contains the base workspace, all parsed argument

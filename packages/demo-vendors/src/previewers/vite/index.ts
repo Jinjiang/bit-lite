@@ -159,7 +159,6 @@ function createHmrOptions(runtime: PreviewVendorRuntime) {
     host: proxy.hostname,
     clientPort: proxy.port ? Number(proxy.port) : proxy.protocol === "https:" ? 443 : 80,
     protocol: proxy.protocol === "https:" ? ("wss" as const) : ("ws" as const),
-    path: runtime.server.basePath,
   };
 }
 

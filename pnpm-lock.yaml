@@ -22,6 +22,9 @@ importers:
       bit-lite-preview:
         specifier: workspace:*
         version: link:../bit-lite-preview
+      bit-lite-proxy:
+        specifier: workspace:*
+        version: link:../bit-lite-proxy
       bit-lite-vendors:
         specifier: workspace:*
         version: link:../bit-lite-vendors
@@ -35,6 +38,9 @@ importers:
       '@types/node':
         specifier: ^25.9.1
         version: 25.9.4
+      bit-lite-terminal:
+        specifier: workspace:*
+        version: link:../bit-lite-terminal
       demo-config:
         specifier: workspace:*
         version: link:../demo-config
@@ -121,6 +127,9 @@ importers:
       bit-lite-context:
         specifier: workspace:*
         version: link:../bit-lite-context
+      bit-lite-proxy:
+        specifier: workspace:*
+        version: link:../bit-lite-proxy
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -143,6 +152,18 @@ importers:
       jsdom:
         specifier: ^29.0.0
         version: 29.1.1
+      vitest:
+        specifier: ^4.1.8
+        version: 4.1.9(@types/node@25.9.4)(jsdom@29.1.1)(vite@8.1.2(@types/node@25.9.4)(esbuild@0.28.1)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))
+
+  packages/bit-lite-proxy:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.4
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
       vitest:
         specifier: ^4.1.8
         version: 4.1.9(@types/node@25.9.4)(jsdom@29.1.1)(vite@8.1.2(@types/node@25.9.4)(esbuild@0.28.1)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))

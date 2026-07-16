@@ -10,6 +10,7 @@
   "scripts": {
     "test": "vitest run --passWithNoTests",
     "build": "tsc -p tsconfig.json",
+    "postbuild": "node scripts/copy-assets.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "node dist/bin.js"
   },
@@ -22,12 +23,14 @@
     "bit-lite-deps": "workspace:*",
     "bit-lite-env": "workspace:*",
     "bit-lite-preview": "workspace:*",
+    "bit-lite-proxy": "workspace:*",
     "bit-lite-vendors": "workspace:*",
     "typescript": "^6.0.3"
   },
   "devDependencies": {
     "@mdx-js/loader": "^3.1.1",
     "@types/node": "^25.9.1",
+    "bit-lite-terminal": "workspace:*",
     "demo-config": "workspace:*",
     "demo-vendors": "workspace:*",
     "swc-loader": "^0.2.6",
