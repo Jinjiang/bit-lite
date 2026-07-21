@@ -38,28 +38,9 @@ export default async function startVitePreviewVendor(
 
   try {
     const html = await readFile(previewRuntime.prepared.htmlFile, "utf8");
-    server = await createServer({
-      root: workspaceRoot,
-      cacheDir: createVitePreviewCacheDir(previewRuntime, workspaceRoot),
-      configFile,
-      base: previewRuntime.server.basePath,
-      appType: "custom",
-      plugins: [createPreparedPreviewVitePlugin(previewRuntime, html)],
-      resolve: { alias: createViteWorkspaceAliases(previewRuntime) },
-      optimizeDeps: {
-        entries: [previewRuntime.prepared.entryFile],
-      },
-      server: {
-        host: previewRuntime.server.host,
-        port: previewRuntime.server.port,
-        strictPort: true,
-        preTransformRequests: false,
-        hmr: createHmrOptions(previewRuntime),
-      },
-    });
-    await server.listen();
+    server = await startVitePreviewServer(previewRuntime, workspaceRoot, configFile, html);
 
-    const data = createPreviewServiceResult();
+    const data = createPreviewServiceResult(readViteServerPort(server));
     runtime.postMessage({ type: "result", data });
     runtime.postMessage({ type: "status", status: "ready" });
     return { stop };
@@ -82,6 +63,72 @@ export default async function startVitePreviewVendor(
     })();
     return stopping;
   }
+}
+
+async function startVitePreviewServer(
+  runtime: PreviewVendorRuntime,
+  workspaceRoot: string,
+  configFile: string,
+  html: string
+) {
+  try {
+    return await startOnPort(runtime.server.preferredPort);
+  } catch (error) {
+    if (!isPortUnavailableError(error)) throw error;
+  }
+
+  for (let port = runtime.server.fallbackStartPort; port <= 65535; port += 1) {
+    try {
+      return await startOnPort(port);
+    } catch (error) {
+      if (!isPortUnavailableError(error)) throw error;
+    }
+  }
+  throw new Error(`No available preview port found at or after ${runtime.server.fallbackStartPort}`);
+
+  async function startOnPort(port: number) {
+    const candidate = await createServer({
+      root: workspaceRoot,
+      cacheDir: createVitePreviewCacheDir(runtime, workspaceRoot),
+      configFile,
+      base: runtime.server.basePath,
+      appType: "custom",
+      plugins: [createPreparedPreviewVitePlugin(runtime, html)],
+      resolve: { alias: createViteWorkspaceAliases(runtime) },
+      optimizeDeps: {
+        entries: [runtime.prepared.entryFile],
+      },
+      server: {
+        host: runtime.server.host,
+        port,
+        strictPort: true,
+        preTransformRequests: false,
+        hmr: createHmrOptions(runtime),
+      },
+    });
+    try {
+      await candidate.listen();
+      return candidate;
+    } catch (error) {
+      await candidate.close().catch(() => undefined);
+      throw error;
+    }
+  }
+}
+
+function readViteServerPort(server: ViteDevServer) {
+  const address = server.httpServer?.address();
+  if (!address || typeof address === "string" || !Number.isInteger(address.port) || address.port <= 0) {
+    throw new Error("Vite preview server did not expose its actual bound port");
+  }
+  return address.port;
+}
+
+function isPortUnavailableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if ("code" in error && error.code === "EADDRINUSE") return true;
+  if (/port \d+ is already in use/i.test(error.message)) return true;
+  return "cause" in error && isPortUnavailableError(error.cause);
 }
 
 export function createViteWorkspaceAliases(runtime: PreviewVendorRuntime) {

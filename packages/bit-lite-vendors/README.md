@@ -15,6 +15,15 @@ The public API has three layers:
 - vendor task helpers such as `runVendorTasks()` and `watchVendorTasks()` for
   command code that needs common vendor lifecycle handling.
 
+Worker-backed watch tasks are eager by default. Callers that pass
+`activation: "deferred"` to `createWatchVendorTasks()` receive the same stable
+logical task in `idle`, including context, vendor metadata, output buffer,
+listeners, result lifecycle, `stop()`, and an idempotent `activate()`. Concurrent
+`activate()` calls share one worker start. Stopping an idle task settles its exit
+lifecycle without creating a worker; stopping during activation prevents the
+worker from surviving shutdown. A managed-terminal item remains the same object
+and becomes attachable only after its worker exists.
+
 Commands resolve a vendor module from the effective service's declaring package
 before runner startup. Both inline and worker execution receive the same common
 envelope:
@@ -61,7 +70,7 @@ standalone command own signals and an optional managed terminal, or a composed
 command supervise several services without nested terminals.
 
 `VendorData.runtime` is an optional JSON-only command-to-vendor channel. Preview
-uses it for `server` coordinates plus `prepared.entryFile` and
+uses it for `server` binding/routing hints plus `prepared.entryFile` and
 `prepared.htmlFile`. Preview adapters should not rediscover components, generate
 routes, render Markdown, or inject MDX configuration; those inputs are prepared
 by the command or imported by the user's dev-server config.

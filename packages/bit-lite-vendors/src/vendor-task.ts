@@ -48,6 +48,7 @@ export type VendorTask<
   vendor: VendorDefinition;
   result: Promise<VendorTaskRunResult<RunResult>>;
   exitPromise?: Promise<RunnerExitCode> | undefined;
+  activate(): Promise<void>;
   postMessage(message: InputMessage): void;
   stop(): void | Promise<void>;
   terminate?(): void | Promise<void>;
@@ -82,6 +83,7 @@ export type CreateWatchVendorTasksOptions<
   label: string;
   formatResult(result: unknown): string[] | Error;
   onResult?(result: EventResult, task: VendorTask<unknown, EventResult, InputMessage>): void;
+  activation?: "eager" | "deferred" | undefined;
   worker?: WorkerRunnerOptions | undefined;
 };
 
@@ -111,6 +113,7 @@ export type StopVendorTasksOptions = {
 
 type CreateVendorTaskOptions = VendorTaskStartOptions & {
   mode: RunnerMode;
+  activation: "eager" | "deferred";
   worker?: WorkerRunnerOptions | undefined;
 };
 
@@ -137,7 +140,7 @@ type ManagedVendorTask<
 > = VendorTask<RunResult, EventResult, InputMessage> & {
   serviceId: string;
   serviceLabel: string;
-  runner: VendorRunner<VendorConfig, RunResult, EventResult, InputMessage>;
+  runner?: VendorRunner<VendorConfig, RunResult, EventResult, InputMessage> | undefined;
   completed: boolean;
   runResult?: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>["runResult"];
   eventResult?: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>["eventResult"];
@@ -205,6 +208,7 @@ export function createWatchVendorTasks<
     },
     {
       worker: options.worker,
+      activation: options.activation ?? "eager",
     }
   );
 }
@@ -377,7 +381,10 @@ async function createVendorTasks<
   taskOptions: VendorTaskStartOptions[],
   mode: RunnerMode,
   resultOptions: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>,
-  runnerOptions: { worker?: WorkerRunnerOptions | undefined } = {}
+  runnerOptions: {
+    worker?: WorkerRunnerOptions | undefined;
+    activation?: "eager" | "deferred" | undefined;
+  } = {}
 ): Promise<VendorTask<RunResult, EventResult, InputMessage>[]> {
   const tasks: VendorTask<RunResult, EventResult, InputMessage>[] = [];
 
@@ -385,7 +392,11 @@ async function createVendorTasks<
     for (const taskOption of taskOptions) {
       tasks.push(
         await createVendorTask<RunResult, EventResult, InputMessage>(
-          { ...taskOption, mode },
+          {
+            ...taskOption,
+            mode,
+            activation: mode === "worker" ? runnerOptions.activation ?? "eager" : "eager",
+          },
           runnerOptions,
           resultOptions
         )
@@ -419,14 +430,14 @@ async function createVendorTask<
     options.context
   );
 
-  return createStartedVendorTask<RunResult, EventResult, InputMessage>(
+  return createManagedVendorTask<RunResult, EventResult, InputMessage>(
     { ...options, worker: runnerOptions.worker },
     resultOptions,
     vendor
   );
 }
 
-function createStartedVendorTask<
+function createManagedVendorTask<
   RunResult,
   EventResult extends JsonValue,
   InputMessage extends JsonValue,
@@ -441,14 +452,18 @@ function createStartedVendorTask<
     config: options.config,
     ...(options.runtime === undefined ? {} : { runtime: options.runtime }),
   };
-  const runner = createRunner<VendorData<VendorConfig>, VendorMessage<EventResult>, InputMessage, RunResult>({
-    mode: options.mode,
-    target: vendor,
-    data,
-    worker: options.worker,
-  });
   const messageListeners = new Set<(message: VendorMessage<EventResult>) => void>();
   const outputListeners = new Set<(stream: TerminalOutputStream, chunk: Buffer) => void>();
+  let runner: VendorRunner<VendorConfig, RunResult, EventResult, InputMessage> | undefined;
+  let activationPromise: Promise<void> | undefined;
+  let activationError: Error | undefined;
+  let stopPromise: Promise<void> | undefined;
+  let stopRequested = false;
+  let exitSettled = false;
+  let resolveExit!: (code: RunnerExitCode) => void;
+  const exitPromise = new Promise<RunnerExitCode>((resolve) => {
+    resolveExit = resolve;
+  });
   let resolveResult!: (result: VendorTaskRunResult<RunResult>) => void;
   let rejectResult!: (error: unknown) => void;
   const result = new Promise<VendorTaskRunResult<RunResult>>((resolve, reject) => {
@@ -466,30 +481,55 @@ function createStartedVendorTask<
     serviceId: options.context.service.name,
     serviceLabel: resultOptions.label,
     hint: vendor.hint,
-    status: "starting",
+    status: options.activation === "deferred" ? "idle" : "starting",
     details: [],
     rawOutput: new RawOutputBuffer(),
     result,
-    runner,
     completed: false,
     runResult: resultOptions.runResult,
     eventResult: resultOptions.eventResult,
-    exitPromise: runner.exitPromise,
+    exitPromise,
     resolveResult,
     rejectResult,
+    activate() {
+      if (activationPromise) return activationPromise;
+      if (stopRequested) {
+        return Promise.reject(new Error(`${task.label} cannot activate after it was stopped`));
+      }
+
+      task.status = "starting";
+      activationPromise = startRunner();
+      return activationPromise;
+    },
     postMessage(message) {
-      runner.postMessage(message);
+      runner?.postMessage(message);
     },
     stop() {
-      return runner.stop();
+      if (stopPromise) return stopPromise;
+      stopRequested = true;
+      stopPromise = (async () => {
+        if (runner) {
+          await runner.stop();
+          return;
+        }
+        task.status = "stopped";
+        settleExit(0);
+      })();
+      return stopPromise;
     },
-    terminate() {
-      return runner.terminate();
+    async terminate() {
+      stopRequested = true;
+      if (runner) {
+        await runner.terminate();
+        return;
+      }
+      task.status = "stopped";
+      settleExit(0);
     },
     writeInput(chunk) {
-      runner.writeInput(chunk);
+      runner?.writeInput(chunk);
     },
-    canAttach: options.mode === "worker",
+    canAttach: false,
     onMessage(listener) {
       messageListeners.add(listener);
       return () => messageListeners.delete(listener);
@@ -500,37 +540,70 @@ function createStartedVendorTask<
     },
   };
 
-  task.exitPromise = runner.exitPromise.then((code) => {
-    handleVendorExit(task, code);
-    return code;
-  });
-
-  runner.onMessage((message) => {
-    handleVendorMessage(task, message);
-    for (const listener of messageListeners) listener(message);
-  });
-
-  runner.onOutput((stream, chunk) => {
-    task.rawOutput.append(stream, chunk);
-    for (const listener of outputListeners) listener(stream, chunk);
-  });
-
-  Promise.resolve(runner.start())
-    .then((resultData) => {
-      if (resultData !== undefined) {
-        recordVendorRunResult(task, resultData);
-        return;
-      }
-
-      if (task.runResult !== undefined && runner.kind === "inline" && !task.completed) {
-        rejectVendorRun(task, new Error(`${task.label} completed without a result`));
-      }
-    })
-    .catch((error) => {
-      rejectVendorRun(task, error);
-    });
+  if (options.activation === "eager") void task.activate().catch(() => undefined);
 
   return task;
+
+  async function startRunner() {
+    if (stopRequested) throw new Error(`${task.label} cannot activate after it was stopped`);
+
+    const createdRunner = createRunner<
+      VendorData<VendorConfig>,
+      VendorMessage<EventResult>,
+      InputMessage,
+      RunResult
+    >({
+      mode: options.mode,
+      target: vendor,
+      data,
+      worker: options.worker,
+    });
+    runner = createdRunner;
+    task.runner = createdRunner;
+    task.canAttach = options.mode === "worker";
+
+    createdRunner.exitPromise.then((code) => {
+      handleVendorExit(task, code);
+      settleExit(code);
+    });
+    createdRunner.onMessage((message) => {
+      if (message.type === "error") activationError = new Error(message.message);
+      handleVendorMessage(task, message);
+      for (const listener of messageListeners) listener(message);
+    });
+    createdRunner.onOutput((stream, chunk) => {
+      task.rawOutput.append(stream, chunk);
+      for (const listener of outputListeners) listener(stream, chunk);
+    });
+
+    if (stopRequested) {
+      await createdRunner.stop();
+      throw new Error(`${task.label} stopped during activation`);
+    }
+
+    try {
+      const resultData = await createdRunner.start();
+      if (stopRequested) {
+        await createdRunner.stop();
+        throw new Error(`${task.label} stopped during activation`);
+      }
+      if (resultData !== undefined) {
+        recordVendorRunResult(task, resultData);
+      } else if (task.runResult !== undefined && createdRunner.kind === "inline" && !task.completed) {
+        rejectVendorRun(task, new Error(`${task.label} completed without a result`));
+      }
+    } catch (error) {
+      const failure = activationError ?? error;
+      if (!stopRequested) rejectVendorRun(task, failure);
+      throw failure;
+    }
+  }
+
+  function settleExit(code: RunnerExitCode) {
+    if (exitSettled) return;
+    exitSettled = true;
+    resolveExit(code);
+  }
 }
 
 function handleVendorMessage<

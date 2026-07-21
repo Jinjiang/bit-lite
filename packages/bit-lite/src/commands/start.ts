@@ -11,6 +11,7 @@ import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
 import type { ResolvedCommandSelection } from "../utils/command-selection.js";
 import {
   createPreviewCommandContribution,
+  readPreviewLazy,
   type PreviewCommandContribution,
   type PreviewUnavailableGroup,
 } from "./preview.js";
@@ -65,6 +66,7 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
 
   const host = readHost(parsed.args.options.host);
   const port = readPort(parsed.args.options.port, "--port", defaultPort);
+  const activationMode = readPreviewLazy(parsed.args.options.lazy) ? "lazy" : "eager";
   const proxyServer = new ProxyServer();
   const sourceCatalog = createStartSourceCatalog(selection.components);
   let preview: PreviewCommandContribution | undefined;
@@ -82,7 +84,7 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
 
   try {
     const endpoint = await proxyServer.start(host, port);
-    preview = await createPreviewCommandContribution(selection, { proxy: endpoint, host });
+    preview = await createPreviewCommandContribution(selection, { proxy: endpoint, host, activationMode });
     test = await createTestWatchContribution(selection);
 
     proxyServer.addRoutes(createStartRoutes(endpoint, preview, test, sourceCatalog));

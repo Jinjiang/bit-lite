@@ -10,7 +10,7 @@ const parserOptions = {
     help: ["h"],
     workspace: ["w"],
   },
-  boolean: ["help"],
+  boolean: ["help", "lazy"],
   string: ["workspace", "filter"],
   configuration: {
     "camel-case-expansion": false,
@@ -24,6 +24,7 @@ const parserOptions = {
 const globalOptionNames = new Set(["help", "workspace", "filter"]);
 
 export function parseCliArguments(argv: string[]): CliArguments {
+  validateBooleanOptionValues(argv);
   const parsed = parseArgv(argv);
   const positional = parsed._.map(String);
   if (positional.length > 0) throw unsupportedPositionals(positional);
@@ -35,7 +36,19 @@ export function parseCliArguments(argv: string[]): CliArguments {
   };
 }
 
+function validateBooleanOptionValues(argv: readonly string[]) {
+  for (const value of argv) {
+    if (value === "--") return;
+    if (!value.startsWith("--lazy=")) continue;
+    const optionValue = value.slice("--lazy=".length);
+    if (optionValue !== "true" && optionValue !== "false") {
+      throw new BitLiteError("--lazy requires a boolean value");
+    }
+  }
+}
+
 export function parseArgs(argv: string[]): ParsedCliArgs {
+  validateBooleanOptionValues(argv);
   const argvResult = parseArgv(argv);
   const positional = argvResult._.map(String);
   const command = positional[0];

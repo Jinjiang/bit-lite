@@ -12,6 +12,7 @@ export type PreviewServerInfo = JsonObject & {
 
 export type PreviewServiceResult = JsonObject & {
   mode: "serve";
+  port: number;
 };
 
 export function readPreviewConfigFile(config: Record<string, unknown>) {
@@ -24,8 +25,11 @@ export function readPreviewConfigFile(config: Record<string, unknown>) {
 
 export { readPreviewPreparedRuntime as readPreviewRuntime };
 
-export function createPreviewServiceResult(): PreviewServiceResult {
-  return { mode: "serve" };
+export function createPreviewServiceResult(port: number): PreviewServiceResult {
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    throw new Error("preview vendor must report an actual port between 1 and 65535");
+  }
+  return { mode: "serve", port };
 }
 
 export function isShutdownMessage(message: unknown) {

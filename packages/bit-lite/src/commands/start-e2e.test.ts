@@ -150,6 +150,64 @@ describe("start end-to-end", () => {
       await removeWorkspace(workspaceRoot);
     }
   }, 60_000);
+
+  it("keeps start --lazy preview idle while test watch is already running", async () => {
+    const workspaceRoot = await createInheritedStartWorkspace();
+    const parsed = parseArgs(["start", "--lazy", "--workspace", workspaceRoot]);
+    const selection = await prepareResolvedCommandSelection(parsed);
+    const proxy = new ProxyServer();
+    const endpoint = await proxy.start("127.0.0.1", 48_100);
+    let preview: Awaited<ReturnType<typeof createPreviewCommandContribution>> | undefined;
+    let test: Awaited<ReturnType<typeof createTestWatchContribution>> | undefined;
+    let socket: WebSocket | undefined;
+
+    try {
+      preview = await createPreviewCommandContribution(selection, {
+        proxy: endpoint,
+        host: endpoint.host,
+        activationMode: "lazy",
+      });
+      test = await createTestWatchContribution(selection);
+      proxy.addRoutes(createStartRoutes(endpoint, preview, test, createStartSourceCatalog(selection.components)));
+      proxy.addRoutes(preview.routes);
+      proxy.addRoutes(test.routes);
+      const previewTask = preview.tasks[0]!;
+      const activate = vi.spyOn(previewTask, "activate");
+
+      expect(previewTask.status).toBe("idle");
+      expect(previewTask.canAttach).toBe(false);
+      await vi.waitFor(() => expect(test?.resultStore.entries().length).toBeGreaterThan(0), { timeout: 20_000 });
+      expect(activate).not.toHaveBeenCalled();
+
+      expect((await fetch(`${endpoint.origin}/`)).status).toBe(200);
+      const before = await fetch(`${endpoint.origin}/__bit-lite/manifest.json`).then((response) => response.json());
+      expect(before.preview.envs[0].status).toBe("idle");
+      expect(before.tests[0].status).not.toBe("idle");
+      expect(activate).not.toHaveBeenCalled();
+
+      const basePath = "/env/%40fixture%2Fenv-child/";
+      const coldAsset = await fetch(`${endpoint.origin}${basePath}__bit-lite/preview.js`);
+      expect(coldAsset.status).toBe(200);
+      expect(await coldAsset.text()).toContain("sample.demo.ts");
+      expect(activate).toHaveBeenCalledOnce();
+      expect(preview.manifest().envs[0]).toMatchObject({
+        status: "ready",
+        server: { port: expect.any(Number) },
+      });
+
+      const hmrClient = await fetch(`${endpoint.origin}${basePath}@vite/client`).then((response) => response.text());
+      expect(hmrClient).toContain(basePath);
+      socket = await connectHmr(endpoint.origin, basePath, readHmrToken(hmrClient));
+      expect(activate).toHaveBeenCalledOnce();
+    } finally {
+      socket?.close();
+      await stopVendorTasks([...(preview?.tasks ?? []), ...(test?.tasks ?? [])]);
+      await test?.dispose();
+      await preview?.dispose();
+      await proxy.close();
+      await removeWorkspace(workspaceRoot);
+    }
+  }, 60_000);
 });
 
 async function createInheritedStartWorkspace() {

@@ -52,6 +52,13 @@ describe("CLI args", () => {
     expect(parseArgs(["-h"]).help).toBe(true);
   });
 
+  it("parses lazy as a command boolean", () => {
+    expect(parseArgs(["preview", "--lazy"]).args.options.lazy).toBe(true);
+    expect(parseArgs(["start", "--no-lazy"]).args.options.lazy).toBe(false);
+    expect(parseArgs(["preview", "--lazy=false"]).args.options.lazy).toBe(false);
+    expect(() => parseArgs(["preview", "--lazy=sometimes"])).toThrow("--lazy requires a boolean value");
+  });
+
   it("rejects workspace flags without a path", () => {
     expect(() => parseArgs(["--workspace"])).toThrow("--workspace requires a path");
   });

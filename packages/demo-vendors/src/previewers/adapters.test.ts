@@ -36,10 +36,83 @@ describe("thin preview vendor adapters", () => {
     expect(entryResponse.status).toBe(200);
     expect(await entryResponse.text()).toContain("prepared-entry-ran");
     expect(harness.messages).toContainEqual(expect.objectContaining({ type: "status", status: "ready" }));
+    expect(harness.messages).toContainEqual({ type: "result", data: { mode: "serve", port } });
 
     await handle.stop?.();
     await expect(fetch(`${origin}/env/test/`)).rejects.toThrow();
     expect(harness.messages).toContainEqual(expect.objectContaining({ type: "status", status: "stopped" }));
+  }, 30_000);
+
+  it.each([
+    ["vite", startVitePreviewVendor, "export default {};\n"],
+    ["webpack", startWebpackPreviewVendor, "export default { mode: 'development' };\n"],
+  ] as const)("%s skips an occupied preferred port and reports its fallback port", async (
+    _name,
+    startVendor,
+    configSource
+  ) => {
+    const fixture = await createFixture(configSource);
+    const blocker = net.createServer();
+    const preferredPort = await listenServer(blocker, 0);
+    const harness = createHarness(
+      fixture.configFile,
+      fixture.entryFile,
+      fixture.htmlFile,
+      preferredPort,
+      preferredPort + 1
+    );
+    let handle: Awaited<ReturnType<typeof startVendor>> | undefined;
+
+    try {
+      handle = await startVendor(harness.runtime);
+      const result = harness.messages.find((message) => message.type === "result");
+      expect(result).toMatchObject({ type: "result", data: { mode: "serve" } });
+      if (result?.type !== "result") throw new Error("preview result was not reported");
+      expect(result.data.port).toBeGreaterThanOrEqual(preferredPort + 1);
+      expect(result.data.port).not.toBe(preferredPort);
+    } finally {
+      await handle?.stop?.();
+      await closeServer(blocker);
+    }
+  }, 30_000);
+
+  it.each([
+    ["vite", startVitePreviewVendor, "export default {};\n"],
+    ["webpack", startWebpackPreviewVendor, "export default { mode: 'development' };\n"],
+  ] as const)("%s resolves concurrent fallback conflicts with distinct actual ports", async (
+    _name,
+    startVendor,
+    configSource
+  ) => {
+    const [firstFixture, secondFixture] = await Promise.all([
+      createFixture(configSource),
+      createFixture(configSource),
+    ]);
+    const blocker = net.createServer();
+    const preferredPort = await listenServer(blocker, 0);
+    const fallbackStartPort = preferredPort + 1;
+    const harnesses = [firstFixture, secondFixture].map((fixture) => createHarness(
+      fixture.configFile,
+      fixture.entryFile,
+      fixture.htmlFile,
+      preferredPort,
+      fallbackStartPort
+    ));
+    let handles: Awaited<ReturnType<typeof startVendor>>[] = [];
+
+    try {
+      handles = await Promise.all(harnesses.map((harness) => startVendor(harness.runtime)));
+      const ports = harnesses.map((harness) => {
+        const result = harness.messages.find((message) => message.type === "result");
+        if (result?.type !== "result") throw new Error("preview result was not reported");
+        return result.data.port;
+      });
+      expect(new Set(ports).size).toBe(2);
+      expect(ports.every((port) => port >= fallbackStartPort)).toBe(true);
+    } finally {
+      await Promise.all(handles.map((handle) => handle.stop?.()));
+      await closeServer(blocker);
+    }
   }, 30_000);
 
   it.each([
@@ -152,7 +225,13 @@ async function createFixture(configSource: string) {
   return { root, configFile, entryFile, htmlFile };
 }
 
-function createHarness(configFile: string, entryFile: string, htmlFile: string, port: number) {
+function createHarness(
+  configFile: string,
+  entryFile: string,
+  htmlFile: string,
+  port: number,
+  fallbackStartPort = port + 1
+) {
   const messages: VendorMessage<PreviewServiceResult>[] = [];
   const workspaceRoot = path.dirname(configFile);
   const env = selectedEnv("test-env");
@@ -180,7 +259,7 @@ function createHarness(configFile: string, entryFile: string, htmlFile: string, 
       components: [],
       config: { configFile },
       runtime: {
-        ...createPreviewRuntime(workspaceRoot, entryFile, htmlFile, port),
+        ...createPreviewRuntime(workspaceRoot, entryFile, htmlFile, port, "/env/test/", fallbackStartPort),
       },
     },
     postMessage(message) {
@@ -202,12 +281,14 @@ function createPreviewRuntime(
   entryFile: string,
   htmlFile: string,
   port: number,
-  basePath = "/env/test/"
+  basePath = "/env/test/",
+  fallbackStartPort = port + 1
 ): PreviewPreparedRuntime {
   return {
     server: {
       host: "127.0.0.1",
-      port,
+      preferredPort: port,
+      fallbackStartPort,
       basePath,
       proxyOrigin: "http://127.0.0.1:4000",
     },
@@ -229,6 +310,23 @@ async function findFreePort() {
   if (!address || typeof address === "string") throw new Error("Could not allocate a preview test port");
   await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   return address.port;
+}
+
+function listenServer(server: net.Server, port: number) {
+  return new Promise<number>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") reject(new Error("Could not allocate a preview test port"));
+      else resolve(address.port);
+    });
+  });
+}
+
+function closeServer(server: net.Server) {
+  return new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
 }
 
 function readModuleScriptSource(html: string) {

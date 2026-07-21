@@ -122,7 +122,8 @@ describe("preview preparation", () => {
       workspaceRoot,
       server: {
         host: "127.0.0.1",
-        port: 6000,
+        preferredPort: 6000,
+        fallbackStartPort: 6001,
         basePath: "/env/react%20env/",
         proxyOrigin: "http://127.0.0.1:4000",
       },
@@ -173,7 +174,8 @@ describe("preview preparation", () => {
       workspaceRoot,
       server: {
         host: "127.0.0.1",
-        port: 6000,
+        preferredPort: 6000,
+        fallbackStartPort: 6001,
         basePath: "/env/static/",
         proxyOrigin: "http://127.0.0.1:4000",
       },

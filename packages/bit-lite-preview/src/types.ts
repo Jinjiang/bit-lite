@@ -16,7 +16,8 @@ export type PreviewPackageAlias = {
 export type PreviewPreparedRuntime = JsonObject & {
   server: {
     host: string;
-    port: number;
+    preferredPort: number;
+    fallbackStartPort: number;
     basePath: string;
     proxyOrigin: string;
   };

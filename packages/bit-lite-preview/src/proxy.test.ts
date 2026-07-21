@@ -1,7 +1,8 @@
 import http from "node:http";
 import net from "node:net";
-import { describe, expect, it } from "vitest";
-import { PreviewProxyServer } from "./proxy.js";
+import { ProxyServer } from "bit-lite-proxy";
+import { describe, expect, it, vi } from "vitest";
+import { createPreviewServiceRoutes, PreviewProxyServer, PreviewProxyState } from "./proxy.js";
 
 describe("preview proxy", () => {
   it("publishes overview, docs, and named-demo hash routes and failed env state", async () => {
@@ -148,6 +149,103 @@ describe("preview proxy", () => {
     expect(response).toContain("101 Switching Protocols");
     expect(response).toContain("preview-ready");
     expect(receivedUrl).toBe("/env/react%20env/__vite_hmr");
+
+    await proxy.close();
+    await new Promise<void>((resolve, reject) => upstream.close((error) => (error ? reject(error) : resolve())));
+  });
+
+  it("awaits one cold activation for concurrent direct child requests and preserves each URL", async () => {
+    const env = selectedEnv("lazy env");
+    const receivedUrls: string[] = [];
+    const upstream = http.createServer((request, response) => {
+      receivedUrls.push(request.url ?? "");
+      response.end("lazy-ready");
+    });
+    const upstreamPort = await listen(upstream);
+    const state = new PreviewProxyState({
+      envs: [{ env, taskId: "lazy", vendor: "vite-preview", status: "idle", components: [] }],
+    });
+    const activate = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      state.updateServer(
+        env,
+        {
+          origin: `http://127.0.0.1:${upstreamPort}`,
+          host: "127.0.0.1",
+          port: upstreamPort,
+          basePath: "/env/lazy%20env/",
+        },
+        "vite-preview"
+      );
+    });
+    let activation: Promise<void> | undefined;
+    const proxy = new ProxyServer().addRoutes(createPreviewServiceRoutes(state, {
+      ensureStarted() {
+        activation ??= activate();
+        return activation;
+      },
+    }));
+    const endpoint = await proxy.start("127.0.0.1", 43_300);
+
+    const unknown = await fetch(`${endpoint.origin}/env/unknown/asset.js`);
+    expect(unknown.status).toBe(404);
+    expect(activate).not.toHaveBeenCalled();
+
+    const [script, style] = await Promise.all([
+      fetch(`${endpoint.origin}/env/lazy%20env/assets/app.js?cold=1`),
+      fetch(`${endpoint.origin}/env/lazy%20env/assets/app.css?cold=2`),
+    ]);
+    expect(await script.text()).toBe("lazy-ready");
+    expect(await style.text()).toBe("lazy-ready");
+    expect(activate).toHaveBeenCalledOnce();
+    expect(receivedUrls.sort()).toEqual([
+      "/env/lazy%20env/assets/app.css?cold=2",
+      "/env/lazy%20env/assets/app.js?cold=1",
+    ]);
+
+    await proxy.close();
+    await new Promise<void>((resolve, reject) => upstream.close((error) => (error ? reject(error) : resolve())));
+  });
+
+  it("allows a WebSocket upgrade to be the first activation traffic", async () => {
+    const env = selectedEnv("socket env");
+    const upstream = http.createServer();
+    upstream.on("upgrade", (request, socket) => {
+      socket.end(
+        "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n" +
+        `activated:${request.url}`
+      );
+    });
+    const upstreamPort = await listen(upstream);
+    const state = new PreviewProxyState({
+      envs: [{ env, taskId: "socket", vendor: "vite-preview", status: "idle", components: [] }],
+    });
+    const activate = vi.fn(async () => {
+      state.updateServer(
+        env,
+        {
+          origin: `http://127.0.0.1:${upstreamPort}`,
+          host: "127.0.0.1",
+          port: upstreamPort,
+          basePath: "/env/socket%20env/",
+        },
+        "vite-preview"
+      );
+    });
+    const proxy = new ProxyServer().addRoutes(createPreviewServiceRoutes(state, { ensureStarted: activate }));
+    const endpoint = await proxy.start("127.0.0.1", 43_400);
+
+    const response = await rawRequest(endpoint.port, [
+      "GET /env/socket%20env/__vite_hmr HTTP/1.1",
+      `Host: ${endpoint.host}:${endpoint.port}`,
+      "Connection: Upgrade",
+      "Upgrade: websocket",
+      "",
+      "",
+    ].join("\r\n"));
+    expect(response).toContain("101 Switching Protocols");
+    expect(response).toContain("activated:/env/socket%20env/__vite_hmr");
+    expect(activate).toHaveBeenCalledOnce();
 
     await proxy.close();
     await new Promise<void>((resolve, reject) => upstream.close((error) => (error ? reject(error) : resolve())));

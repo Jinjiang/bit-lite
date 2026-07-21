@@ -174,6 +174,85 @@ describe("vendor task helpers", () => {
     }
   });
 
+  it("keeps a deferred task idle and coalesces concurrent activation into one worker", async () => {
+    const options = createTaskOptions(createDeferredVendorUrl(), ["--watch"]);
+    const tasks = await createWatchVendorTasks<TestServiceResult>([options], {
+      serviceId: "test",
+      label: "Test",
+      activation: "deferred",
+      formatResult(result) {
+        const formatted = formatTestRunResult(result);
+        return formatted instanceof Error ? formatted : [formatted.summary];
+      },
+    });
+    const task = tasks[0]!;
+    const id = task.id;
+    const output: string[] = [];
+    const unsubscribe = task.onOutput?.((_stream, chunk) => output.push(chunk.toString("utf8")));
+
+    try {
+      expect(task.status).toBe("idle");
+      expect(task.canAttach).toBe(false);
+      expect(task.details).toEqual([]);
+
+      const firstActivation = task.activate();
+      const secondActivation = task.activate();
+      expect(secondActivation).toBe(firstActivation);
+      expect(task.id).toBe(id);
+      expect(task.canAttach).toBe(true);
+
+      await Promise.all([firstActivation, secondActivation]);
+      await vi.waitFor(() => expect(task.details).toEqual(["1 component(s)"]));
+      await vi.waitFor(() => expect(output.join("")).toContain("deferred worker started"));
+      expect(task.id).toBe(id);
+      expect(task.status).toBe("ready");
+    } finally {
+      unsubscribe?.();
+      await stopVendorTasks(tasks);
+    }
+  });
+
+  it("stops an idle deferred task without making it attachable or activatable", async () => {
+    const tasks = await createWatchVendorTasks<TestServiceResult>(
+      [createTaskOptions(createDeferredVendorUrl(), ["--watch"])],
+      {
+        serviceId: "test",
+        label: "Test",
+        activation: "deferred",
+        formatResult: () => [],
+      }
+    );
+    const task = tasks[0]!;
+
+    await task.stop();
+
+    expect(await task.exitPromise).toBe(0);
+    expect(task.status).toBe("stopped");
+    expect(task.canAttach).toBe(false);
+    await expect(task.activate()).rejects.toThrow("cannot activate after it was stopped");
+  });
+
+  it("stops a worker when shutdown races with deferred activation", async () => {
+    const tasks = await createWatchVendorTasks<TestServiceResult>(
+      [createTaskOptions(createSlowDeferredVendorUrl(), ["--watch"])],
+      {
+        serviceId: "test",
+        label: "Test",
+        activation: "deferred",
+        formatResult: () => [],
+      }
+    );
+    const task = tasks[0]!;
+    void task.result.catch(() => undefined);
+    const activation = task.activate();
+
+    await task.stop();
+
+    await expect(activation).rejects.toThrow();
+    expect(await task.exitPromise).toBe(0);
+    expect(task.status).toBe("stopped");
+  });
+
   it("derives otherwise identical task IDs from the context service", async () => {
     const testOptions = createTaskOptions(testVendorUrl, ["--watch"]);
     const previewOptions = {
@@ -359,6 +438,7 @@ function createFakeTask(
     rawOutput: new RawOutputBuffer(),
     result: new Promise(() => undefined),
     exitPromise: Promise.resolve(0 as const),
+    activate: vi.fn(async () => undefined),
     postMessage() {},
     writeInput,
     canAttach: true,
@@ -521,6 +601,50 @@ function createMixedResultsVendorUrl() {
       id: "mixed-results",
       label: "Mixed Results",
       hint: "Mixed fixture",
+      moduleUrl: ${JSON.stringify(targetModule)}
+    };
+  `);
+}
+
+function createDeferredVendorUrl() {
+  const targetModule = toDataModule(`
+    export default function start(runtime) {
+      console.log("deferred worker started");
+      const componentIds = runtime.data.components.map((component) => component.id);
+      runtime.postMessage({ type: "ready" });
+      runtime.postMessage({ type: "result", data: {
+        mode: "watch",
+        run: 1,
+        summary: componentIds.length + " component(s)",
+        componentIds,
+        observed: {},
+      }});
+      return { stop() {} };
+    }
+  `);
+  return toDataModule(`
+    export const meta = {
+      id: "deferred-fixture",
+      label: "Deferred Fixture",
+      hint: "Deferred fixture",
+      moduleUrl: ${JSON.stringify(targetModule)}
+    };
+  `);
+}
+
+function createSlowDeferredVendorUrl() {
+  const targetModule = toDataModule(`
+    export default async function start(runtime) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      runtime.postMessage({ type: "ready" });
+      return { stop() {} };
+    }
+  `);
+  return toDataModule(`
+    export const meta = {
+      id: "slow-deferred-fixture",
+      label: "Slow Deferred Fixture",
+      hint: "Slow deferred fixture",
       moduleUrl: ${JSON.stringify(targetModule)}
     };
   `);

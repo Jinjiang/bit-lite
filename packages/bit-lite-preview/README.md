@@ -37,11 +37,34 @@ derive from the package reference, while public `/env/<package-name>/` routes
 remain unchanged for this single-version phase.
 
 The preview command passes selected canonical `WorkspaceComponent` objects in
-the common vendor data and keeps generated files, server coordinates, and
+the common vendor data and keeps generated files, server binding hints, and
 package aliases in command-specific runtime. The parent owns discovery, mounter
 and docs-template resolution, routes, proxy state, and cleanup. Preview vendors
-report produced readiness/lifecycle data only; they do not echo env, server,
-config, or component identity.
+report produced readiness/lifecycle data only; they do not echo env, config, or
+component identity. The server portion is a binding-hint contract rather than a
+claimed active endpoint:
+
+```ts
+server: {
+  host: string;
+  preferredPort: number;
+  fallbackStartPort: number;
+  basePath: string;
+  proxyOrigin: string;
+}
+```
+
+A successful vendor result must include `{ mode: "serve", port }`, where `port`
+is the positive integer port actually bound. The proxy publishes an upstream
+only after validating that result.
+
+Preview service routes can exist while an env is `idle`. When supplied with an
+activation callback, every HTTP request or WebSocket upgrade under a registered
+env namespace awaits the same activation before proxying unchanged traffic.
+Root, manifest, unknown-env, and unrelated routes do not activate an env.
+Manifest state distinguishes `idle`, `starting`, `ready`, `failed`, and
+`stopped`, preserves prepared navigation before startup, and omits `server`
+until a validated actual port exists.
 
 ```sh
 pnpm --filter bit-lite-preview test

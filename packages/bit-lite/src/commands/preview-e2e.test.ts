@@ -93,7 +93,8 @@ describe("prepared preview end-to-end", () => {
         workspaceRoot,
         server: {
           host: "127.0.0.1",
-          port: vendorPort,
+          preferredPort: vendorPort,
+          fallbackStartPort: vendorPort + 1,
           basePath: `/env/${variant.name}/`,
           proxyOrigin: proxy.origin,
         },
@@ -108,12 +109,14 @@ describe("prepared preview end-to-end", () => {
       const harness = createHarness(env, prepared, workspaceRoot, component);
       const handle = await variant.startVendor(harness.runtime as never);
       stopVendor = () => handle.stop?.();
+      const result = harness.messages.find((message) => message.type === "result");
+      if (result?.type !== "result") throw new Error("preview vendor did not report its actual port");
       proxy.updateServer(
         env,
         {
-          origin: `http://127.0.0.1:${vendorPort}`,
+          origin: `http://127.0.0.1:${result.data.port}`,
           host: "127.0.0.1",
-          port: vendorPort,
+          port: result.data.port,
           basePath: prepared.runtime.server.basePath,
         },
         `${variant.name}-preview`

@@ -15,8 +15,10 @@ bit-lite install --workspace <dir>
 bit-lite install --workspace <dir> --compile
 bit-lite preview --workspace <dir>
 bit-lite preview --workspace <dir> --filter <component-pattern> --port 4000
+bit-lite preview --workspace <dir> --lazy
 bit-lite start --workspace <dir>
 bit-lite start --workspace <dir> --filter <component-pattern> --port 4000
+bit-lite start --workspace <dir> --lazy
 ```
 
 Every component has an explicit `{ packageName, version }` env reference.
@@ -73,9 +75,26 @@ Public component links use hash routes under the env base, for example:
 ```
 
 Preview preparation owns docs/demo discovery and literal dynamic imports. A
-preview vendor receives server coordinates, the prepared entry/HTML paths, and
+preview vendor receives server binding hints, the prepared entry/HTML paths, and
 the current env's `{ packageName, sourceDir }` alias descriptors; it does not
 receive raw components or MDX options in runtime JSON.
+
+`preview --lazy` keeps that preparation eager so the root UI and manifest can
+show complete navigation, but leaves each env's worker, bundler, watchers, and
+internal dev server idle. The first HTTP request or WebSocket upgrade anywhere
+under a known `/env/<encoded-env>/...` namespace starts exactly that env and
+waits before forwarding the original traffic. This includes direct assets,
+lazy chunks, Vite HMR, and Webpack HMR. The first request therefore pays cold
+worker and initial-build latency. Concurrent cold traffic shares one activation;
+an activation failure is cached for that command run and is not retried by page
+refreshes.
+
+Lazy manifest entries progress through `idle`, `starting`, `ready`, `failed`,
+and `stopped`. Prepared component links and deterministic port preferences are
+available while idle, but an actual upstream is published only after the vendor
+reports the port it bound. The internal preferred range starts at 6000 in stable
+env order; conflicts fall back after the complete preferred range so activating
+one env cannot consume an idle env's preferred port.
 
 `bit-lite start` composes preview and test watch tasks for the same filtered
 component selection. It opens one public proxy and one managed terminal, keeps
@@ -84,7 +103,14 @@ proxy root. Component test pages are read-only: structured results are
 component-scoped, while terminal text is explicitly labeled as the latest
 retained output for the whole selected env and may include sibling components.
 Test watch mode is enabled automatically by `start`; a rerun control is not
-provided.
+provided. `start --lazy` applies only to preview; every configured test watch
+task still starts eagerly and shares the same fixed task array, terminal,
+proxy, and coordinated shutdown path.
+
+The first lazy version does not defer discovery or generated-file preparation,
+make tests lazy, evict active servers, retry failed activation, cap active
+servers, or combine multiple envs in one dev server. Omit `--lazy` to retain the
+default eager preview behavior.
 
 Every component on the start index also has a read-only `source` link. The
 source browser uses these start-owned routes:

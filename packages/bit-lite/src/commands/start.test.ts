@@ -21,6 +21,7 @@ vi.mock("../utils/command-selection.js", () => ({
 
 vi.mock("./preview.js", () => ({
   createPreviewCommandContribution: mocks.createPreview,
+  readPreviewLazy: (value: unknown) => value === true,
   runPreviewCommand: vi.fn(),
 }));
 
@@ -118,7 +119,11 @@ describe("runStartCommand", () => {
     await runStartCommand(parsed);
 
     expect(mocks.prepare).toHaveBeenCalledOnce();
-    expect(mocks.createPreview).toHaveBeenCalledWith(resolved, { proxy: endpoint, host: endpoint.host });
+    expect(mocks.createPreview).toHaveBeenCalledWith(resolved, {
+      proxy: endpoint,
+      host: endpoint.host,
+      activationMode: "eager",
+    });
     expect(mocks.createTest).toHaveBeenCalledWith(resolved);
     expect(mocks.proxyStart).toHaveBeenCalledOnce();
     expect(mocks.proxyAddRoutes).toHaveBeenCalledTimes(3);
@@ -129,6 +134,33 @@ describe("runStartCommand", () => {
     expect(test.dispose).toHaveBeenCalledOnce();
     expect(mocks.proxyClose).toHaveBeenCalledOnce();
     expect(mocks.stopTasks).not.toHaveBeenCalled();
+  });
+
+  it("passes lazy mode only to preview while preserving the shared selection for eager tests", async () => {
+    const parsed = createParsed(
+      ["start", "positional", "--lazy", "--custom", "value", "--", "vendor-arg"],
+      { lazy: true, custom: "value" },
+      ["positional"],
+      ["vendor-arg"]
+    );
+    const original = structuredClone(parsed);
+    const resolved = createSelection(parsed, [{ preview: {}, test: {} }]);
+    const previewTask = { id: "preview:child:vite", status: "idle" };
+    const testTask = { id: "test:child:vitest", status: "watching" };
+    mocks.prepare.mockResolvedValue(resolved);
+    mocks.createPreview.mockResolvedValue(createPreviewContribution(resolved, [previewTask]));
+    mocks.createTest.mockResolvedValue(createTestContribution(resolved, [testTask]));
+
+    await runStartCommand(parsed);
+
+    expect(mocks.createPreview).toHaveBeenCalledWith(resolved, {
+      proxy: endpoint,
+      host: endpoint.host,
+      activationMode: "lazy",
+    });
+    expect(mocks.createTest).toHaveBeenCalledWith(resolved);
+    expect(mocks.supervise.mock.calls[0]?.[0]).toEqual([previewTask, testTask]);
+    expect(parsed).toEqual(original);
   });
 
   it.each([

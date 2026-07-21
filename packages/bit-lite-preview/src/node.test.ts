@@ -5,12 +5,12 @@ describe("prepared preview runtime", () => {
   it("reads the minimal JSON contract", () => {
     expect(
       readPreviewPreparedRuntime({
-        server: { host: "127.0.0.1", port: 6000, basePath: "/env/react/", proxyOrigin: "http://127.0.0.1:4000" },
+        server: { host: "127.0.0.1", preferredPort: 6000, fallbackStartPort: 6001, basePath: "/env/react/", proxyOrigin: "http://127.0.0.1:4000" },
         prepared: { entryFile: "/tmp/entry.mjs", htmlFile: "/tmp/index.html" },
         aliases: [{ packageName: "@scope/ui.button", sourceDir: "/workspace/components/button" }],
       })
     ).toEqual({
-      server: { host: "127.0.0.1", port: 6000, basePath: "/env/react/", proxyOrigin: "http://127.0.0.1:4000" },
+      server: { host: "127.0.0.1", preferredPort: 6000, fallbackStartPort: 6001, basePath: "/env/react/", proxyOrigin: "http://127.0.0.1:4000" },
       prepared: { entryFile: "/tmp/entry.mjs", htmlFile: "/tmp/index.html" },
       aliases: [{ packageName: "@scope/ui.button", sourceDir: "/workspace/components/button" }],
     });
@@ -29,7 +29,7 @@ describe("prepared preview runtime", () => {
 
   it("rejects missing or malformed package alias descriptors", () => {
     const baseRuntime = {
-      server: { host: "127.0.0.1", port: 6000, basePath: "/env/react/", proxyOrigin: "http://127.0.0.1:4000" },
+      server: { host: "127.0.0.1", preferredPort: 6000, fallbackStartPort: 6001, basePath: "/env/react/", proxyOrigin: "http://127.0.0.1:4000" },
       prepared: { entryFile: "/tmp/entry.mjs", htmlFile: "/tmp/index.html" },
     };
 

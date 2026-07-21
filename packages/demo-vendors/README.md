@@ -19,7 +19,8 @@ from `bit-lite-compiler`; `bit-lite-vendors` supplies only the generic runtime
 and task protocol.
 
 Maintained vendors return produced data only. Test results contain run stats,
-component results, and optional coverage; preview results contain readiness;
+component results, and optional coverage; preview results contain
+`{ mode: "serve", port: <actual-bound-port> }`;
 compile results may contain artifact information or be empty. They do not echo
 env, service, vendor, arguments, config, component descriptors, server state, or
 output paths. Parent task state supplies that metadata for presentation and
@@ -38,14 +39,18 @@ The Vite and Webpack preview adapters consume the command-prepared runtime:
 
 ```ts
 {
-  server: { host, port, basePath, proxyOrigin },
+  server: { host, preferredPort, fallbackStartPort, basePath, proxyOrigin },
   prepared: { entryFile, htmlFile }
 }
 ```
 
 They load the already-resolved user `configFile`, serve one HTML document and
-one logical entry, and preserve proxy-routed HMR. Discovery, hash routing,
-rendering, and MDX options are intentionally outside the vendor.
+one logical entry, and preserve proxy-routed HMR. Each adapter first binds its
+preferred port strictly. If that port is unavailable, it retries availability
+conflicts from `fallbackStartPort` through 65535 and reports the address it
+actually bound. Invalid config, host, compiler, and other non-bind startup
+errors are not treated as port conflicts. Discovery, hash routing, rendering,
+and MDX options are intentionally outside the vendor.
 
 ```sh
 pnpm --filter demo-vendors test

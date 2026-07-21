@@ -15,7 +15,6 @@ import {
   createPreviewPresentationRoutes,
   createPreviewServiceRoutes,
   encodeRouteSegment,
-  findAvailablePort,
   preparePreviewEnv,
   PreviewProxyState,
   type PreparedPreviewEnv,
@@ -43,7 +42,8 @@ import type { ResolvedCommandSelection } from "../utils/command-selection.js";
 import type { WatchCommandContribution } from "./watch-contribution.js";
 
 export type PreviewVendorRuntime = PreviewPreparedRuntime;
-export type PreviewServiceResult = JsonObject & { mode: "serve" };
+export type PreviewServiceResult = JsonObject & { mode: "serve"; port: number };
+export type PreviewActivationMode = "eager" | "lazy";
 
 type PreparedPreviewTask = {
   options: VendorTaskStartOptions;
@@ -68,11 +68,12 @@ export type PreviewCommandContribution = WatchCommandContribution<VendorTask<unk
 export type CreatePreviewCommandContributionOptions = {
   proxy: ProxyEndpoint;
   host?: string | undefined;
+  activationMode?: PreviewActivationMode | undefined;
 };
 
 type PreviewStateWriter = Pick<
   PreviewProxyState,
-  "updatePreparedComponents" | "updatePreparationFailure"
+  "updatePreparedComponents" | "updatePreparationFailure" | "updatePortHints"
 >;
 
 const serviceId = "preview";
@@ -91,6 +92,7 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
 
   const host = readHost(parsed.args.options.host);
   const proxyPort = readPort(parsed.args.options.port, "--port", defaultProxyPort);
+  const activationMode = readPreviewLazy(parsed.args.options.lazy) ? "lazy" : "eager";
   const proxyServer = new ProxyServer();
   let contribution: PreviewCommandContribution | undefined;
   let disposed = false;
@@ -104,7 +106,7 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
 
   try {
     const proxy = await proxyServer.start(host, proxyPort);
-    contribution = await createPreviewCommandContribution(selection, { proxy, host });
+    contribution = await createPreviewCommandContribution(selection, { proxy, host, activationMode });
 
     try {
       proxyServer.addRoutes(createPreviewPresentationRoutes(contribution.state));
@@ -138,6 +140,7 @@ export async function createPreviewCommandContribution(
   selection: ResolvedCommandSelection,
   options: CreatePreviewCommandContributionOptions
 ): Promise<PreviewCommandContribution> {
+  const activationMode = options.activationMode ?? "eager";
   const groups = selection.groups;
   const previewGroups = groups.filter((group) => group.env.services.preview !== undefined);
   const unavailable = groups
@@ -152,7 +155,7 @@ export async function createPreviewCommandContribution(
       env: group.env.env,
       taskId: `${serviceId}:${getSelectedEnvKey(group.env.env)}`,
       vendor: getPreviewService(group).definition.vendor,
-      status: "starting",
+      status: activationMode === "lazy" ? "idle" : "starting",
       components: group.components,
     })),
   });
@@ -164,19 +167,10 @@ export async function createPreviewCommandContribution(
     options.host ?? options.proxy.host,
     state
   );
-  const preparedByEnv = new Map(
-    prepared.tasks.map((task) => [getSelectedEnvKey(task.prepared.env), task.prepared])
-  );
   let tasks: VendorTask<unknown, PreviewServiceResult>[] = [];
   let cleanupListeners: (() => void) | undefined;
+  const resultsByEnv = new Map<string, PreviewServiceResult>();
   let disposed = false;
-
-  const dispose = async () => {
-    if (disposed) return;
-    disposed = true;
-    cleanupListeners?.();
-    await Promise.all(prepared.tasks.map((task) => task.prepared.cleanup()));
-  };
 
   try {
     tasks = await createWatchVendorTasks<PreviewServiceResult>(
@@ -184,24 +178,78 @@ export async function createPreviewCommandContribution(
       {
         serviceId,
         label,
+        activation: "deferred",
         formatResult: formatPreviewResult,
-        onResult(_result, task) {
-          const preparedEnv = preparedByEnv.get(getSelectedEnvKey(task.context.env));
-          if (!preparedEnv) return;
-          state.updateServer(task.context.env, toPreviewServerInfo(preparedEnv.runtime), task.vendor.id);
+        onResult(result, task) {
+          resultsByEnv.set(getSelectedEnvKey(task.context.env), result);
         },
       }
     );
+    for (const task of tasks) void task.result.catch(() => undefined);
     cleanupListeners = attachPreviewTaskListeners(state, tasks);
   } catch (error) {
-    await dispose();
+    cleanupListeners?.();
+    await stopVendorTasks(tasks);
+    await Promise.all(prepared.tasks.map((task) => task.prepared.cleanup()));
     throw error;
   }
+
+  const preparedByEnv = new Map(
+    prepared.tasks.map((task) => [getSelectedEnvKey(task.prepared.env), task.prepared])
+  );
+  const tasksByEnv = new Map(tasks.map((task) => [getSelectedEnvKey(task.context.env), task]));
+  const activationPromises = new Map<string, Promise<PreviewServerInfo>>();
+
+  const ensureStarted = (env: SelectedEnvIdentity) => {
+    const key = getSelectedEnvKey(env);
+    const existing = activationPromises.get(key);
+    if (existing) return existing;
+    if (disposed) return Promise.reject(new Error(`Preview env "${env.packageName}" has stopped`));
+    const task = tasksByEnv.get(key);
+    const preparedEnv = preparedByEnv.get(key);
+    if (!task || !preparedEnv) {
+      return Promise.reject(new Error(`Preview env "${env.packageName}" is not prepared`));
+    }
+
+    state.updateTask(env, { status: "starting" });
+    const activation = (async () => {
+      try {
+        await task.activate();
+        if (disposed) throw new Error(`Preview env "${env.packageName}" stopped during activation`);
+        const result = resultsByEnv.get(key);
+        if (!result) {
+          throw new Error(`Preview vendor "${task.vendor.id}" did not report a valid actual port`);
+        }
+        const server = toPreviewServerInfo(preparedEnv.runtime, result);
+        state.updateServer(env, server, task.vendor.id);
+        return server;
+      } catch (error) {
+        if (!disposed) state.updateActivationFailure(env, error);
+        await Promise.resolve(task.stop()).catch(() => undefined);
+        throw error;
+      }
+    })();
+    activationPromises.set(key, activation);
+    return activation;
+  };
+
+  if (activationMode === "eager") {
+    for (const task of tasks) void ensureStarted(task.context.env).catch(() => undefined);
+  }
+
+  const dispose = async () => {
+    if (disposed) return;
+    disposed = true;
+    await stopVendorTasks(tasks);
+    for (const task of tasks) state.updateTask(task.context.env, { status: "stopped" });
+    cleanupListeners?.();
+    await Promise.all(prepared.tasks.map((task) => task.prepared.cleanup()));
+  };
 
   return {
     serviceId,
     tasks,
-    routes: createPreviewServiceRoutes(state),
+    routes: createPreviewServiceRoutes(state, { ensureStarted }),
     state,
     groups,
     configuredTaskCount: previewGroups.length,
@@ -222,8 +270,10 @@ export async function preparePreviewTasks(
 ) {
   const tasks: PreparedPreviewTask[] = [];
   const failures: Array<{ env: EnvContext; error: unknown }> = [];
-  let nextPort = defaultVendorPort;
-  for (const group of groups) {
+  const sortedGroups = [...groups].sort((left, right) =>
+    getSelectedEnvKey(left.env.env).localeCompare(getSelectedEnvKey(right.env.env))
+  );
+  for (const group of sortedGroups) {
     const service = getPreviewService(group);
     try {
       const vendorUrl = await resolveVendorSpecifier({
@@ -233,11 +283,10 @@ export async function preparePreviewTasks(
         selectedEnv: group.env.env.packageName,
         serviceName: serviceId,
       });
-      const port = await findAvailablePort(host, nextPort);
-      nextPort = port + 1;
       const server = {
         host,
-        port,
+        preferredPort: defaultVendorPort,
+        fallbackStartPort: defaultVendorPort,
         basePath: `/env/${encodeRouteSegment(group.env.env.packageName)}/`,
         proxyOrigin,
       };
@@ -275,7 +324,41 @@ export async function preparePreviewTasks(
       state.updatePreparationFailure(group.env.env, error);
     }
   }
+
+  let portHints: ReturnType<typeof createPreviewPortHints>;
+  try {
+    portHints = createPreviewPortHints(tasks.length);
+  } catch (error) {
+    for (const task of tasks) state.updatePreparationFailure(task.prepared.env, error);
+    await Promise.all(tasks.map((task) => task.prepared.cleanup()));
+    throw error;
+  }
+  tasks.forEach((task, index) => {
+    const hints = portHints[index]!;
+    task.prepared.runtime.server.preferredPort = hints.preferredPort;
+    task.prepared.runtime.server.fallbackStartPort = hints.fallbackStartPort;
+    state.updatePortHints(task.prepared.env, hints);
+  });
   return { tasks, failures };
+}
+
+export function createPreviewPortHints(count: number, basePort = defaultVendorPort) {
+  if (!Number.isInteger(count) || count < 0) {
+    throw new BitLiteError("preview env count must be a non-negative integer");
+  }
+  if (!Number.isInteger(basePort) || basePort <= 0 || basePort > 65535) {
+    throw new BitLiteError("preview base port must be an integer between 1 and 65535");
+  }
+  const fallbackStartPort = basePort + count;
+  if (fallbackStartPort > 65535) {
+    throw new BitLiteError(
+      `preview port range is exhausted: ${count} envs from base port ${basePort} leave no fallback port`
+    );
+  }
+  return Array.from({ length: count }, (_, index) => ({
+    preferredPort: basePort + index,
+    fallbackStartPort,
+  }));
 }
 
 function getPreviewService(group: WorkspaceEnvGroup) {
@@ -295,6 +378,7 @@ function attachPreviewTaskListeners(
       status: task.status,
     });
     return task.onMessage?.((message) => {
+      if (state.findEnvByPackageName(task.context.env.packageName)?.status === "failed") return;
       state.updateTask(task.context.env, {
         taskId: task.id,
         vendor: task.vendor.id,
@@ -311,24 +395,26 @@ function readTaskStatus(
   task: VendorTask<unknown, PreviewServiceResult>,
   message: VendorMessage<PreviewServiceResult>
 ) {
-  if (message.type === "result") return "ready";
+  if (message.type === "result" || message.type === "ready") return "starting";
+  if (message.type === "status" && message.status === "ready") return "starting";
   return task.status;
 }
 
 function formatPreviewResult(result: unknown) {
   if (!isPreviewServiceResult(result)) return new Error("Invalid preview result");
-  return ["Preview ready"];
+  return [`Preview ready on port ${result.port}`];
 }
 
 export function isPreviewServiceResult(value: unknown): value is PreviewServiceResult {
-  return isJsonObject(value) && value.mode === "serve";
+  return isJsonObject(value) && value.mode === "serve" &&
+    typeof value.port === "number" && Number.isInteger(value.port) && value.port > 0 && value.port <= 65535;
 }
 
-function toPreviewServerInfo(runtime: PreviewPreparedRuntime): PreviewServerInfo {
+function toPreviewServerInfo(runtime: PreviewPreparedRuntime, result: PreviewServiceResult): PreviewServerInfo {
   return {
-    origin: `http://${runtime.server.host}:${runtime.server.port}`,
+    origin: `http://${runtime.server.host}:${result.port}`,
     host: runtime.server.host,
-    port: runtime.server.port,
+    port: result.port,
     basePath: runtime.server.basePath,
   };
 }
@@ -356,6 +442,12 @@ export function readPreviewPort(value: CliOptionValue | undefined, optionName: s
     throw new BitLiteError(`${optionName} requires a port number between 1 and 65535`);
   }
   return port;
+}
+
+export function readPreviewLazy(value: CliOptionValue | undefined) {
+  if (value === undefined) return false;
+  if (typeof value === "boolean") return value;
+  throw new BitLiteError("--lazy requires a boolean value");
 }
 
 function readHost(value: CliOptionValue | undefined) {

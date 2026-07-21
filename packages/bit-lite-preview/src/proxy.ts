@@ -38,6 +38,8 @@ export type PreviewEnvState = {
   vendor: string;
   status: string;
   error?: string | undefined;
+  preferredPort?: number | undefined;
+  fallbackStartPort?: number | undefined;
   server?: PreviewServerInfo | undefined;
   components: PreviewProxyComponent[];
 };
@@ -78,7 +80,9 @@ export class PreviewProxyState {
 
   updateTask(envIdentity: SelectedEnvIdentity, updates: Partial<Pick<PreviewEnvState, "taskId" | "vendor" | "status">>) {
     const env = this.#envs.get(getSelectedEnvKey(envIdentity));
-    if (env) Object.assign(env, updates);
+    if (!env) return;
+    Object.assign(env, updates);
+    if (updates.status === "stopped") delete env.server;
   }
 
   updateServer(envIdentity: SelectedEnvIdentity, server: PreviewServerInfo, vendor: string) {
@@ -87,6 +91,15 @@ export class PreviewProxyState {
     env.status = "ready";
     env.vendor = vendor;
     env.server = server;
+    env.error = undefined;
+  }
+
+  updatePortHints(
+    envIdentity: SelectedEnvIdentity,
+    hints: Pick<PreviewEnvState, "preferredPort" | "fallbackStartPort">
+  ) {
+    const env = this.#envs.get(getSelectedEnvKey(envIdentity));
+    if (env) Object.assign(env, hints);
   }
 
   updatePreparedComponents(envIdentity: SelectedEnvIdentity, basePath: string, components: PreparedPreviewComponent[]) {
@@ -100,7 +113,11 @@ export class PreviewProxyState {
     if (!env) return;
     env.status = "failed";
     env.error = formatError(error);
-    env.server = undefined;
+    delete env.server;
+  }
+
+  updateActivationFailure(envIdentity: SelectedEnvIdentity, error: unknown) {
+    this.updatePreparationFailure(envIdentity, error);
   }
 
   envs() {
@@ -118,7 +135,14 @@ export class PreviewProxyState {
   }
 }
 
-export function createPreviewServiceRoutes(state: PreviewProxyState): ProxyRoute[] {
+export type PreviewServiceRoutesOptions = {
+  ensureStarted?(env: SelectedEnvIdentity): Promise<unknown>;
+};
+
+export function createPreviewServiceRoutes(
+  state: PreviewProxyState,
+  options: PreviewServiceRoutesOptions = {}
+): ProxyRoute[] {
   return [
     {
       id: "preview-envs",
@@ -133,13 +157,16 @@ export function createPreviewServiceRoutes(state: PreviewProxyState): ProxyRoute
           sendHtml(response, 404, renderMessagePage("Not found", "This preview route is not registered."));
           return;
         }
+        if (!env.server && env.status !== "failed" && env.status !== "stopped" && options.ensureStarted) {
+          await options.ensureStarted(env.env).catch(() => undefined);
+        }
         if (!env.server) {
           response.setHeader("Retry-After", "1");
           sendHtml(
             response,
             503,
             renderMessagePage(
-              env.status === "failed" ? "Preview preparation failed" : "Preview is starting",
+              env.status === "failed" ? "Preview failed" : "Preview is starting",
               env.error ?? `${env.env.packageName} is ${env.status}.`
             )
           );
@@ -156,9 +183,12 @@ export function createPreviewServiceRoutes(state: PreviewProxyState): ProxyRoute
           }
         }
       },
-      handleUpgrade(request, socket, head, context) {
+      async handleUpgrade(request, socket, head, context) {
         const packageName = readEnvPackageName(context.url.pathname);
         const env = packageName === undefined ? undefined : state.findEnvByPackageName(packageName);
+        if (env && !env.server && env.status !== "failed" && env.status !== "stopped" && options.ensureStarted) {
+          await options.ensureStarted(env.env).catch(() => undefined);
+        }
         if (!env?.server) {
           socket.write("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
           socket.destroy();
@@ -225,12 +255,23 @@ export class PreviewProxyServer {
     this.#state.updateServer(envIdentity, server, vendor);
   }
 
+  updatePortHints(
+    envIdentity: SelectedEnvIdentity,
+    hints: Pick<PreviewEnvState, "preferredPort" | "fallbackStartPort">
+  ) {
+    this.#state.updatePortHints(envIdentity, hints);
+  }
+
   updatePreparedComponents(envIdentity: SelectedEnvIdentity, basePath: string, components: PreparedPreviewComponent[]) {
     this.#state.updatePreparedComponents(envIdentity, basePath, components);
   }
 
   updatePreparationFailure(envIdentity: SelectedEnvIdentity, error: unknown) {
     this.#state.updatePreparationFailure(envIdentity, error);
+  }
+
+  updateActivationFailure(envIdentity: SelectedEnvIdentity, error: unknown) {
+    this.#state.updateActivationFailure(envIdentity, error);
   }
 
   manifest() {

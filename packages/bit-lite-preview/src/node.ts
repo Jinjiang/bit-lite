@@ -35,6 +35,7 @@ export type {
   PreviewProxyComponent,
   PreviewProxyManifest,
   PreviewProxyStateOptions,
+  PreviewServiceRoutesOptions,
   PreviewServerInfo,
 } from "./proxy.js";
 
@@ -47,14 +48,13 @@ export function readPreviewPreparedRuntime(runtime: JsonObject | undefined): Pre
   if (!isRecord(prepared)) throw new Error("preview vendor runtime.prepared is missing");
   if (!Array.isArray(aliases)) throw new Error("preview vendor runtime.aliases is missing");
 
-  const { host, port, basePath, proxyOrigin } = server;
+  const { host, preferredPort, fallbackStartPort, basePath, proxyOrigin } = server;
   const { entryFile, htmlFile } = prepared;
   if (typeof host !== "string" || host.length === 0) {
     throw new Error("preview vendor runtime.server.host is missing");
   }
-  if (typeof port !== "number" || !Number.isInteger(port)) {
-    throw new Error("preview vendor runtime.server.port is missing");
-  }
+  readPort(preferredPort, "preferredPort");
+  readPort(fallbackStartPort, "fallbackStartPort");
   if (typeof basePath !== "string" || !basePath.startsWith("/")) {
     throw new Error("preview vendor runtime.server.basePath is missing");
   }
@@ -70,10 +70,19 @@ export function readPreviewPreparedRuntime(runtime: JsonObject | undefined): Pre
   const packageAliases = aliases.map(readPackageAlias);
 
   return {
-    server: { host, port, basePath, proxyOrigin },
+    server: { host, preferredPort, fallbackStartPort, basePath, proxyOrigin },
     prepared: { entryFile, htmlFile },
     aliases: packageAliases,
   };
+}
+
+function readPort(
+  value: unknown,
+  field: "preferredPort" | "fallbackStartPort"
+): asserts value is number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0 || value > 65535) {
+    throw new Error(`preview vendor runtime.server.${field} must be an integer between 1 and 65535`);
+  }
 }
 
 function readPackageAlias(value: unknown, index: number): PreviewPackageAlias {

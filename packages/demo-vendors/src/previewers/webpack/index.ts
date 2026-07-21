@@ -98,10 +98,15 @@ export default async function startWebpackPreviewVendor(
       });
     });
 
-    await listen(server, previewRuntime.server.host, previewRuntime.server.port);
+    const actualPort = await listenOnPreviewPort(
+      server,
+      previewRuntime.server.host,
+      previewRuntime.server.preferredPort,
+      previewRuntime.server.fallbackStartPort
+    );
     await waitUntilValid(middleware);
 
-    const data = createPreviewServiceResult();
+    const data = createPreviewServiceResult(actualPort);
     runtime.postMessage({ type: "result", data });
     runtime.postMessage({ type: "status", status: "ready" });
     return { stop };
@@ -243,6 +248,42 @@ function listen(server: Server, host: string, port: number) {
     server.once("listening", handleListening);
     server.listen(port, host);
   });
+}
+
+async function listenOnPreviewPort(
+  server: Server,
+  host: string,
+  preferredPort: number,
+  fallbackStartPort: number
+) {
+  try {
+    await listen(server, host, preferredPort);
+    return readServerPort(server);
+  } catch (error) {
+    if (!isPortUnavailableError(error)) throw error;
+  }
+
+  for (let port = fallbackStartPort; port <= 65535; port += 1) {
+    try {
+      await listen(server, host, port);
+      return readServerPort(server);
+    } catch (error) {
+      if (!isPortUnavailableError(error)) throw error;
+    }
+  }
+  throw new Error(`No available preview port found at or after ${fallbackStartPort}`);
+}
+
+function readServerPort(server: Server) {
+  const address = server.address();
+  if (!address || typeof address === "string" || !Number.isInteger(address.port) || address.port <= 0) {
+    throw new Error("Webpack preview server did not expose its actual bound port");
+  }
+  return address.port;
+}
+
+function isPortUnavailableError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "EADDRINUSE";
 }
 
 function closeMiddleware(middleware: WebpackPreviewMiddleware | undefined) {
