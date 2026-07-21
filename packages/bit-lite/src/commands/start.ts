@@ -14,6 +14,12 @@ import {
   type PreviewCommandContribution,
   type PreviewUnavailableGroup,
 } from "./preview.js";
+import {
+  createStartSourceCatalog,
+  createStartSourceRoute,
+  createStartSourceRoutes,
+  type StartSourceCatalog,
+} from "./start-source.js";
 import { createTestWatchContribution, type TestWatchContribution } from "./test.js";
 
 const startShellHtml = readFileSync(new URL("../assets/start-shell.html", import.meta.url), "utf8");
@@ -23,6 +29,9 @@ const defaultPort = 4000;
 export type StartManifestComponent = {
   componentId: string;
   env: SelectedEnvIdentity;
+  source: {
+    route: string;
+  };
   preview?: PreviewProxyComponent | undefined;
   test?: {
     taskId: string;
@@ -57,6 +66,7 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
   const host = readHost(parsed.args.options.host);
   const port = readPort(parsed.args.options.port, "--port", defaultPort);
   const proxyServer = new ProxyServer();
+  const sourceCatalog = createStartSourceCatalog(selection.components);
   let preview: PreviewCommandContribution | undefined;
   let test: TestWatchContribution | undefined;
   let resourcesDisposed = false;
@@ -75,7 +85,7 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
     preview = await createPreviewCommandContribution(selection, { proxy: endpoint, host });
     test = await createTestWatchContribution(selection);
 
-    proxyServer.addRoutes(createStartRoutes(endpoint, preview, test));
+    proxyServer.addRoutes(createStartRoutes(endpoint, preview, test, sourceCatalog));
     proxyServer.addRoutes(preview.routes);
     proxyServer.addRoutes(test.routes);
 
@@ -114,7 +124,7 @@ export function createStartManifest(
     const key = JSON.stringify([componentId, getSelectedEnvKey(env)]);
     let component = components.get(key);
     if (!component) {
-      component = { componentId, env };
+      component = { componentId, env, source: { route: createStartSourceRoute(componentId) } };
       components.set(key, component);
     }
     return component;
@@ -166,7 +176,8 @@ export function createStartManifest(
 export function createStartRoutes(
   proxy: ProxyEndpoint,
   preview: PreviewCommandContribution,
-  test: TestWatchContribution
+  test: TestWatchContribution,
+  sourceCatalog: StartSourceCatalog
 ): ProxyRoute[] {
   return [
     {
@@ -193,6 +204,7 @@ export function createStartRoutes(
         sendJson(response, createStartManifest(proxy, preview, test));
       },
     },
+    ...createStartSourceRoutes(sourceCatalog),
   ];
 }
 

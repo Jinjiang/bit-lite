@@ -7,6 +7,7 @@ import { stopVendorTasks } from "bit-lite-vendors";
 import { describe, expect, it, vi } from "vitest";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
 import { createPreviewCommandContribution } from "./preview.js";
+import { createStartSourceCatalog } from "./start-source.js";
 import { createStartRoutes } from "./start.js";
 import { createTestWatchContribution } from "./test.js";
 
@@ -33,7 +34,7 @@ describe("start end-to-end", () => {
 
       preview = await createPreviewCommandContribution(selection, { proxy: endpoint, host: endpoint.host });
       test = await createTestWatchContribution(selection);
-      proxy.addRoutes(createStartRoutes(endpoint, preview, test));
+      proxy.addRoutes(createStartRoutes(endpoint, preview, test, createStartSourceCatalog(selection.components)));
       proxy.addRoutes(preview.routes);
       proxy.addRoutes(test.routes);
 
@@ -46,7 +47,9 @@ describe("start end-to-end", () => {
 
       const rootResponse = await fetch(`${endpoint.origin}/`);
       expect(rootResponse.status).toBe(200);
-      expect(await rootResponse.text()).toContain("bit-lite start");
+      const rootHtml = await rootResponse.text();
+      expect(rootHtml).toContain("bit-lite start");
+      expect(rootHtml).toContain('link("source", component.source.route)');
       const manifest = await fetch(`${endpoint.origin}/__bit-lite/manifest.json`).then((response) => response.json());
       expect(manifest.components[0]).toMatchObject({
         componentId: "components/sample",
@@ -55,9 +58,44 @@ describe("start end-to-end", () => {
           requestedVersion: "1.0.0",
           installedVersion: "1.0.0",
         },
+        source: { route: "/source?component=components%2Fsample" },
         test: { vendor: "vitest" },
       });
       expect(JSON.stringify(manifest)).not.toContain("envName");
+
+      const sourcePage = await fetch(new URL(manifest.components[0].source.route, endpoint.origin));
+      expect(sourcePage.status).toBe(200);
+      expect(await sourcePage.text()).toContain("Component source");
+      const sourceIndexUrl = new URL("/__bit-lite/source-files.json", endpoint.origin);
+      sourceIndexUrl.searchParams.set("component", "components/sample");
+      const sourceIndex = await fetch(sourceIndexUrl).then((response) => response.json());
+      expect(sourceIndex).toMatchObject({
+        componentId: "components/sample",
+        mainFile: "index.ts",
+      });
+      expect(sourceIndex.files.map((file: { path: string }) => file.path)).toEqual(expect.arrayContaining([
+        ".comp.json",
+        "index.ts",
+        "sample.demo.ts",
+        "sample.docs.mdx",
+      ]));
+      const sourceFileUrl = new URL("/__bit-lite/source-file.json", endpoint.origin);
+      sourceFileUrl.searchParams.set("component", "components/sample");
+      sourceFileUrl.searchParams.set("path", "index.ts");
+      const initialSource = await fetch(sourceFileUrl).then((response) => response.json());
+      expect(initialSource).toMatchObject({
+        path: "index.ts",
+        kind: "text",
+        content: "export const add = (a: number, b: number) => a + b;\n",
+      });
+      await writeFile(
+        path.join(workspaceRoot, "components", "sample", "index.ts"),
+        "export const add = (a: number, b: number) => a + b; // source browser refresh\n",
+        "utf8"
+      );
+      const updatedSource = await fetch(sourceFileUrl).then((response) => response.json());
+      expect(updatedSource).toMatchObject({ kind: "text" });
+      expect(updatedSource.content).toContain("source browser refresh");
 
       const basePath = "/env/%40fixture%2Fenv-child/";
       const previewResponse = await fetch(`${endpoint.origin}${basePath}`);

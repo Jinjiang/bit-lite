@@ -72,6 +72,25 @@ retained output for the whole selected env and may include sibling components.
 Test watch mode is enabled automatically by `start`; a rerun control is not
 provided.
 
+Every component on the start index also has a read-only `source` link. The
+source browser uses these start-owned routes:
+
+```txt
+/source?component=<component-id>
+/__bit-lite/source-files.json?component=<component-id>
+/__bit-lite/source-file.json?component=<component-id>&path=<relative-path>
+```
+
+Source access is limited to the canonical components selected by the current
+command and its `--filter` values. File responses expose only component-relative
+POSIX paths; they never expose absolute workspace paths. The index includes
+regular component files but ignores symlinks and prunes `.git`, `.bit-lite`,
+`node_modules`, `dist`, `build`, and `coverage` directories. UTF-8 text files up
+to 1 MiB can be viewed. Invalid UTF-8 or NUL-containing files are reported as
+binary, and larger files are listed with an explicit `too-large` state rather
+than returning partial content. Index and content reads are uncached, so a
+refresh observes source edits made while `bit-lite start` remains running.
+
 Every command uses the common vendor envelope `{ context, components, config,
 runtime? }`. Version-1 context contains the base workspace, all parsed argument
 forms, selected env identity, service name, and declaring-service package

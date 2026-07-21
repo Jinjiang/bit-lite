@@ -3,6 +3,7 @@ import { ProxyServer } from "bit-lite-proxy";
 import { RawOutputBuffer } from "bit-lite-terminal";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createResultStore } from "../utils/result-store.js";
+import { createStartSourceCatalog } from "./start-source.js";
 import { createStartManifest, createStartRoutes } from "./start.js";
 import { createTestResultRoutes, readComponentTestSnapshot, serializeTerminalOutput } from "./test-routes.js";
 import type { PreviewCommandContribution } from "./preview.js";
@@ -117,18 +118,32 @@ describe("start and test routes", () => {
       {
         componentId: "scope/preview",
         env: selectedEnv("child-env"),
+        source: { route: "/source?component=scope%2Fpreview" },
         preview: { overviewRoute: "/env/child-env/#scope%2Fpreview" },
         test: { status: "watching" },
       },
-      { componentId: "scope/test-only", env: selectedEnv("child-env"), test: { status: "watching" } },
+      {
+        componentId: "scope/source-only",
+        env: selectedEnv("child-env"),
+        source: { route: "/source?component=scope%2Fsource-only" },
+      },
+      {
+        componentId: "scope/test-only",
+        env: selectedEnv("child-env"),
+        source: { route: "/source?component=scope%2Ftest-only" },
+        test: { status: "watching" },
+      },
     ]);
+    expect(first.components[1]).not.toHaveProperty("preview");
+    expect(first.components[1]).not.toHaveProperty("test");
     expect(first.preview.unavailable).toEqual([]);
     expect(JSON.stringify(first)).not.toContain("envName");
     test.tasks[0]!.status = "running";
     expect(createStartManifest(endpoint, preview, test).tests[0]?.status).toBe("running");
 
     const server = track(new ProxyServer());
-    server.addRoutes(createStartRoutes(endpoint, preview, test));
+    const sourceCatalog = createStartSourceCatalog(preview.groups.flatMap((group) => group.components));
+    server.addRoutes(createStartRoutes(endpoint, preview, test, sourceCatalog));
     await server.start("127.0.0.1", 47_010);
     const html = await fetch(`${server.origin}/`).then((response) => response.text());
     expect(html).toContain("bit-lite start");
@@ -137,15 +152,25 @@ describe("start and test routes", () => {
     const manifest = await fetch(`${server.origin}/__bit-lite/manifest.json`).then((response) => response.json());
     expect(manifest.tests[0].status).toBe("running");
     expect(manifest.tests[0].env).toEqual(selectedEnv("child-env"));
+    expect(manifest.components[0].source.route).toBe("/source?component=scope%2Fpreview");
   });
 
   it("ships test and shell pages as source assets", async () => {
     const testPage = await readFile(new URL("../assets/start-test.html", import.meta.url), "utf8");
     const shell = await readFile(new URL("../assets/start-shell.html", import.meta.url), "utf8");
+    const sourcePage = await readFile(new URL("../assets/start-source.html", import.meta.url), "utf8");
     expect(testPage).toContain("Latest structured result");
     expect(testPage.toLowerCase()).not.toContain("rerun");
     expect(testPage).toContain("data.env");
     expect(shell).toContain("/__bit-lite/manifest.json");
+    expect(shell).toContain("component.source.route");
+    expect(sourcePage).toContain("/__bit-lite/source-files.json");
+    expect(sourcePage).toContain("/__bit-lite/source-file.json");
+    expect(sourcePage).toContain("textContent");
+    expect(sourcePage).not.toContain("innerHTML");
+    expect(sourcePage).not.toContain("contenteditable");
+    expect(sourcePage).not.toContain("<textarea");
+    expect(sourcePage).not.toContain('method="POST"');
   });
 });
 
@@ -165,7 +190,7 @@ function createTestContribution(componentIds: string[], rawOutput = new RawOutpu
 }
 
 function createPreviewContribution(endpoint: ProxyEndpoint): PreviewCommandContribution {
-  const fixture = createFixture(["scope/preview", "scope/test-only"]);
+  const fixture = createFixture(["scope/preview", "scope/source-only", "scope/test-only"]);
   const manifest = {
     proxy: endpoint,
     envs: [

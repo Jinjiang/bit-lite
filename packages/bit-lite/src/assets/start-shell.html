@@ -70,6 +70,7 @@
         const row = element("div", "", "component");
         row.append(element("span", component.componentId, "component-id"));
         const links = element("span", "", "links");
+        links.append(link("source", component.source.route));
         if (component.preview) {
           links.append(link("overview", component.preview.overviewRoute));
           if (component.preview.docsRoute) links.append(link("docs", component.preview.docsRoute));

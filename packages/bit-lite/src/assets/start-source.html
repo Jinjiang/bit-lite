@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>bit-lite source</title>
+    <style>
+      :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #f8fafc; color: #111827; }
+      main { width: min(1440px, calc(100vw - 32px)); margin: 0 auto; padding: 24px 0 40px; }
+      header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+      .title { min-width: 0; }
+      h1 { margin: 4px 0 0; overflow-wrap: anywhere; font: 700 20px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      a, button { color: #0f766e; font: inherit; font-weight: 650; }
+      a { text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      button { padding: 0; border: 0; background: transparent; cursor: pointer; }
+      .actions { display: flex; gap: 14px; align-items: center; flex: none; }
+      .layout { display: grid; grid-template-columns: minmax(220px, 320px) minmax(0, 1fr); min-height: min(760px, calc(100vh - 104px)); overflow: hidden; background: #fff; border: 1px solid #d1d5db; border-radius: 10px; }
+      nav { overflow: auto; padding: 12px; border-right: 1px solid #e5e7eb; background: #f9fafb; }
+      .tree, .tree ul { margin: 0; padding: 0; list-style: none; }
+      .tree ul { padding-left: 14px; }
+      details > summary { padding: 4px 6px; color: #4b5563; cursor: pointer; font-size: 13px; }
+      .file { display: block; width: 100%; padding: 5px 7px; overflow: hidden; border-radius: 5px; color: #374151; text-align: left; text-overflow: ellipsis; white-space: nowrap; font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .file:hover { background: #e5e7eb; text-decoration: none; }
+      .file.active { color: #115e59; background: #ccfbf1; }
+      .viewer { min-width: 0; overflow: auto; }
+      .file-head { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #e5e7eb; background: rgba(255, 255, 255, 0.96); color: #4b5563; font-size: 12px; }
+      #path { overflow-wrap: anywhere; color: #111827; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      pre { min-width: max-content; margin: 0; padding: 16px; font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 2; }
+      .message { padding: 24px; color: #4b5563; }
+      .error { color: #b91c1c; }
+      @media (max-width: 720px) {
+        main { width: min(100% - 20px, 1440px); padding-top: 14px; }
+        header { align-items: flex-start; }
+        .layout { grid-template-columns: 1fr; min-height: 0; }
+        nav { max-height: 34vh; border-right: 0; border-bottom: 1px solid #e5e7eb; }
+        .viewer { min-height: 55vh; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="title">
+          <a href="/">← start</a>
+          <h1 id="component">Component source</h1>
+        </div>
+        <div class="actions">
+          <span id="count"></span>
+          <button id="refresh" type="button">refresh</button>
+        </div>
+      </header>
+      <section class="layout">
+        <nav aria-label="Component files"><ul id="tree" class="tree"></ul></nav>
+        <div class="viewer">
+          <div class="file-head"><span id="path">Select a file</span><span id="meta"></span></div>
+          <pre><code id="content"></code></pre>
+          <div id="message" class="message">Loading component source...</div>
+        </div>
+      </section>
+    </main>
+    <script>
+      const component = document.getElementById("component");
+      const count = document.getElementById("count");
+      const tree = document.getElementById("tree");
+      const selectedPath = document.getElementById("path");
+      const meta = document.getElementById("meta");
+      const content = document.getElementById("content");
+      const message = document.getElementById("message");
+      const refreshButton = document.getElementById("refresh");
+      const fileButtons = new Map();
+      let currentIndex;
+
+      function pageParams() {
+        return new URLSearchParams(window.location.search);
+      }
+
+      async function refresh() {
+        const params = pageParams();
+        const componentId = params.get("component");
+        if (!componentId) {
+          renderError(new Error("A component query parameter is required."));
+          return;
+        }
+        component.textContent = componentId;
+        showMessage("Loading component source...");
+        try {
+          const indexUrl = new URL("/__bit-lite/source-files.json", window.location.origin);
+          indexUrl.searchParams.set("component", componentId);
+          currentIndex = await requestJson(indexUrl);
+          count.textContent = `${currentIndex.files.length} file${currentIndex.files.length === 1 ? "" : "s"}`;
+          renderTree(currentIndex.files);
+          const requested = params.get("path");
+          const available = new Set(currentIndex.files.map((file) => file.path));
+          const initialPath = requested && available.has(requested)
+            ? requested
+            : available.has(currentIndex.mainFile)
+              ? currentIndex.mainFile
+              : currentIndex.files[0]?.path;
+          if (!initialPath) {
+            selectedPath.textContent = "No source files";
+            meta.textContent = "";
+            showMessage("No browsable source files are available for this component.");
+            return;
+          }
+          await selectFile(initialPath, requested !== initialPath, false);
+        } catch (error) {
+          renderError(error);
+        }
+      }
+
+      function renderTree(files) {
+        tree.replaceChildren();
+        fileButtons.clear();
+        const root = directoryNode();
+        for (const file of files) addFile(root, file);
+        appendDirectory(tree, root);
+      }
+
+      function directoryNode() {
+        return { directories: new Map(), files: [] };
+      }
+
+      function addFile(root, file) {
+        const segments = file.path.split("/");
+        let directory = root;
+        for (const name of segments.slice(0, -1)) {
+          if (!directory.directories.has(name)) directory.directories.set(name, directoryNode());
+          directory = directory.directories.get(name);
+        }
+        directory.files.push({ name: segments.at(-1), file });
+      }
+
+      function appendDirectory(parent, directory) {
+        for (const [name, child] of directory.directories) {
+          const item = document.createElement("li");
+          const details = document.createElement("details");
+          details.open = true;
+          const summary = document.createElement("summary");
+          summary.textContent = name;
+          const children = document.createElement("ul");
+          appendDirectory(children, child);
+          details.append(summary, children);
+          item.append(details);
+          parent.append(item);
+        }
+        for (const entry of directory.files) {
+          const item = document.createElement("li");
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "file";
+          button.textContent = entry.name;
+          button.title = entry.file.path;
+          button.addEventListener("click", () => void selectFile(entry.file.path, true, true));
+          fileButtons.set(entry.file.path, button);
+          item.append(button);
+          parent.append(item);
+        }
+      }
+
+      async function selectFile(path, updateUrl, push) {
+        if (updateUrl) {
+          const params = pageParams();
+          params.set("path", path);
+          const nextUrl = `${window.location.pathname}?${params}`;
+          window.history[push ? "pushState" : "replaceState"]({}, "", nextUrl);
+        }
+        for (const [filePath, button] of fileButtons) button.classList.toggle("active", filePath === path);
+        selectedPath.textContent = path;
+        meta.textContent = "";
+        showMessage("Loading file...");
+        try {
+          const fileUrl = new URL("/__bit-lite/source-file.json", window.location.origin);
+          fileUrl.searchParams.set("component", currentIndex.componentId);
+          fileUrl.searchParams.set("path", path);
+          const snapshot = await requestJson(fileUrl);
+          meta.textContent = formatBytes(snapshot.size);
+          if (snapshot.kind === "text") {
+            content.textContent = snapshot.content;
+            message.hidden = true;
+            return;
+          }
+          if (snapshot.kind === "too-large") {
+            showMessage(`This file exceeds the ${formatBytes(snapshot.limitBytes)} viewing limit.`);
+            return;
+          }
+          showMessage("Binary files are listed but cannot be displayed as UTF-8 source.");
+        } catch (error) {
+          renderError(error);
+        }
+      }
+
+      function showMessage(value) {
+        content.textContent = "";
+        message.textContent = value;
+        message.className = "message";
+        message.hidden = false;
+      }
+
+      function renderError(error) {
+        showMessage(error instanceof Error ? error.message : String(error));
+        message.className = "message error";
+      }
+
+      async function requestJson(url) {
+        const response = await fetch(url, { cache: "no-store" });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+        return data;
+      }
+
+      function formatBytes(value) {
+        if (value < 1024) return `${value} B`;
+        return `${(value / 1024).toFixed(value < 10240 ? 1 : 0)} KiB`;
+      }
+
+      refreshButton.addEventListener("click", () => void refresh());
+      window.addEventListener("popstate", () => void refresh());
+      void refresh();
+    </script>
+  </body>
+</html>
