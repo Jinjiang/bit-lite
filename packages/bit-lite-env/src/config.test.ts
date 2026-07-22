@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  flattenEnvDefinition,
   isSupportedEnvServiceName,
   supportedEnvServiceNames,
   validateEnvDefinition,
+  validateCompiledEnvDefinition,
   validateEnvServiceConfig,
 } from "./index.js";
 
@@ -91,5 +93,55 @@ describe("bit-lite-env static definition", () => {
     })).toThrow('field "extends" must be a valid npm package name');
     expect(() => validateEnvDefinition({ name: "@acme/env.react" }))
       .toThrow('field "services" must be an object');
+  });
+
+  it("flattens inheritance while preserving per-service dependency origins", () => {
+    const parent = flattenEnvDefinition(validateEnvDefinition({
+      name: "@acme/env.node",
+      services: {
+        test: { vendor: "parent-test" },
+        compile: { vendor: "parent-compile" },
+      },
+      config: { shared: "parent", parent: true },
+    }));
+    const child = flattenEnvDefinition(validateEnvDefinition({
+      name: "@acme/env.react",
+      extends: "@acme/env.node",
+      services: { test: { vendor: "child-test" } },
+      config: { shared: "child" },
+    }), parent);
+
+    expect(child).toEqual({
+      formatVersion: 1,
+      name: "@acme/env.react",
+      services: {
+        test: { vendor: "child-test" },
+        compile: { vendor: "parent-compile" },
+      },
+      config: { shared: "child", parent: true },
+      inheritance: ["@acme/env.node", "@acme/env.react"],
+      serviceOrigins: {
+        test: { dependencyPath: [] },
+        compile: { dependencyPath: ["@acme/env.node"] },
+      },
+    });
+    expect(validateCompiledEnvDefinition(child, "@acme/env.react")).toEqual(child);
+  });
+
+  it("rejects unsupported compiled formats and incomplete origins", () => {
+    expect(() => validateCompiledEnvDefinition({
+      formatVersion: 2,
+      name: "@acme/env.node",
+      services: {},
+      inheritance: ["@acme/env.node"],
+      serviceOrigins: {},
+    })).toThrow("format version must be 1");
+    expect(() => validateCompiledEnvDefinition({
+      formatVersion: 1,
+      name: "@acme/env.node",
+      services: { compile: { vendor: "compiler" } },
+      inheritance: ["@acme/env.node"],
+      serviceOrigins: {},
+    })).toThrow('service "compile" must define an origin');
   });
 });

@@ -102,7 +102,6 @@ describe("preview command preparation isolation", () => {
       command: "start",
       args: {
         raw: ["start", "--unknown", "value", "--", "fixture.ts"],
-        positional: [],
         options: { unknown: "value" },
         passthrough: ["fixture.ts"],
       },

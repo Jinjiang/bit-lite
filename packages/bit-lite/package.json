@@ -19,13 +19,13 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "bit-lite-compiler": "workspace:*",
     "bit-lite-context": "workspace:*",
     "bit-lite-deps": "workspace:*",
     "bit-lite-env": "workspace:*",
     "bit-lite-preview": "workspace:*",
     "bit-lite-proxy": "workspace:*",
-    "bit-lite-vendors": "workspace:*",
-    "typescript": "^6.0.3"
+    "bit-lite-vendors": "workspace:*"
   },
   "devDependencies": {
     "@mdx-js/loader": "^3.1.1",
@@ -34,6 +34,7 @@
     "demo-config": "workspace:*",
     "demo-vendors": "workspace:*",
     "swc-loader": "^0.2.6",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.8"
   }
 }

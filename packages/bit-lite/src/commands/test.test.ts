@@ -158,8 +158,7 @@ describe("test command", () => {
 
   it("enables contribution watch mode without mutating or discarding arguments", () => {
     const args = {
-      raw: ["start", "custom-positional", "--unknown", "value", "--", "fixture.ts"],
-      positional: ["custom-positional"],
+      raw: ["start", "--unknown", "value", "--", "fixture.ts"],
       options: { unknown: "value" },
       passthrough: ["fixture.ts"],
     };
@@ -168,13 +167,11 @@ describe("test command", () => {
 
     expect(effective).toEqual({
       raw: args.raw,
-      positional: args.positional,
       options: { unknown: "value", watch: true },
       passthrough: args.passthrough,
     });
     expect(effective).not.toBe(args);
     expect(effective.raw).not.toBe(args.raw);
-    expect(effective.positional).not.toBe(args.positional);
     expect(effective.passthrough).not.toBe(args.passthrough);
     expect(args.options).toEqual({ unknown: "value" });
   });
@@ -199,7 +196,6 @@ function createParsedTestArgs(
     command: "test",
     args: {
       raw,
-      positional: [],
       options: parsedOptions,
       passthrough: [],
     },

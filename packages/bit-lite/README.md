@@ -10,6 +10,7 @@ bit-lite test --workspace <dir> --filter <component-pattern>
 bit-lite test --workspace <dir> --watch
 bit-lite compile --workspace <dir>
 bit-lite compile --workspace <dir> --filter <component-pattern>
+bit-lite compile --workspace <dir> --watch
 bit-lite install --workspace <dir>
 bit-lite install --workspace <dir> --compile
 bit-lite preview --workspace <dir>
@@ -25,7 +26,8 @@ packages default-export a static JSON definition with `test`, `preview`, and/or
 `compile` services. Env JSON never owns component file patterns; vendors retain
 test/spec discovery.
 
-`bit-lite test` materializes local env components, loads JSON inheritance,
+`bit-lite test` compiles required local env components through their configured
+compiler services, loads env JSON,
 groups components by selected env package, and runs each effective
 `services.test` vendor with origin-resolved config.
 Use `--filter` to restrict the command input to matching component ids. Exact
@@ -33,14 +35,26 @@ component ids and the workspace pattern syntax (`*` and `**`) are supported, and
 the flag may be repeated.
 
 Command setup follows two workspace phases. It first reads the JSON-safe base
-`Workspace` used by install/link/materialization, then resolves the parent-only
+`Workspace` used by install/link/compilation, then resolves the parent-only
 `WorkspaceContext` needed for inherited services. Derived selections and env
 groups reuse the canonical workspace component objects.
 
-Local env components always use Bit-lite's fixed, non-configurable compiler to
-copy JSON and transpile adjacent TypeScript support files. Ordinary components
-use their own effective `services.compile`; one dependency graph may therefore
-contain different compiler vendors or configs.
+Every component, including an env component, uses the `services.compile`
+configured by its own effective env. There is no component-kind compiler
+selection in core. The demo assigns env components to `demo-env-env`, whose
+ordinary compile service points at `demo-vendors/compilers/env`; that vendor
+flattens inheritance into versioned `dist/index.json` and transpiles adjacent
+TypeScript support files.
+
+One-shot compile and `compile --watch` invoke the same default vendor entry
+through the generic runner. The compiler vendor reads
+`context.args.options.watch` and selects its run mode internally. Each compiler
+vendor owns file watching, incremental behavior, recovery, and cleanup. The
+compile command contributes caller-owned tasks and the standalone command
+supervises them centrally; a managed terminal is used only in an interactive
+session. Compile watch is intentionally not integrated into `bit-lite start`
+yet. Compile-specific contracts and validators are exported by
+`bit-lite-compiler`; `bit-lite-vendors` remains service-agnostic.
 
 Run `bit-lite compile` before preview when a component imports a workspace
 package owned by another env. Preview aliases only the current env's selected
@@ -92,8 +106,8 @@ than returning partial content. Index and content reads are uncached, so a
 refresh observes source edits made while `bit-lite start` remains running.
 
 Every command uses the common vendor envelope `{ context, components, config,
-runtime? }`. Version-1 context contains the base workspace, all parsed argument
-forms, selected env identity, service name, and declaring-service package
+runtime? }`. Version-1 context contains the base workspace,
+raw/named/passthrough argument forms, selected env identity, service name, and declaring-service package
 location. Parent orchestration consumes lifecycle options such as `--watch`,
 `--filter`, and preview server coordinates; unrecognized extension options stay
 available to vendors through `context.args.options` and passthrough arguments.

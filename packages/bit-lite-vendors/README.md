@@ -30,7 +30,7 @@ type VendorData<Config, Runtime> = {
 
 `VendorContext` is a read-only, JSON-safe, versioned extension boundary. Version
 1 contains the base `Workspace`, complete parsed CLI arguments (`raw`,
-`options`, `positional`, and `passthrough`), the selected env identity, service
+`options` and `passthrough`), the selected env identity, service
 name, and the package location that declared the service. It deliberately omits
 `WorkspaceContext`, loaded modules, lookup maps, caches, and resolver callbacks.
 Vendors should tolerate additive context fields.
@@ -54,6 +54,11 @@ Command parsers retain every argument in `context.args`. The parent still owns
 lifecycle decisions such as watch mode and preview ports, while an extension can
 read a new option such as `context.args.options.coverage` without a command-side
 adapter.
+
+Commands can use `createWatchVendorTasks()` to return caller-owned task
+contributions and call `superviseVendorTasks()` separately. This lets a
+standalone command own signals and an optional managed terminal, or a composed
+command supervise several services without nested terminals.
 
 `VendorData.runtime` is an optional JSON-only command-to-vendor channel. Preview
 uses it for `server` coordinates plus `prepared.entryFile` and

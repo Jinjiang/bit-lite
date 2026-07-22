@@ -38,9 +38,27 @@ export type EnvServiceConfigMap = {
 
 export type EnvServicesConfig = Partial<EnvServiceConfigMap>;
 
-export type EnvDefinition = {
+export type SourceEnvDefinition = {
   name: string;
   extends?: string;
   services: EnvServicesConfig;
   config?: JsonObject;
+};
+
+export type EnvDefinition = SourceEnvDefinition;
+
+export const compiledEnvFormatVersion = 1 as const;
+
+export type CompiledEnvServiceOrigin = {
+  /** Package dependency hops from the selected env package to the service-declaring package. */
+  dependencyPath: string[];
+};
+
+export type CompiledEnvDefinition = {
+  formatVersion: typeof compiledEnvFormatVersion;
+  name: string;
+  services: EnvServicesConfig;
+  config?: JsonObject;
+  inheritance: string[];
+  serviceOrigins: Partial<Record<SupportedEnvServiceName, CompiledEnvServiceOrigin>>;
 };

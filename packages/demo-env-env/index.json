@@ -1,0 +1,9 @@
+{
+  "name": "demo-env-env",
+  "services": {
+    "compile": {
+      "vendor": "demo-vendors/compilers/env",
+      "config": {}
+    }
+  }
+}

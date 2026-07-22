@@ -24,34 +24,48 @@ const parserOptions = {
 const globalOptionNames = new Set(["help", "workspace", "filter"]);
 
 export function parseCliArguments(argv: string[]): CliArguments {
-  const parsed = yargsParser(argv, parserOptions);
+  const parsed = parseArgv(argv);
+  const positional = parsed._.map(String);
+  if (positional.length > 0) throw unsupportedPositionals(positional);
 
   return {
     raw: [...argv],
-    positional: parsed._.map(String),
     options: readOptions(parsed),
     passthrough: readPassthrough(parsed),
   };
 }
 
 export function parseArgs(argv: string[]): ParsedCliArgs {
-  const parsed = parseCliArguments(argv);
-  const workspaceRoot = readWorkspaceRoot(parsed.options.workspace);
-  const componentFilters = readComponentFilters(parsed.options.filter);
-  const command = parsed.positional[0];
+  const argvResult = parseArgv(argv);
+  const positional = argvResult._.map(String);
+  const command = positional[0];
+  if (positional.length > 1) throw unsupportedPositionals(positional.slice(1));
+  const options = readOptions(argvResult);
+  const workspaceRoot = readWorkspaceRoot(options.workspace);
+  const componentFilters = readComponentFilters(options.filter);
 
   return {
     command,
     args: {
-      raw: parsed.raw,
-      positional: parsed.positional.slice(1),
-      options: readCommandOptions(parsed.options),
-      passthrough: parsed.passthrough,
+      raw: [...argv],
+      options: readCommandOptions(options),
+      passthrough: readPassthrough(argvResult),
     },
     workspaceRoot,
     componentFilters,
-    help: parsed.options.help === true,
+    help: options.help === true,
   };
+}
+
+function parseArgv(argv: string[]) {
+  return yargsParser(argv, parserOptions);
+}
+
+function unsupportedPositionals(values: string[]) {
+  return new BitLiteError(
+    `Unsupported positional argument${values.length === 1 ? "" : "s"}: ${values.join(", ")}. ` +
+    `Use --filter for component selection or place vendor arguments after --.`
+  );
 }
 
 function readWorkspaceRoot(value: CliOptionValue | undefined): string {

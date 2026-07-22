@@ -1,92 +1,246 @@
 import path from "node:path";
 import {
+  loadEnvForComponent,
   readWorkspace,
   resolveVendorSpecifier,
-  resolveWorkspace,
   selectWorkspaceComponents,
 } from "bit-lite-context";
-import { createVendorContext } from "bit-lite-vendors";
+import {
+  isCompilerVendorModule,
+  isCompileRunResult,
+  isCompileWatchResult,
+} from "bit-lite-compiler";
+import type {
+  CompileRunResult,
+  CompileVendorInput,
+  CompileWatchResult,
+} from "bit-lite-compiler";
+import {
+  createWatchVendorTasks,
+  createVendorContext,
+  runVendorTasks,
+  stopVendorTasks,
+  superviseVendorTasks,
+} from "bit-lite-vendors";
 import type {
   CliArguments,
-  ComponentContext,
+  EnvContext,
   ParsedCliArgs,
   Workspace,
   WorkspaceComponent,
 } from "bit-lite-context";
 import type {
-  JsonObject,
-  JsonValue,
-  VendorData,
-  VendorDefinition,
+  VendorTask,
+  VendorTaskStartOptions,
 } from "bit-lite-vendors";
 import { BitLiteError } from "../utils/errors.js";
-import { materializeLocalEnvComponents } from "../utils/env-component-compiler.js";
 import { getPackageDirectory, linkComponentPackages } from "./link.js";
+import type { WatchCommandContribution } from "./watch-contribution.js";
 
-export type CompileVendorRuntime = JsonObject & {
-  mainFileRelative: string;
-  distDir: string;
-};
-
-export type CompileVendorInput = VendorData<JsonObject, CompileVendorRuntime>;
-
-type CompilerVendor = {
-  meta: VendorDefinition;
-  compileComponent(input: CompileVendorInput): Promise<unknown>;
-};
+export { isCompileRunResult } from "bit-lite-compiler";
+export type { CompileVendorInput, CompileVendorRuntime } from "bit-lite-compiler";
 
 type CompileFailure = {
   component: WorkspaceComponent;
   error: Error;
 };
 
-export async function runCompileCommand(parsed: ParsedCliArgs) {
-  if (parsed.args.positional.length > 0) {
-    throw new BitLiteError("bit-lite compile does not accept positional arguments; use --filter");
-  }
+type CompilePreparation = {
+  env: EnvContext;
+  vendorUrl: string;
+  input: CompileVendorInput;
+};
 
+export type CompilePlan = {
+  components: readonly WorkspaceComponent[];
+  layers: readonly (readonly WorkspaceComponent[])[];
+};
+
+export type CompileWatchTaskBinding = {
+  task: VendorTask<unknown, CompileWatchResult>;
+  component: WorkspaceComponent;
+};
+
+export type CompileWatchContribution = WatchCommandContribution<
+  VendorTask<unknown, CompileWatchResult>
+> & {
+  plan: CompilePlan;
+  bindings: CompileWatchTaskBinding[];
+  effectiveArgs: CliArguments;
+};
+
+export async function runCompileCommand(parsed: ParsedCliArgs) {
   const workspace = await readWorkspace(parsed.workspaceRoot);
   await linkComponentPackages(workspace);
   const selectedIds = selectWorkspaceComponents(workspace, parsed.componentFilters)
     .map((component) => component.id);
+  if (parsed.args.options.watch === true) {
+    const contribution = await createCompileWatchContribution(
+      workspace,
+      selectedIds,
+      parsed.args
+    );
+    if (contribution.tasks.length === 0) {
+      console.log("No compile tasks found.");
+      await contribution.dispose();
+      return;
+    }
+    try {
+      await superviseVendorTasks(contribution.tasks, {
+        title: "bit-lite compile --watch",
+        formatStoppingMessage: (reason) => `Stopping bit-lite compile (${reason})...\n`,
+        onTasksStarted() {
+          return contribution.dispose;
+        },
+      });
+    } finally {
+      await contribution.dispose();
+    }
+    return;
+  }
   const compiled = await compileComponentPackages(workspace, selectedIds, parsed.args);
   printCompiledComponents(compiled);
+}
+
+export async function createCompileWatchContribution(
+  workspace: Workspace,
+  selectedIds: readonly string[] | undefined,
+  args: CliArguments
+): Promise<CompileWatchContribution> {
+  const effectiveArgs = createCompileWatchArguments(args);
+  const plan = createCompilePlan(workspace, selectedIds);
+  const tasks: VendorTask<unknown, CompileWatchResult>[] = [];
+  const bindings: CompileWatchTaskBinding[] = [];
+  const envCache = new Map<string, Promise<EnvContext>>();
+  let disposed = false;
+
+  const dispose = async () => {
+    if (disposed) return;
+    disposed = true;
+    await stopVendorTasks(tasks);
+  };
+
+  try {
+    for (const layer of plan.layers) {
+      const started = await Promise.allSettled(layer.map(async (component) => {
+        const taskOptions = await prepareCompileVendorTaskOptions(
+          workspace,
+          component,
+          effectiveArgs,
+          envCache
+        );
+        await validateCompileWatchVendor(taskOptions.vendorUrl, taskOptions.context.env.packageName);
+        let resolveFirstResult!: () => void;
+        const firstResult = new Promise<void>((resolve) => {
+          resolveFirstResult = resolve;
+        });
+        const [task] = await createWatchVendorTasks<CompileWatchResult>([{
+          ...taskOptions,
+          taskId: `compile:${component.id}`,
+          taskLabel: `Compile: ${component.id}`,
+        }], {
+          serviceId: "compile",
+          label: "Compile",
+          formatResult: formatCompileWatchResult,
+          onResult() {
+            resolveFirstResult();
+          },
+        });
+        if (!task) throw new BitLiteError(`compile watch task was not created for "${component.id}"`);
+        void task.result.catch(() => undefined);
+        tasks.push(task);
+        bindings.push({ task, component });
+        await Promise.race([
+          firstResult,
+          task.result.then(() => undefined),
+        ]);
+      }));
+      const failure = started.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (failure) throw failure.reason;
+    }
+  } catch (error) {
+    await dispose();
+    throw error;
+  }
+
+  return {
+    serviceId: "compile",
+    tasks,
+    routes: [],
+    plan,
+    bindings,
+    effectiveArgs,
+    dispose,
+  };
+}
+
+export function createCompileWatchArguments(args: CliArguments): CliArguments {
+  return {
+    raw: [...args.raw],
+    options: { ...args.options, watch: true },
+    passthrough: [...args.passthrough],
+  };
+}
+
+async function validateCompileWatchVendor(vendorUrl: string, selectedEnv: string) {
+  const module = await import(vendorUrl) as unknown;
+  if (!isCompilerVendorModule(module)) {
+    throw new BitLiteError(
+      `compile watch vendor for selected env "${selectedEnv}" must export meta and a default CompilerVendorStart`
+    );
+  }
+}
+
+function formatCompileWatchResult(value: unknown) {
+  if (!isCompileWatchResult(value)) return new Error("Invalid compile watch result");
+  return [
+    `run ${value.run}`,
+    ...(value.output === null ? [] : [JSON.stringify(value.output)]),
+  ];
 }
 
 export async function compileComponentPackages(
   workspace: Workspace,
   selectedIds?: string[],
-  args: CliArguments = { raw: [], positional: [], options: {}, passthrough: [] }
+  args: CliArguments = { raw: [], options: {}, passthrough: [] }
 ) {
-  await materializeLocalEnvComponents(workspace);
-  const context = await resolveWorkspace(workspace);
-  const selected = new Set(selectedIds ?? workspace.components.map((component) => component.id));
-  const ordinary = workspace.components.filter(
-    (component) => component.kind === "component" && selected.has(component.id)
-  );
-  const contextById = new Map(context.components.map((component) => [component.component.id, component]));
-  const layers = createCompileLayers(workspace, ordinary);
+  const plan = createCompilePlan(workspace, selectedIds);
   const completed: WorkspaceComponent[] = [];
   const failedPackages = new Set<string>();
   const failures: CompileFailure[] = [];
-  const vendorCache = new Map<string, Promise<CompilerVendor>>();
+  const envCache = new Map<string, Promise<EnvContext>>();
+  const effectiveArgs = createCompileRunArguments(args);
 
-  for (const layer of layers) {
+  for (const layer of plan.layers) {
     const runnable = layer.filter((component) => {
-      const blockedBy = component.internalDependencyPackageNames.find((name) => failedPackages.has(name));
+      const blockedBy = compilePrerequisitePackageNames(component)
+        .find((name) => failedPackages.has(name));
       if (!blockedBy) return true;
       failedPackages.add(component.packageName);
       failures.push({
         component,
-        error: new BitLiteError(`compile skipped because dependency "${blockedBy}" failed`),
+        error: new BitLiteError(`compile skipped because prerequisite "${blockedBy}" failed`),
       });
       return false;
     });
     const results = await Promise.allSettled(
       runnable.map(async (component) => {
-        const componentContext = contextById.get(component.id);
-        if (!componentContext) throw new BitLiteError(`component context "${component.id}" is unavailable`);
-        await compileOrdinaryComponent(workspace, component, componentContext, args, vendorCache);
+        const taskOptions = await prepareCompileVendorTaskOptions(
+          workspace,
+          component,
+          effectiveArgs,
+          envCache
+        );
+        await runVendorTasks<CompileRunResult>([taskOptions], {
+          serviceId: "compile",
+          label: "Compile",
+          formatResult(value) {
+            return isCompileRunResult(value)
+              ? value
+              : new BitLiteError(`compile vendor returned an invalid result for component "${component.id}"`);
+          },
+          printResults() {},
+        });
         return component;
       })
     );
@@ -110,75 +264,86 @@ export async function compileComponentPackages(
   return completed;
 }
 
-async function compileOrdinaryComponent(
+function createCompileRunArguments(args: CliArguments): CliArguments {
+  return {
+    raw: [...args.raw],
+    options: { ...args.options, watch: false },
+    passthrough: [...args.passthrough],
+  };
+}
+
+export function createCompilePlan(workspace: Workspace, selectedIds?: readonly string[]): CompilePlan {
+  const requested = selectedIds === undefined
+    ? [...workspace.components]
+    : selectedIds.map((id) => {
+        const component = workspace.components.find((candidate) => candidate.id === id);
+        if (!component) throw new BitLiteError(`selected component "${id}" is unavailable`);
+        return component;
+      });
+  const included = new Map(requested.map((component) => [component.packageName, component]));
+
+  for (const component of [...requested]) includeLocalEnvPrerequisites(component);
+  const components = [...included.values()];
+  return { components, layers: createCompileLayers(workspace, components) };
+
+  function includeLocalEnvPrerequisites(component: WorkspaceComponent) {
+    const packageName = component.internalEnvPackageName;
+    if (!packageName || included.has(packageName)) return;
+    const envComponent = workspace.components.find((candidate) => candidate.packageName === packageName);
+    if (!envComponent) throw new BitLiteError(`local env prerequisite "${packageName}" is unavailable`);
+    included.set(packageName, envComponent);
+    includeLocalEnvPrerequisites(envComponent);
+  }
+}
+
+export async function prepareCompileVendorTaskOptions(
   workspace: Workspace,
   component: WorkspaceComponent,
-  componentContext: ComponentContext,
   args: CliArguments,
-  vendorCache: Map<string, Promise<CompilerVendor>>
-) {
-  const service = componentContext.env.services.compile;
+  envCache = new Map<string, Promise<EnvContext>>()
+): Promise<VendorTaskStartOptions> {
+  const prepared = await prepareComponentCompiler(workspace, component, args, envCache);
+  return {
+    vendorUrl: prepared.vendorUrl,
+    context: prepared.input.context,
+    components: prepared.input.components,
+    config: prepared.input.config,
+    ...(prepared.input.runtime ? { runtime: prepared.input.runtime } : {}),
+  };
+}
+
+async function prepareComponentCompiler(
+  workspace: Workspace,
+  component: WorkspaceComponent,
+  args: CliArguments,
+  envCache: Map<string, Promise<EnvContext>>
+): Promise<CompilePreparation> {
+  const env = await loadEnvForComponent(component, workspace, envCache);
+  const service = env.services.compile;
   if (!service) {
-    throw new BitLiteError(`selected env "${componentContext.env.env.packageName}" does not define services.compile`);
+    throw new BitLiteError(`selected env "${env.env.packageName}" does not define services.compile`);
   }
   const vendorUrl = await resolveVendorSpecifier({
     specifier: service.definition.vendor,
     service,
     workspaceRoot: workspace.rootDir,
-    selectedEnv: componentContext.env.env.packageName,
+    selectedEnv: env.env.packageName,
     serviceName: "compile",
   });
-  const vendor = await loadCompilerVendor(
-    vendorUrl,
-    componentContext.env.env.packageName,
-    service.source.identity.packageName,
-    vendorCache
-  );
   const distDir = path.join(getPackageDirectory(workspace.rootDir, component.packageName), "dist");
-  const result = await vendor.compileComponent({
-    context: createVendorContext({ workspace, args, env: componentContext.env, service }),
-    components: [component],
-    config: service.definition.config ?? {},
-    runtime: {
-      mainFileRelative: component.mainFileRelative,
-      distDir,
+  return {
+    env,
+    vendorUrl,
+    input: {
+      context: createVendorContext({ workspace, args, env, service }),
+      components: [component],
+      config: service.definition.config ?? {},
+      runtime: {
+        mainFileRelative: component.mainFileRelative,
+        distDir,
+      },
     },
-  });
-  if (!isCompileProducedResult(result)) {
-    throw new BitLiteError(
-      `compile vendor "${vendor.meta.id}" returned an invalid result for component "${component.id}"`
-    );
-  }
-}
-
-async function loadCompilerVendor(
-  vendorUrl: string,
-  selectedEnv: string,
-  declaredBy: string,
-  cache: Map<string, Promise<CompilerVendor>>
-) {
-  const existing = cache.get(vendorUrl);
-  if (existing) return existing;
-  const promise = (async () => {
-    let module: unknown;
-    try {
-      module = await import(vendorUrl);
-    } catch (error) {
-      throw new BitLiteError(
-        `failed to import compile vendor for selected env "${selectedEnv}" declared by ` +
-        `"${declaredBy}" from ${vendorUrl}: ${asError(error).message}`
-      );
-    }
-    if (!isCompilerVendor(module)) {
-      throw new BitLiteError(
-        `compile vendor for selected env "${selectedEnv}" declared by "${declaredBy}" ` +
-        `must export meta: VendorDefinition and compileComponent()`
-      );
-    }
-    return module;
-  })();
-  cache.set(vendorUrl, promise);
-  return promise;
+  };
 }
 
 function createCompileLayers(workspace: Workspace, components: WorkspaceComponent[]) {
@@ -188,12 +353,12 @@ function createCompileLayers(workspace: Workspace, components: WorkspaceComponen
   const layers: WorkspaceComponent[][] = [];
   while (remaining.size > 0) {
     const layer = [...remaining.values()]
-      .filter((component) => component.internalDependencyPackageNames.every(
+      .filter((component) => compilePrerequisitePackageNames(component).every(
         (dependency) => !included.has(dependency) || completed.has(dependency)
       ))
       .sort((left, right) => left.id.localeCompare(right.id));
     if (layer.length === 0) {
-      throw new BitLiteError(`component package dependency cycle prevents compile in ${workspace.rootDir}`);
+      throw new BitLiteError(`component package or environment dependency cycle prevents compile in ${workspace.rootDir}`);
     }
     layers.push(layer);
     for (const component of layer) {
@@ -204,39 +369,16 @@ function createCompileLayers(workspace: Workspace, components: WorkspaceComponen
   return layers;
 }
 
-function isCompilerVendor(value: unknown): value is CompilerVendor {
-  return isRecord(value) && isVendorDefinition(value.meta) && typeof value.compileComponent === "function";
-}
-
-function isVendorDefinition(value: unknown): value is VendorDefinition {
-  return isRecord(value) && typeof value.id === "string" && typeof value.label === "string" &&
-    typeof value.hint === "string" && (typeof value.moduleUrl === "string" || value.moduleUrl instanceof URL);
-}
-
-export function isCompileProducedResult(value: unknown) {
-  return value === undefined || isJsonObject(value);
+function compilePrerequisitePackageNames(component: WorkspaceComponent) {
+  return [
+    ...component.internalDependencyPackageNames,
+    ...(component.internalEnvPackageName ? [component.internalEnvPackageName] : []),
+  ];
 }
 
 function printCompiledComponents(components: WorkspaceComponent[]) {
   console.log(`Compiled ${components.length} component package${components.length === 1 ? "" : "s"}.`);
   for (const component of components) console.log(`- ${component.packageName}`);
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  if (!isRecord(value)) return false;
-  return Object.values(value).every(isJsonValue);
-}
-
-function isJsonValue(value: unknown): value is JsonValue {
-  if (value === null) return true;
-  if (typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  return isJsonObject(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function asError(error: unknown) {

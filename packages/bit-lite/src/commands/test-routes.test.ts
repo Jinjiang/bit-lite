@@ -184,7 +184,7 @@ function createTestContribution(componentIds: string[], rawOutput = new RawOutpu
     groups: [fixture.group],
     resultStore: createResultStore<TestServiceResult>(),
     bindings: [{ task, componentIds }],
-    effectiveArgs: { raw: ["start"], positional: [], options: { watch: true }, passthrough: [] },
+    effectiveArgs: { raw: ["start"], options: { watch: true }, passthrough: [] },
     dispose: vi.fn(),
   };
 }
@@ -241,7 +241,7 @@ function createVendorContext(workspace: Workspace): VendorContext {
   return {
     version: 1,
     workspace,
-    args: { raw: ["start"], positional: [], options: { watch: true }, passthrough: [] },
+    args: { raw: ["start"], options: { watch: true }, passthrough: [] },
     env: selectedEnv("child-env"),
     service: {
       name: "test",

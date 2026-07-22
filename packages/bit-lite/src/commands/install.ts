@@ -5,7 +5,6 @@ import { readWorkspace } from "bit-lite-context";
 import { discoverPnpmWorkspacePackages, installDependencyProjects, type DependencyProject } from "bit-lite-deps";
 import { BitLiteError } from "../utils/errors.js";
 import { compileComponentPackages } from "./compile.js";
-import { materializeLocalEnvComponents } from "../utils/env-component-compiler.js";
 import {
   getComponentDependencyDirectory,
   isWorkspaceProtocolSpec,
@@ -38,7 +37,6 @@ export async function runInstallCommand(parsed: ParsedCliArgs) {
     workspacePackages,
   });
   await linkComponentPackages(workspace);
-  await materializeLocalEnvComponents(workspace);
 
   const externalRequirements = countExternalRequirements(workspace.components);
   console.log(

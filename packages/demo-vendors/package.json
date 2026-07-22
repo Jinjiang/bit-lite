@@ -65,6 +65,10 @@
     "./compilers/typescript": {
       "types": "./src/compilers/typescript/index.ts",
       "default": "./dist/compilers/typescript/index.js"
+    },
+    "./compilers/env": {
+      "types": "./src/compilers/env/index.ts",
+      "default": "./dist/compilers/env/index.js"
     }
   },
   "scripts": {
@@ -73,10 +77,14 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "bit-lite-compiler": "workspace:*",
     "bit-lite-context": "workspace:*",
+    "bit-lite-env": "workspace:*",
     "bit-lite-preview": "workspace:*",
     "bit-lite-vendors": "workspace:*",
+    "chokidar": "^5.0.0",
     "jest": "^30.4.2",
+    "typescript": "^6.0.3",
     "vite": "^8.1.2",
     "webpack": "^5.0.0",
     "webpack-dev-middleware": "^7.0.0",
@@ -85,7 +93,6 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
-    "@types/webpack-hot-middleware": "^2.25.10",
-    "typescript": "^6.0.3"
+    "@types/webpack-hot-middleware": "^2.25.10"
   }
 }

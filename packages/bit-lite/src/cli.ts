@@ -20,13 +20,13 @@ const commands: Record<string, CommandHandler> = {
 };
 
 export async function runCli(argv = process.argv.slice(2)): Promise<number> {
-  const parsed = parseArgs(argv);
-  if (parsed.help || !parsed.command) {
-    printUsage();
-    return 0;
-  }
-
   try {
+    const parsed = parseArgs(argv);
+    if (parsed.help || !parsed.command) {
+      printUsage();
+      return 0;
+    }
+
     const command = commands[parsed.command];
     if (command) {
       await command(parsed);
@@ -49,8 +49,8 @@ Usage:
   bit-lite <command> [--workspace <dir>] [--filter <component-pattern>] [...args]
 
 Commands:
-  compile noop placeholder for package compilation experiments
-  install noop placeholder for package installation experiments
+  compile compile component packages once or watch with vendor-owned --watch
+  install install/link packages and optionally compile once with --compile
   preview serve component docs and compositions
   start   serve preview and live test results in one watch session
   test    run the configured test service

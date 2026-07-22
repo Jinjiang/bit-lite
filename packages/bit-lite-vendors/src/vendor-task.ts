@@ -29,6 +29,8 @@ export type VendorTaskStartOptions = {
   components: readonly WorkspaceComponent[];
   config: VendorConfig;
   runtime?: JsonObject | undefined;
+  taskId?: string | undefined;
+  taskLabel?: string | undefined;
 };
 
 export type VendorTaskRunResult<RunResult = unknown> = {
@@ -455,10 +457,10 @@ function createStartedVendorTask<
   });
 
   const task: ManagedVendorTask<RunResult, EventResult, InputMessage> = {
-    id: `${options.context.service.name}:${getSelectedEnvKey(options.context.env)}:${vendor.id}`,
-    label: options.mode === "worker"
+    id: options.taskId ?? `${options.context.service.name}:${getSelectedEnvKey(options.context.env)}:${vendor.id}`,
+    label: options.taskLabel ?? (options.mode === "worker"
       ? `${resultOptions.label}: ${vendor.label} (${options.context.env.packageName})`
-      : `${vendor.label} (${options.context.env.packageName})`,
+      : `${vendor.label} (${options.context.env.packageName})`),
     context: options.context,
     vendor,
     serviceId: options.context.service.name,

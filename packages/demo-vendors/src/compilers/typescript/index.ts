@@ -1,15 +1,20 @@
 import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { JsonObject, VendorData, VendorDefinition } from "bit-lite-vendors";
+import type {
+  CompileVendorInput,
+  CompileVendorRuntime,
+  CompilerVendorStart,
+} from "bit-lite-compiler";
+import type {
+  VendorDefinition,
+} from "bit-lite-vendors";
+import { startCompilerWatch } from "../watch.js";
 
 type TypeScriptModule = typeof import("typescript");
 
-export type TypeScriptCompileRuntime = JsonObject & {
-  mainFileRelative: string;
-  distDir: string;
-};
+export type TypeScriptCompileRuntime = CompileVendorRuntime;
 
-export type TypeScriptCompileInput = VendorData<JsonObject, TypeScriptCompileRuntime>;
+export type TypeScriptCompileInput = CompileVendorInput;
 
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const staticAssetExtensions = new Set([".vue", ".css", ".scss", ".sass", ".less", ".json"]);
@@ -23,7 +28,17 @@ export const meta: VendorDefinition = {
   moduleUrl: import.meta.url,
 };
 
-export async function compileComponent(input: TypeScriptCompileInput) {
+const startTypeScriptCompiler: CompilerVendorStart = async (runtime) => {
+  if (runtime.data.context.args.options.watch === true) {
+    return startCompilerWatch(runtime, compileOnce);
+  }
+  const output = await compileOnce(runtime.data);
+  return { data: { output: output ?? null } };
+};
+
+export default startTypeScriptCompiler;
+
+async function compileOnce(input: TypeScriptCompileInput) {
   const component = input.components[0];
   const runtime = input.runtime;
   if (!component || input.components.length !== 1 || !runtime) {

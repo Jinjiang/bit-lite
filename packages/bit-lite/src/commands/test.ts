@@ -171,7 +171,6 @@ export async function createTestWatchContribution(
 export function createTestWatchArguments(args: CliArguments): CliArguments {
   return {
     raw: [...args.raw],
-    positional: [...args.positional],
     options: { ...args.options, watch: true },
     passthrough: [...args.passthrough],
   };

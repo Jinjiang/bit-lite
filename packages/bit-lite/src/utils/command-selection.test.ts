@@ -44,7 +44,7 @@ describe("resolved command selection", () => {
 function parsedArgs(componentFilters: string[]): ParsedCliArgs {
   return {
     command: "start",
-    args: { raw: ["start"], positional: [], options: {}, passthrough: [] },
+    args: { raw: ["start"], options: {}, passthrough: [] },
     workspaceRoot: "/workspace",
     componentFilters,
     help: false,

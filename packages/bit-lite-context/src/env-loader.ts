@@ -2,8 +2,17 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { validateEnvDefinition } from "bit-lite-env";
-import type { EnvDefinition, EnvServiceConfigMap, SupportedEnvServiceName } from "bit-lite-env";
+import {
+  isCompiledEnvDefinition,
+  validateCompiledEnvDefinition,
+  validateEnvDefinition,
+} from "bit-lite-env";
+import type {
+  CompiledEnvDefinition,
+  EnvDefinition,
+  EnvServiceConfigMap,
+  SupportedEnvServiceName,
+} from "bit-lite-env";
 import { isWorkspaceProtocolSpec } from "./config.js";
 import type {
   EnvContext,
@@ -245,6 +254,16 @@ async function buildLoadedEnv(
     const message = error instanceof Error ? error.message : String(error);
     throw new BitLiteError(`failed parsing env JSON "${canonicalEntry}": ${message}`);
   }
+  if (isCompiledEnvDefinition(parsed)) {
+    const definition = validateCompiledEnvDefinition(parsed, resolved.manifest.name);
+    return buildCompiledEnvContext(ref, resolved, canonicalEntry, definition);
+  }
+  if (resolved.manifest.bitLiteGenerated) {
+    throw new BitLiteError(
+      `generated local env "${resolved.manifest.name}" exports an uncompiled source definition; ` +
+      `compile it through its configured services.compile vendor`
+    );
+  }
   const definition = validateEnvDefinition(parsed, resolved.manifest.name);
   let parent: EnvContext | undefined;
   if (definition.extends) {
@@ -286,6 +305,96 @@ async function buildLoadedEnv(
     config,
     services,
     inheritance: [...(parent?.inheritance ?? []), source.identity],
+  };
+}
+
+async function buildCompiledEnvContext(
+  ref: PackageRef,
+  resolved: ResolvedEnvPackage,
+  canonicalEntry: string,
+  definition: CompiledEnvDefinition
+): Promise<EnvContext> {
+  const source = toPackageLocation(resolved, canonicalEntry);
+  const services: ResolvedServices = {};
+  for (const [name, service] of Object.entries(definition.services) as Array<
+    [SupportedEnvServiceName, EnvServiceConfigMap[SupportedEnvServiceName]]
+  >) {
+    const origin = definition.serviceOrigins[name];
+    if (!origin) throw new BitLiteError(`compiled env service "${name}" is missing origin metadata`);
+    const originPackage = await followDependencyPath(resolved, origin.dependencyPath, name);
+    const originEntry = await realpath(originPackage.entryPath);
+    (services as Record<string, ResolvedService>)[name] = {
+      name,
+      definition: service,
+      source: toPackageLocation(originPackage, originEntry),
+    };
+  }
+
+  return {
+    env: {
+      packageName: definition.name,
+      requestedVersion: ref.version,
+      installedVersion: resolved.manifest.version,
+    },
+    package: source,
+    config: definition.config,
+    services,
+    inheritance: await resolveCompiledInheritance(resolved, definition),
+  };
+}
+
+async function resolveCompiledInheritance(
+  selected: ResolvedEnvPackage,
+  definition: CompiledEnvDefinition
+) {
+  const identities = [{ packageName: selected.manifest.name, version: selected.manifest.version }];
+  let current = selected;
+  const ancestors = definition.inheritance.slice(0, -1).reverse();
+  for (const packageName of ancestors) {
+    current = await resolveDeclaredDependency(current, packageName, "inheritance");
+    identities.unshift({ packageName: current.manifest.name, version: current.manifest.version });
+  }
+  return identities;
+}
+
+async function followDependencyPath(
+  selected: ResolvedEnvPackage,
+  dependencyPath: readonly string[],
+  serviceName: string
+) {
+  let current = selected;
+  for (const packageName of dependencyPath) {
+    current = await resolveDeclaredDependency(current, packageName, `service "${serviceName}" origin`);
+  }
+  return current;
+}
+
+async function resolveDeclaredDependency(
+  current: ResolvedEnvPackage,
+  packageName: string,
+  label: string
+) {
+  if (current.manifest.dependencies[packageName] === undefined) {
+    throw new BitLiteError(
+      `compiled env ${label} dependency path cannot follow "${packageName}" from ` +
+      `"${current.manifest.name}" because it is not declared in dependencies`
+    );
+  }
+  try {
+    return await resolvePackageFromContext(packageName, current.packageRoot);
+  } catch (error) {
+    throw new BitLiteError(
+      `compiled env ${label} dependency path failed at "${current.manifest.name}" -> ` +
+      `"${packageName}": ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+function toPackageLocation(resolved: ResolvedEnvPackage, canonicalEntry: string): PackageLocation {
+  return {
+    identity: { packageName: resolved.manifest.name, version: resolved.manifest.version },
+    rootDir: resolved.packageRoot,
+    entryFile: canonicalEntry,
   };
 }
 

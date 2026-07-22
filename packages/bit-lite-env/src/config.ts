@@ -1,5 +1,7 @@
 import { supportedEnvServiceNames } from "./types/index.js";
 import type {
+  CompiledEnvDefinition,
+  CompiledEnvServiceOrigin,
   EnvDefinition,
   EnvServiceConfigMap,
   EnvServicesConfig,
@@ -9,6 +11,7 @@ import type {
   SupportedEnvServiceName,
   TestServiceConfig,
 } from "./types/index.js";
+import { compiledEnvFormatVersion } from "./types/index.js";
 
 const packageNamePattern = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 
@@ -51,6 +54,72 @@ export function validateEnvDefinition(value: unknown, expectedPackageName?: stri
     ...(parent ? { extends: parent } : {}),
     services,
     ...(config ? { config } : {}),
+  };
+}
+
+export function isCompiledEnvDefinition(value: unknown): value is CompiledEnvDefinition {
+  return isRecord(value) && value.formatVersion !== undefined;
+}
+
+export function validateCompiledEnvDefinition(
+  value: unknown,
+  expectedPackageName?: string
+): CompiledEnvDefinition {
+  if (!isRecord(value)) throw new BitLiteEnvConfigError("compiled env definition must be an object");
+  rejectUnknownFields(
+    value,
+    ["formatVersion", "name", "services", "config", "inheritance", "serviceOrigins"],
+    "compiled env definition"
+  );
+  if (value.formatVersion !== compiledEnvFormatVersion) {
+    throw new BitLiteEnvConfigError(
+      `compiled env format version must be ${compiledEnvFormatVersion}; received ${String(value.formatVersion)}`
+    );
+  }
+  const name = readPackageName(value.name, 'compiled env definition field "name"');
+  if (expectedPackageName !== undefined && name !== expectedPackageName) {
+    throw new BitLiteEnvConfigError(
+      `env definition name mismatch: expected "${expectedPackageName}" but received "${name}"`
+    );
+  }
+  const services = validateEnvServicesConfig(value.services);
+  const config = value.config === undefined
+    ? undefined
+    : validateJsonObject(value.config, 'compiled env definition field "config"');
+  const inheritance = readPackageNameArray(
+    value.inheritance,
+    'compiled env definition field "inheritance"'
+  );
+  if (inheritance.length === 0 || inheritance.at(-1) !== name) {
+    throw new BitLiteEnvConfigError(
+      `compiled env definition inheritance must end with selected env "${name}"`
+    );
+  }
+  if (!isRecord(value.serviceOrigins)) {
+    throw new BitLiteEnvConfigError('compiled env definition field "serviceOrigins" must be an object');
+  }
+  const serviceOrigins: CompiledEnvDefinition["serviceOrigins"] = {};
+  for (const [serviceName, origin] of Object.entries(value.serviceOrigins)) {
+    if (!isSupportedEnvServiceName(serviceName) || services[serviceName] === undefined) {
+      throw new BitLiteEnvConfigError(
+        `compiled env service origin "${serviceName}" does not match a configured service`
+      );
+    }
+    serviceOrigins[serviceName] = validateCompiledServiceOrigin(serviceName, origin);
+  }
+  for (const serviceName of Object.keys(services) as SupportedEnvServiceName[]) {
+    if (serviceOrigins[serviceName] === undefined) {
+      throw new BitLiteEnvConfigError(`compiled env service "${serviceName}" must define an origin`);
+    }
+  }
+
+  return {
+    formatVersion: compiledEnvFormatVersion,
+    name,
+    services,
+    ...(config ? { config } : {}),
+    inheritance,
+    serviceOrigins,
   };
 }
 
@@ -159,6 +228,27 @@ function readPackageName(value: unknown, label: string) {
     throw new BitLiteEnvConfigError(`${label} must be a valid npm package name`);
   }
   return value;
+}
+
+function readPackageNameArray(value: unknown, label: string) {
+  if (!Array.isArray(value)) throw new BitLiteEnvConfigError(`${label} must be an array`);
+  return value.map((item, index) => readPackageName(item, `${label}[${index}]`));
+}
+
+function validateCompiledServiceOrigin(
+  serviceName: string,
+  value: unknown
+): CompiledEnvServiceOrigin {
+  if (!isRecord(value)) {
+    throw new BitLiteEnvConfigError(`compiled env service origin "${serviceName}" must be an object`);
+  }
+  rejectUnknownFields(value, ["dependencyPath"], `compiled env service origin "${serviceName}"`);
+  return {
+    dependencyPath: readPackageNameArray(
+      value.dependencyPath,
+      `compiled env service origin "${serviceName}" field "dependencyPath"`
+    ),
+  };
 }
 
 function requireString(value: JsonObject, serviceName: string, field: string) {

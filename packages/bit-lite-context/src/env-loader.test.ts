@@ -82,8 +82,11 @@ describe("JSON env package loading", () => {
       bitLite: { generated: true, kind: "env" },
     }));
     await writeFile(path.join(generated, "dist/index.json"), JSON.stringify({
+      formatVersion: 1,
       name: "@scope/env.local",
       services: { compile: { vendor: "local-compiler", config: {} } },
+      inheritance: ["@scope/env.local"],
+      serviceOrigins: { compile: { dependencyPath: [] } },
     }));
 
     const workspace = await readWorkspace(root);
@@ -93,6 +96,75 @@ describe("JSON env package loading", () => {
     expect(loaded.env.requestedVersion).toBe("workspace:*");
     expect(loaded.env.installedVersion).toBe("0.0.0");
     expect(loaded.package.rootDir).toBe(await realpath(generated));
+  });
+
+  it("reconstructs inherited service origins from compiled dependency paths", async () => {
+    const root = await createWorkspace([
+      component("envs/local", "@scope/env.local", "@env/base", "1.0.0", "env"),
+      component("lib/math", "@scope/lib.math", "@scope/env.local", "workspace:*"),
+    ]);
+    const parent = await createEnvPackage(root, "@env/parent", {
+      name: "@env/parent",
+      services: { compile: { vendor: "./compiler.js" } },
+    });
+    await writeFile(path.join(parent, "compiler.js"), "export const meta = {};\n");
+    const generated = path.join(root, "node_modules", "@scope", "env.local");
+    await mkdir(path.join(generated, "dist"), { recursive: true });
+    await writeFile(path.join(generated, "package.json"), JSON.stringify({
+      name: "@scope/env.local",
+      version: "0.0.0",
+      type: "module",
+      exports: { ".": "./dist/index.json" },
+      dependencies: { "@env/parent": "1.0.0" },
+      bitLite: { generated: true, kind: "env" },
+    }));
+    await writeFile(path.join(generated, "dist/index.json"), JSON.stringify({
+      formatVersion: 1,
+      name: "@scope/env.local",
+      services: { compile: { vendor: "./compiler.js" } },
+      inheritance: ["@env/parent", "@scope/env.local"],
+      serviceOrigins: { compile: { dependencyPath: ["@env/parent"] } },
+    }));
+    await linkPackage(path.join(generated, "node_modules", "@env", "parent"), parent);
+
+    const workspace = await readWorkspace(root);
+    const selectedComponent = workspace.components.find((candidate) => candidate.id === "lib/math")!;
+    const loaded = await loadEnvForComponent(selectedComponent, workspace);
+
+    expect(loaded.inheritance.map((identity) => identity.packageName))
+      .toEqual(["@env/parent", "@scope/env.local"]);
+    expect(loaded.services.compile?.source.identity.packageName).toBe("@env/parent");
+    expect(await resolveEnvModuleSpecifier({
+      specifier: "./compiler.js",
+      service: loaded.services.compile!,
+      workspaceRoot: root,
+      field: "fixture",
+      selectedEnv: "@scope/env.local",
+    })).toBe(await realpath(path.join(parent, "compiler.js")));
+  });
+
+  it("rejects an uncompiled source definition from a generated local env", async () => {
+    const root = await createWorkspace([
+      component("envs/local", "@scope/env.local", "@env/base", "1.0.0", "env"),
+      component("lib/math", "@scope/lib.math", "@scope/env.local", "workspace:*"),
+    ]);
+    const generated = path.join(root, "node_modules", "@scope", "env.local");
+    await mkdir(path.join(generated, "dist"), { recursive: true });
+    await writeFile(path.join(generated, "package.json"), JSON.stringify({
+      name: "@scope/env.local",
+      version: "0.0.0",
+      exports: { ".": "./dist/index.json" },
+      bitLite: { generated: true, kind: "env" },
+    }));
+    await writeFile(path.join(generated, "dist/index.json"), JSON.stringify({
+      name: "@scope/env.local",
+      services: {},
+    }));
+
+    const workspace = await readWorkspace(root);
+    const selectedComponent = workspace.components.find((candidate) => candidate.id === "lib/math")!;
+    await expect(loadEnvForComponent(selectedComponent, workspace))
+      .rejects.toThrow("exports an uncompiled source definition");
   });
 
   it("keeps a normal-version same-name env external and rejects workspace-root shadowing", async () => {

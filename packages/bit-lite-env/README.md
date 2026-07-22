@@ -35,4 +35,13 @@ Only `test`, `preview`, and `compile` are supported. A service contains `vendor`
 
 `extends` contains one full npm package name. The parent must be a runtime dependency of the child env package. The loader inherits omitted services, replaces a complete service when the child declares it, and preserves the package/entry origin that declared each service.
 
-Use `validateEnvDefinition(value, expectedPackageName)` when loading JSON. This package does not execute env factories or resolve files and packages.
+Source packages use `validateEnvDefinition(value, expectedPackageName)`. A
+generated local env instead exports a `CompiledEnvDefinition` with
+`formatVersion: 1`, no runtime `extends`, a flattened inheritance list, and a
+`serviceOrigins` dependency path for every service. Use
+`flattenEnvDefinition()` in an env compiler and
+`validateCompiledEnvDefinition()` at the generated-package boundary. These
+paths let the runtime reconstruct the package that originally declared an
+inherited vendor or relative config module.
+
+This package does not execute env factories or resolve files and packages.

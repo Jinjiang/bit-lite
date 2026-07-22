@@ -6,7 +6,7 @@
       "id": "envs/react",
       "packageName": "@my-scope/env.react",
       "env": {
-        "packageName": "demo-env-node",
+        "packageName": "demo-env-env",
         "version": "0.0.0"
       }
     },

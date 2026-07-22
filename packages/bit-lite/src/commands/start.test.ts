@@ -101,9 +101,8 @@ describe("runStartCommand", () => {
 
   it("passes one shared filtered selection to both contributions and supervises all tasks once", async () => {
     const parsed = createParsed(
-      ["start", "positional", "--filter", "scope/**", "--custom", "value", "--", "vendor-arg"],
+      ["start", "--filter", "scope/**", "--custom", "value", "--", "vendor-arg"],
       { filter: "scope/**", custom: "value" },
-      ["positional"],
       ["vendor-arg"]
     );
     const original = structuredClone(parsed);
@@ -207,13 +206,12 @@ describe("runStartCommand", () => {
 function createParsed(
   raw: string[],
   options: Record<string, string | boolean> = {},
-  positional: string[] = [],
   passthrough: string[] = []
 ): ParsedCliArgs {
   return {
     command: "start",
     help: false,
-    args: { raw, positional, options, passthrough },
+    args: { raw, options, passthrough },
   };
 }
 

@@ -4,9 +4,8 @@ import { parseArgs, parseCliArguments } from "./args.js";
 
 describe("CLI args", () => {
   it("parses raw argv into a shared CLI arguments shape", () => {
-    expect(parseCliArguments(["--port", "3000", "src", "--", "--debug"])).toEqual({
-      raw: ["--port", "3000", "src", "--", "--debug"],
-      positional: ["src"],
+    expect(parseCliArguments(["--port", "3000", "--", "--debug"])).toEqual({
+      raw: ["--port", "3000", "--", "--debug"],
       options: {
         port: 3000,
       },
@@ -15,13 +14,12 @@ describe("CLI args", () => {
   });
 
   it("parses command, workspace root, and command args", () => {
-    const parsed = parseArgs(["build", "--workspace", "demo-workspace", "--port", "3000", "src"]);
+    const parsed = parseArgs(["build", "--workspace", "demo-workspace", "--port", "3000"]);
 
     expect(parsed).toEqual({
       command: "build",
       args: {
-        raw: ["build", "--workspace", "demo-workspace", "--port", "3000", "src"],
-        positional: ["src"],
+        raw: ["build", "--workspace", "demo-workspace", "--port", "3000"],
         options: {
           port: 3000,
         },
@@ -60,5 +58,12 @@ describe("CLI args", () => {
 
   it("rejects filter flags without a pattern", () => {
     expect(() => parseArgs(["test", "--filter"])).toThrow("--filter requires a component pattern");
+  });
+
+  it("rejects bare arguments after the command with named-option guidance", () => {
+    expect(() => parseArgs(["compile", "ui/button"]))
+      .toThrow("Use --filter for component selection or place vendor arguments after --");
+    expect(() => parseCliArguments(["ui/button"]))
+      .toThrow("Unsupported positional argument");
   });
 });
