@@ -458,7 +458,7 @@ async function createContributionSelection(vendor: string) {
   };
   const parsed: ParsedCliArgs = {
     command: "preview",
-    args: { raw: ["preview", "--lazy"], positional: [], options: { lazy: true }, passthrough: [] },
+    args: { raw: ["preview", "--lazy"], options: { lazy: true }, passthrough: [] },
     workspaceRoot,
     componentFilters: [],
     help: false,

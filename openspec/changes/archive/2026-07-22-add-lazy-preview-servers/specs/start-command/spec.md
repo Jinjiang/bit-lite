@@ -25,7 +25,7 @@ The CLI SHALL register a `start` command that prepares and resolves the workspac
 - **AND** both contributions receive the same canonical workspace, selected component, and env-group object references
 
 #### Scenario: Start enables test watch without losing arguments
-- **WHEN** a user supplies `--lazy`, unknown command options, positional arguments, raw arguments, or passthrough arguments to `bit-lite start`
+- **WHEN** a user supplies `--lazy`, unknown command options, raw arguments, or passthrough arguments to `bit-lite start`
 - **THEN** the test contribution receives an effective argument value with parsed `watch` set to true and all other argument data preserved
 - **AND** the shared parsed selection remains unchanged
 

@@ -138,9 +138,8 @@ describe("runStartCommand", () => {
 
   it("passes lazy mode only to preview while preserving the shared selection for eager tests", async () => {
     const parsed = createParsed(
-      ["start", "positional", "--lazy", "--custom", "value", "--", "vendor-arg"],
+      ["start", "--lazy", "--custom", "value", "--", "vendor-arg"],
       { lazy: true, custom: "value" },
-      ["positional"],
       ["vendor-arg"]
     );
     const original = structuredClone(parsed);
