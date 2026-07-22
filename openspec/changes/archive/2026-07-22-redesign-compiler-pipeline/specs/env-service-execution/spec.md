@@ -1,42 +1,4 @@
-## Purpose
-
-Define the JSON-safe test, preview, and compile service protocol, command orchestration, compile boundaries, vendor execution, and structured selected-env identity.
-
-## Requirements
-
-### Requirement: Env definitions support three vendor-backed services
-`EnvDefinition.services` SHALL accept only `test`, `preview`, and `compile`. Each present service SHALL contain a non-empty vendor specifier and optional recursively JSON-safe `config`; it SHALL NOT contain execution mode, selected components, workspace root, component root, generic targets, callbacks, or loaded modules. Compile config SHALL remain vendor-specific and SHALL NOT imply one compiler implementation or tsconfig shape.
-
-#### Scenario: JSON env defines all supported services
-- **WHEN** an exported JSON definition contains valid test, preview, and compile services
-- **THEN** env validation retains all three service definitions
-
-#### Scenario: Env defines an unknown service
-- **WHEN** an env JSON contains a `deploy` service
-- **THEN** env validation fails and lists the three supported service names
-
-#### Scenario: Env embeds execution state
-- **WHEN** a service definition contains a static `mode`, `components`, or `rootDir` field
-- **THEN** env validation rejects the field rather than treating it as vendor config
-
-#### Scenario: Env declares generic targets
-- **WHEN** a service definition contains a generic `targets`, `files`, or `patterns` field
-- **THEN** env validation rejects the field because file discovery is not part of the shared env service contract
-
-#### Scenario: Two compile vendors use different config shapes
-- **WHEN** one env's compile config contains an inline TypeScript configuration and another env selects a non-TypeScript vendor with different JSON config
-- **THEN** shared validation accepts both JSON-safe configs without imposing a common compiler schema
-
-### Requirement: File discovery remains service-owned
-Env definitions SHALL NOT declare generic file or pattern targets. Commands SHALL continue passing their selected component descriptors to the service vendor, and each service/vendor SHALL remain responsible for discovering its applicable files. The maintained test vendors SHALL retain their current hard-coded test/spec patterns; configurable target discovery is outside this change.
-
-#### Scenario: Test runs with selected components
-- **WHEN** the test command supplies selected component descriptors to a maintained test vendor
-- **THEN** the vendor discovers test files with its built-in test/spec patterns without reading target patterns from the env definition
-
-#### Scenario: Component filter excludes a component
-- **WHEN** command selection excludes a component before a vendor task is created
-- **THEN** the vendor receives no descriptor for that component and therefore does not discover its files
+## MODIFIED Requirements
 
 ### Requirement: Service commands consume each component's effective env
 The `test`, `preview`, and `compile` workflows SHALL obtain vendors and default configs from every selected component's loaded effective environment. Test and preview SHALL retain command-owned result and lifecycle behavior. One-shot compile SHALL retain component runtime-dependency ordering and output-package preparation. Compile watch SHALL create vendor-owned watch tasks in prerequisite layers. No workflow SHALL select compile behavior from component kind.
@@ -73,7 +35,7 @@ The `test`, `preview`, and `compile` workflows SHALL obtain vendors and default 
 `install --compile` SHALL install runtime/development dependencies, link component packages, compile local environment components through their configured compile services, load and validate generated env definitions, and then compile consumers in dependency layers through the same one-shot planner. A failed environment compile or definition load SHALL prevent components using that env from entering compile execution. Install SHALL NOT start compiler watch tasks.
 
 #### Scenario: Clean install contains a local env
-- **WHEN** a clean workspace has no generated React env artifact and a component selects the local React env
+- **WHEN** a clean workspace has no generated React env artifact and a component selects that local env
 - **THEN** `install --compile` invokes the env component's configured compiler before loading the React definition and compiling its consumer
 
 #### Scenario: One dependency layer fails
@@ -111,36 +73,6 @@ Every test, preview, and compile vendor invocation SHALL receive a versioned, re
 - **WHEN** a vendor starts in worker or inline runner mode
 - **THEN** the same version 1 serializable context is structured-cloned successfully without parent-only resolution state
 
-### Requirement: Vendor-specific config can extend from service origin
-The parent SHALL resolve the vendor module and module-bearing fields required by command-owned orchestration before vendor startup. The vendor context SHALL expose a serializable declaring-service package root and entry file so vendors MAY resolve future vendor-specific config fields relative to the declaring env package without changing the main command. Any shared resolver helper used inside a vendor SHALL be a pure function of the serializable service source, specifier, and base workspace root; no resolver function SHALL cross the worker boundary.
-
-#### Scenario: Tester adds a setup module field
-- **WHEN** a tester vendor introduces a JSON config field such as `setupFile: "./setup.js"` that is not interpreted by the test command
-- **THEN** the vendor can resolve it relative to `context.service.source.entryFile` and package root without the command copying or rewriting the resolved service definition
-
-#### Scenario: Preview mounter remains command-owned
-- **WHEN** preview config declares a mounter used to generate the prepared browser entry
-- **THEN** the parent continues resolving and consuming that field before vendor startup because it affects command-owned preparation
-
-### Requirement: Vendor outputs contain only produced service data
-Test, preview, and compile vendor outputs SHALL contain only data produced by that vendor execution. A vendor output SHALL NOT echo the parent-owned service name, vendor identity, selected env identity, command arguments, effective config, selected component descriptors, or parent-selected output paths merely so the parent can validate equality. The parent task SHALL retain its original context and vendor metadata and SHALL create the task result wrapper once from that metadata plus the validated vendor output. Validators SHALL preserve additional JSON-safe vendor output fields after validating required produced fields.
-
-#### Scenario: Test vendor reports coverage
-- **WHEN** a test vendor produces normal test statistics plus a vendor-specific JSON-safe coverage result
-- **THEN** the parent validates the required test output, preserves the coverage field, and attaches env/vendor/task context without requiring the vendor to echo its input
-
-#### Scenario: Preview vendor becomes ready
-- **WHEN** a preview vendor starts at server coordinates already prepared by the parent
-- **THEN** readiness is reported through lifecycle/output data without echoing service, vendor, env, arguments, config, or the prepared server object as identity metadata
-
-#### Scenario: Compile succeeds
-- **WHEN** a compile vendor writes to the output directory selected by the parent
-- **THEN** it may return produced artifact information or no output and is not required to echo env, component ID, service name, or output directory
-
-#### Scenario: Vendor output uses a historical field name
-- **WHEN** an otherwise valid vendor result contains an additional JSON-safe field whose name was used by an older result shape
-- **THEN** validation preserves it as opaque vendor output while parent-owned context remains the source of execution identity
-
 ### Requirement: Vendor boundaries remain structured and origin-aware
 Commands SHALL resolve vendor modules with valid `meta: VendorDefinition` from the effective service's declaring-package context and pass canonical module URLs to the appropriate execution boundary. Worker-facing `VendorData` SHALL contain `context: VendorContext`, selected canonical workspace components, effective prepared service config, and optional command runtime. Test, preview, and compile SHALL use the generic vendor task lifecycle. A compiler module SHALL expose the same public `meta` plus default start-function shape as other vendors; its default entry SHALL select one-shot or watch behavior from the common watch flag. One-shot compile SHALL use the generic inline runner, while compile watch SHALL use the generic worker runner. Command code SHALL validate produced run/event result shapes before presentation or storage. `bit-lite-vendors` SHALL NOT import workspace/env module-resolution implementation at runtime.
 
@@ -172,21 +104,8 @@ Commands SHALL resolve vendor modules with valid `meta: VendorDefinition` from t
 - **WHEN** a vendor returns or emits data that fails the command's produced-output validator
 - **THEN** the affected operation reports a validation error and does not present or store the payload as successful output
 
-### Requirement: Command-facing env identity remains structured end to end
-Workspace env groups SHALL reuse their loaded env context and its canonical `env: { packageName, requestedVersion, installedVersion }` identity. Vendor inputs SHALL expose that identity at `VendorData.context.env`; vendors SHALL NOT echo it in produced output. Parent-owned vendor task/result context, test watch storage, prepared preview state, and preview proxy manifests SHALL derive their structured env identity from the selected env context. Internal grouping, task, temporary-file, or route keys MAY be derived from the selected package reference but SHALL NOT become a second public env identity.
+## REMOVED Requirements
 
-#### Scenario: Test result is stored
-- **WHEN** a test vendor emits valid produced output for an env requested with a range
-- **THEN** the watch store obtains package name, requested version, and installed version from the parent task context and stores the vendor output without requiring an env echo
-
-#### Scenario: Preview manifest is generated
-- **WHEN** preview prepares, starts, or fails an env group
-- **THEN** the proxy manifest projects the structured selected-env identity from parent preparation/task state while existing package-name-based public preview URLs remain unchanged
-
-#### Scenario: Compile vendor receives a component
-- **WHEN** ordinary-component compile invokes the compiler selected by the component's effective env
-- **THEN** compiler context contains the structured selected-env identity and compiler output does not repeat it
-
-#### Scenario: Vendor output contains envName or env
-- **WHEN** a test or preview vendor returns an otherwise valid result containing additional `envName` or `env` fields
-- **THEN** command validation treats those fields as opaque vendor data and continues deriving execution identity from the parent task context
+### Requirement: Env components use fixed compile behavior
+**Reason**: Compiler selection is now universally driven by each component's configured effective environment.
+**Migration**: Assign environment components a bootstrap environment whose compile service points to the desired vendor, including `demo-vendors/compilers/env` for maintained env compilation.

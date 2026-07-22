@@ -1,31 +1,4 @@
-## Purpose
-
-Define env package resolution, configured local compilation, source and compiled JSON loading, flattened inheritance, structured identity, origin-aware specifiers, and actionable failures.
-
-## Requirements
-
-### Requirement: Env packages resolve according to their configured identity
-For every distinct env package reference, workspace loading SHALL resolve a `workspace:` reference through the current Bit component registry and a normal version through the selecting component's installed development dependency context. It SHALL locate the canonical package entry and package root, read the package manifest, and verify that the package name and installed version satisfy the configured identity without allowing a local package to shadow an external reference.
-
-#### Scenario: Registry env is installed
-- **WHEN** `@acme/env.node@^1.2.0` resolves from a component's development dependency context and its installed manifest version satisfies the range
-- **THEN** the loader records its canonical entry, package root, package name, and installed version
-
-#### Scenario: Local env component is linked
-- **WHEN** `@acme/env.react@workspace:*` resolves to a registered and materialized env component
-- **THEN** the loader uses that generated component package as the authoritative entry rather than a root pnpm workspace package
-
-#### Scenario: External reference has the same name as a local component
-- **WHEN** a normal-version env reference has the same package name as a registered env component
-- **THEN** resolution remains in the external development dependency context and does not load the local generated package
-
-#### Scenario: Env package is not installed
-- **WHEN** an external env cannot be resolved from the selecting component's dependency context or documented generated fallback
-- **THEN** workspace loading fails with the package name, requested version, component IDs, attempted contexts, and an instruction to install dependencies
-
-#### Scenario: Installed version does not satisfy the reference
-- **WHEN** the resolved package manifest version is incompatible with the component's requested range
-- **THEN** workspace loading fails before reading the env definition and reports both versions
+## MODIFIED Requirements
 
 ### Requirement: Local env components use configured compilation
 A registered `kind: "env"` component SHALL be compiled through the `services.compile` vendor configured by that component's own effective environment, using the same planner, dispatcher, vendor context, and watch flag as every other component. Core SHALL NOT select a compiler from component kind. The maintained environment compiler SHALL be an ordinary vendor in `demo-vendors` and SHALL emit the generated package's default entry as flattened `dist/index.json` together with supported compiled static modules.
@@ -82,7 +55,7 @@ A source `EnvDefinition` MAY declare one `extends` field containing the full npm
 
 #### Scenario: Child replaces a parent service
 - **WHEN** a child and its parent both define test
-- **THEN** the child's complete test service replaces the parent's vendor and config rather than deep-merging them
+- **THEN** the compiled child's complete test service replaces the parent's vendor and config rather than deep-merging them
 
 #### Scenario: Parent and child define top-level config
 - **WHEN** parent and child top-level config objects contain distinct keys and one shared key
@@ -143,7 +116,7 @@ The loaded env runtime SHALL retain the declaring package name, package root, en
 - **THEN** loading fails with the selected env, service, dependency path, and failing hop
 
 #### Scenario: Env declares an exported package subpath
-- **WHEN** an env service names `demo-config/previewers/react-mounter`
+- **WHEN** an effective env service names `demo-config/previewers/react-mounter`
 - **THEN** resolution honors that package's exports map from the reconstructed declaring dependency context
 
 #### Scenario: Relative config escapes its package
@@ -151,16 +124,11 @@ The loaded env runtime SHALL retain the declaring package name, package root, en
 - **THEN** preparation fails with the env, service field, original specifier, and rejected path
 
 #### Scenario: Vendor exists only in the workspace
-- **WHEN** an env's vendor cannot be resolved from the env package but is resolvable from the documented workspace context
+- **WHEN** an env's vendor cannot be resolved from the declaring package but is resolvable from the documented workspace context
 - **THEN** vendor loading uses the workspace package as the explicit fallback
 
-### Requirement: Env loading failures preserve actionable context
-Errors produced while resolving, materializing, reading, parsing, inheriting, or validating an env package SHALL identify the env package, requested version, affected component IDs, failing phase, and attempted origin while preserving the original cause. The workspace SHALL NOT continue with a partial or silently substituted env definition.
+## REMOVED Requirements
 
-#### Scenario: Env-owned config dependency is missing
-- **WHEN** resolving an env-owned generated configuration fails because one of the env package's required dependencies is absent
-- **THEN** preparation fails with the selected env, declaring env, configuration module, and original missing-module cause
-
-#### Scenario: One of several env packages is invalid
-- **WHEN** one referenced env definition fails validation after other envs loaded successfully
-- **THEN** the command aborts workspace loading and does not regroup those components under another env
+### Requirement: Local env components use fixed materialization
+**Reason**: Environment components now use the same configured compiler-service path as every component; core no longer owns a non-configurable materializer.
+**Migration**: Assign each env component an environment whose `services.compile` points to the desired compiler vendor. Use the maintained `demo-vendors/compilers/env` vendor for flattened environment artifacts.
