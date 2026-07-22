@@ -10,6 +10,16 @@ Bit-lite commands own runtime orchestration. An env is configuration data:
 
 There is no runtime `ServiceDefinition`, `ServiceRunInput`, or `testService.run()` layer. Commands decide whether they need env grouping, inline execution, worker execution, result aggregation, terminal management, and shutdown handling.
 
+Compile follows the same separation and module shape as other vendors. A
+compiler module exports `meta` plus one default `CompilerVendorStart`; that
+entry reads `context.args.options.watch` and selects one-shot or watch behavior.
+One-shot compile uses the generic inline vendor runner, while watch compile
+creates generic worker tasks. Filesystem watching and incremental behavior
+remain inside each compiler vendor. `createCompileWatchContribution()` owns
+neither signals nor terminal UI; the standalone command calls
+`superviseVendorTasks()` once, optionally with a managed terminal. `start`
+integration is outside this revision.
+
 ## Test Command Flow
 
 The `test` command owns the whole command workflow:

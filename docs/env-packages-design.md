@@ -76,29 +76,37 @@ Vendor、`configFile`、`mounter`、`docsTemplate` 等模块字段从 effective 
 declaring JSON entry origin 解析。相对路径不得逃出该 package root；package subpath
 先从 declaring env dependency context 解析，再使用有记录的 workspace fallback。
 
-## 本地 env materialization
+## 本地 env compilation
 
-本地 env component 的源码入口为 `index.json`。Bit-lite 在读取 env 之前使用内置、
-不可配置的固定 TypeScript compiler：复制 JSON/static 文件，并把 env 自己的 `.ts`
-support file 输出到相同相对位置的 `.js`。例如：
+本地 env component 与普通 component 走同一条 configured compiler pipeline。它自身
+选择的 env 决定 `services.compile`；core 不根据 `component.kind` 选择 compiler。
+Demo 中 env component 选择 `demo-env-env`，后者把 compile vendor 配置为
+`demo-vendors/compilers/env`。该 vendor 把 `.ts` support file 输出为相同相对位置的
+`.js`，并把 source definition 的 `extends` 编译成 flatten artifact：
 
 ```text
-index.json          -> dist/index.json
+index.json          -> dist/index.json (formatVersion: 1, flattened)
 webpack-react.ts    -> dist/webpack-react.js
 ```
 
-生成 package 的默认 export 指向 `./dist/index.json`。这条固定 compiler 路径不会读取
-env 自己的 `services.compile`，因此 env package 是级联 compile 的终止边界。
+生成 package 的默认 export 指向 `./dist/index.json`。Artifact 包含最终 services/config、
+inheritance package path，以及每个 service 的 dependency-path provenance。Runtime 不再
+解析 generated artifact 的 `extends`，而是按 provenance 重建 declaring package origin。
 
-## 普通 component compile
+## Universal component compile
 
-普通 component 按 internal runtime dependency layer 编译。每个 component 独立读取
-自己的 effective `services.compile`、declaring origin 和 opaque config；同一图中可
+所有 component 按 local env prerequisite 与 internal runtime dependency layer 编译。
+每个 component 独立读取自己的 effective `services.compile`、declaring origin 和 opaque config；同一图中可
 以不同 compiler 或配置运行。某层失败会阻止其 dependent later layers，但不会阻止
 同层或其他独立分支完成。
 
-`install --compile` 的固定顺序是：dependency install、component link、本地 env
-materialization、JSON env loading/inheritance、普通 component compile。
+`install --compile` 的顺序是：dependency install、component link、按同一 plan 编译
+所需 local env、加载 compiled env artifact、继续编译 consumer。Install 始终 one-shot。
+
+`compile --watch` 只把通用 `watch: true` 放进 vendor context，并以 caller-owned task
+contribution 表示长任务。每个 compiler vendor 自己实现 watcher、incremental strategy、
+error recovery 与 cleanup；core 只做 prerequisite-layer startup 和可选的集中 terminal
+supervision。与 `start` 的组合留给独立设计。
 
 ## 运行时 identity
 
@@ -123,5 +131,5 @@ state 与 proxy manifest 都携带同一个 JSON-safe identity。内部 key 从 
 
 `demo-env-node` 与 `demo-env-vue` 是外部式 pnpm packages，不在 demo Bit registry。
 `@my-scope/env.react` 则是 `demo-workspace/components/envs/react` 中的真实 env
-component。React JSON 以完整包名 extends Node，Webpack config 与 JSON 相邻，由固定
-compiler 生成；mounter/docs template 仍通过 `demo-config` export subpaths 解析。
+component。React JSON 以完整包名 extends Node，Webpack config 与 JSON 相邻，由
+configured env compiler 生成；mounter/docs template 仍通过 `demo-config` export subpaths 解析。
