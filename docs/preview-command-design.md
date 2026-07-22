@@ -18,7 +18,7 @@
 2. 稳定排序 component 和文件；第一个 `*.docs.md(x)` 是 docs。命令用 TypeScript parser 静态读取每个 `*.demo.*` 的 runtime value exports，每个 export 各自形成一个 composition，全程不在 Node 中执行 demo module。
 3. 从 workspace 解析 `configFile`、可选 `mounter` 和可选 `docsTemplate`。只有 env 实际含 demo 时才要求 `mounter`。
 4. 在 workspace 的 `.bit-lite/preview-<env>-*` 下生成一个 HTML 和一个 JavaScript entry。
-5. vendor 用自己的 native config 合并当前 env 的 workspace source aliases，然后启动 dev server；命令在正常退出、准备失败或 vendor 启动失败时删除临时目录。
+5. vendor 用自己的 native config 合并当前 env 的 workspace source aliases。默认模式立即激活 dev server；`--lazy` 模式只创建稳定的 idle task，直到该 env namespace 收到流量。命令在正常退出、准备失败或 vendor 启动失败时删除临时目录。
 
 一个 env 准备失败不会阻止其他 env 启动。失败原因会保留在 proxy manifest；如果全部 env 都失败，命令关闭 proxy 并返回错误。
 
@@ -66,7 +66,8 @@ vendor runtime 包含 server 坐标、预生成文件路径，以及当前 env �
 type PreviewPreparedRuntime = {
   server: {
     host: string;
-    port: number;
+    preferredPort: number;
+    fallbackStartPort: number;
     basePath: string;
     proxyOrigin: string;
   };
@@ -74,21 +75,38 @@ type PreviewPreparedRuntime = {
     entryFile: string;
     htmlFile: string;
   };
-  workspace: {
-    rootDir: string;
-    components: Array<{
-      packageName: string;
-      sourceDir: string;
-    }>;
-  };
+  aliases: Array<{
+    packageName: string;
+    sourceDir: string;
+  }>;
 };
 ```
 
 它是 JSON-only 的；raw components、browser manifest、MDX options 和 dev-server config 内容都不属于这个 runtime。Vite/Webpack vendor 必须把 descriptors 转成自己的 native alias config；同 package 的 generated alias 优先，其他用户 alias 保留。
 
+`preferredPort` 和 `fallbackStartPort` 只是 bind hints，不是已经预留或探测过的 endpoint。命令按 canonical selected-env key 排序成功准备的 `N` 个 env；内部 base `P = 6000` 时，第 `i` 个 env 获得 `preferredPort = P + i`，所有 env 共享 `fallbackStartPort = P + N`。这样 idle env 的完整 preferred range 不会被已激活的冲突 env 消耗。
+
+vendor 必须先严格尝试 preferred port；只有 bind availability conflict 才从 shared fallback range 继续尝试。Vite/Webpack 读取 native server 的实际 address，并在服务 ready 后发送：
+
+```ts
+{ mode: "serve", port: actualBoundPort }
+```
+
+命令验证 `port` 是 1 到 65535 的整数后，才构造和发布 proxy upstream。vendor 不再回显 host、base path、proxy origin、env 或其他 parent-owned input；旧的 `{ mode: "serve" }` result 会作为明确的 vendor contract failure 被拒绝。
+
 alias 范围刻意限制在当前 env，因为不同 env 的 loader/plugin 配置可能无法正确处理彼此的源码。跨 env 的 workspace package import 不做 source alias，而是继续通过 package manifest 读取编译后的 `dist`。因此包含跨 env 组件依赖的 workspace 必须先运行 `bit-lite compile`，再运行 `bit-lite preview`。未来只有在 preview vendor 与 resolved config 都相同的情况下，才可以安全扩大共享 alias 的范围。
 
 Vite adapter 读取已解析的 `configFile`，服务 prepared HTML，并把稳定的 `__bit-lite/preview.js` URL 转换到 prepared entry。Webpack adapter 同样读取 `configFile`，只编译一个 logical entry，并让 docs/demo dynamic imports 形成 lazy chunks。二者都保持原有 ready/result/error/shutdown protocol，并把 HMR 的 public path 指向 proxy 下的 env base。
+
+## Lazy activation lifecycle
+
+`preview --lazy` 和 `start --lazy` 只延迟 preview execution。workspace/env resolution、docs/demo discovery、module resolution、entry/HTML generation、manifest navigation 和 vendor metadata validation 仍在命令启动阶段完成。默认不带 `--lazy` 时，每个成功准备的 preview task 仍立即激活；`start --lazy` 中的 test watch tasks 始终 eager。
+
+每个成功准备的 env 从一开始就拥有一个稳定 task 和完整的 `/env/<encoded-env>/...` route。任意已注册 namespace 下的 HTTP method、direct asset、lazy chunk、Vite WebSocket 或 Webpack HMR event stream 都是 activation signal，不限于 index HTML。第一个请求把状态从 `idle` 推进到 `starting`，等待 worker、bundler、initial compilation 和 bind 完成后，再原样转发该请求。因此首次访问会有额外 cold-start latency。
+
+HTTP 与 upgrade 的并发冷流量共享一个 activation promise，并且每个 task 最多创建一个 worker。触发客户端断开不会取消共享 activation。成功后后续流量走 ready fast path；失败会保存一个受控 `failed` 状态和原因，本次命令生命周期内不会自动 retry，以避免 refresh storm。root、manifest、test、unknown-env 及其他 namespace 不会触发 preview。
+
+shutdown 会先把 idle、starting 和 ready tasks 停止或终止，再删除 prepared files，最后关闭 public proxy。停止 idle task 不创建 worker；activation/disposal race 不能在 cleanup 后发布 upstream。第一版不包含 lazy preparation、test lazy mode、idle timeout/LRU eviction、failed activation retry、active server 上限或跨 env server sharing。
 
 这里的 `configFile` 是用户维护的 dev-server integration config：Vite 时是 `vite.config`，Webpack 时是 `webpack.config`。它决定 loader/plugin、resolve、framework transform 等开发服务器行为；名称不表示命令要执行 production bundling。
 
@@ -197,8 +215,10 @@ export default {
 主 proxy 默认监听 `127.0.0.1:4000`：
 
 - `/`：workspace/env/component shell；
-- `/__bit-lite/manifest.json`：ready、starting、failed、skipped 状态与公开 hash links；
+- `/__bit-lite/manifest.json`：idle、starting、ready、failed、stopped 状态、preferred/actual port 诊断与公开 hash links；
 - `/env/<encoded-env>/...`：只转发到对应 env dev server，包括 assets、lazy chunks、Vite WebSocket 和 Webpack HMR event stream。
+
+lazy env 在 `idle` 时已经出现在 manifest 并拥有完整 component links 与 preferred/fallback hints，但没有 `server`。只有 valid actual port 到达后才变为 `ready` 并出现 `server.port`。preparation 或 activation failure 保留错误且没有 upstream；shutdown 后状态为 `stopped`。
 
 旧的 path routes（例如 `/component/docs` 和 `/component/compositions/primary`）不再是 preview surface。迁移时应改成 env base 加 hash route。
 

@@ -35,9 +35,15 @@ The `test` command owns the whole command workflow:
 - validate `meta: VendorDefinition`.
 - pass a structured selected-env identity plus the env service config to the vendor.
 - create a `bit-lite-vendors` runner.
-- expose a task with `result`, `status`, `details`, `rawOutput`, `postMessage`, `stop`, `terminate`, `writeInput`, `onMessage`, and `onOutput`.
+- expose a task with `result`, `status`, `details`, `rawOutput`, idempotent `activate`, `postMessage`, `stop`, `terminate`, `writeInput`, `onMessage`, and `onOutput`.
 - handle common `ready`, `status`, `error`, and `result` messages.
 - collect worker stdout and stderr.
+
+Worker watch tasks are eager unless creation requests deferred activation. A
+deferred task keeps stable metadata and terminal identity in `idle` without a
+worker; concurrent `activate()` calls share one start. Stopping idle settles it
+without creating a worker, and stopping during activation prevents a late
+runner from surviving coordinated shutdown.
 
 `postMessage` and `onMessage` are the generic structured message pair at the
 task boundary. `postMessage` sends JSON messages from command code into the
