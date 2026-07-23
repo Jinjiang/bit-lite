@@ -13,7 +13,6 @@ import {
   createPreviewCommandContribution,
   readPreviewLazy,
   type PreviewCommandContribution,
-  type PreviewUnavailableGroup,
 } from "./preview.js";
 import {
   createStartSourceCatalog,
@@ -44,9 +43,7 @@ export type StartManifestComponent = {
 
 export type StartManifest = {
   proxy: ProxyEndpoint;
-  preview: PreviewProxyManifest & {
-    unavailable: PreviewUnavailableGroup[];
-  };
+  preview: PreviewProxyManifest;
   tests: Array<{
     taskId: string;
     env: SelectedEnvIdentity;
@@ -153,14 +150,7 @@ export function createStartManifest(
 
   return {
     proxy,
-    preview: {
-      ...previewManifest,
-      unavailable: preview.unavailable.map((item) => ({
-        env: item.env,
-        reason: item.reason,
-        componentIds: [...item.componentIds],
-      })),
-    },
+    preview: previewManifest,
     tests: test.bindings.map((binding) => ({
       taskId: binding.task.id,
       env: binding.task.context.env,

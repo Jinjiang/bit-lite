@@ -5,7 +5,6 @@ import type {
   Workspace,
   WorkspaceComponent,
 } from "bit-lite-context";
-import type { SupportedEnvServiceName } from "bit-lite-env";
 import type { ManagedTerminalItem, RawOutputBuffer } from "bit-lite-terminal";
 import type {
   Runner,
@@ -63,7 +62,7 @@ export type VendorContext = {
   readonly args: CliArguments;
   readonly env: SelectedEnvIdentity;
   readonly service: {
-    readonly name: SupportedEnvServiceName;
+    readonly name: string;
     readonly source: PackageLocation;
   };
 };

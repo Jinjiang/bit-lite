@@ -41,6 +41,41 @@ Command setup follows two workspace phases. It first reads the JSON-safe base
 `WorkspaceContext` needed for inherited services. Derived selections and env
 groups reuse the canonical workspace component objects.
 
+## Vendor command execution
+
+Compile, test, and preview share a command-side vendor execution kernel. A
+`VendorExecutionPlan` always contains ordered layers of `PlannedUnit` values.
+Every unit has a unique string ID and explicit dependency IDs; dependencies must
+refer to earlier layers. Test and preview use one layer, while compile projects
+its component and local-env prerequisite graph into multiple layers. Plans are
+validated before vendor resolution or command-owned preparation begins.
+
+Service IDs at this boundary are non-empty open strings. The env-service planner
+reads the already resolved selection and includes only groups whose resolved
+service map contains that string. A selected group without the service is
+silently omitted; commands do not construct unavailable-service state.
+
+`defineVendorExecution()` supplies one preparation function for run and watch
+modes. It receives immutable cloned command arguments with the effective
+`watch` value, the planned unit, and command context.
+`prepareResolvedServiceTaskOptions()` provides the standard vendor URL,
+`VendorContext`, components, config, and optional runtime projection. Definitions
+can add command metadata and watch-layer finalization, which preview uses for
+prepared files and deterministic port hints.
+
+`runVendorExecutionPlan()` executes eligible units concurrently inside each
+layer and returns successful, failed, or dependency-blocked outcomes.
+`createVendorWatchExecution()` creates stable eager or deferred tasks, supports
+automatic first-validated-result sequencing between layers, and returns
+prepared-unit bindings, single-layer preparation failures, tasks, and one
+idempotent disposer. `ensureUnitReady()` single-flights deferred activation plus
+first-result observation for one prepared unit, caches success or failure, and
+rejects disposal races. Commands extend those inputs with their own bindings,
+stores, state, routes, and manifests. The disposer is the aggregate ownership
+boundary for contributed tasks and auxiliary resources; the execution kernel
+does not install signals, create a managed terminal, or supervise a resident
+session.
+
 Every component, including an env component, uses the `services.compile`
 configured by its own effective env. There is no component-kind compiler
 selection in core. The demo assigns env components to `demo-env-env`, whose

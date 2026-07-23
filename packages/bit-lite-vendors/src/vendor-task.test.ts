@@ -168,10 +168,109 @@ describe("vendor task helpers", () => {
       });
       expect(process.listenerCount("SIGINT")).toBe(sigintListeners);
       expect(process.listenerCount("SIGTERM")).toBe(sigtermListeners);
+      await expect(tasks[0]?.firstResult).resolves.toMatchObject({
+        mode: "watch",
+        run: 1,
+      });
       await vi.waitFor(() => expect(tasks[0]?.details).toEqual(["1 component(s)"]));
     } finally {
       await stopVendorTasks(tasks);
     }
+  });
+
+  it("publishes repeated validated results and does not replay to late subscribers", async () => {
+    const tasks = await createWatchVendorTasks<TestServiceResult>(
+      [createTaskOptions(createObservableVendorUrl(), ["--watch"])],
+      {
+        serviceId: "test",
+        label: "Test",
+        activation: "deferred",
+        formatResult(result) {
+          const formatted = formatTestRunResult(result);
+          return formatted instanceof Error ? formatted : [formatted.summary];
+        },
+      }
+    );
+    const task = tasks[0]!;
+    const early: number[] = [];
+    const late: number[] = [];
+    const unsubscribeEarly = task.onResult((result) => early.push(result.run));
+
+    try {
+      await task.activate();
+      await expect(task.firstResult).resolves.toMatchObject({ run: 1 });
+      const unsubscribeLate = task.onResult((result) => late.push(result.run));
+      task.postMessage({ again: true });
+      await vi.waitFor(() => expect(early).toEqual([1, 2]));
+      expect(late).toEqual([2]);
+      unsubscribeLate();
+    } finally {
+      unsubscribeEarly();
+      await stopVendorTasks(tasks);
+    }
+  });
+
+  it("rejects invalid results without publishing them or later payloads", async () => {
+    const tasks = await createWatchVendorTasks<TestServiceResult>(
+      [createTaskOptions(createInvalidEventVendorUrl(), ["--watch"])],
+      {
+        serviceId: "test",
+        label: "Test",
+        activation: "deferred",
+        formatResult(result) {
+          const formatted = formatTestRunResult(result);
+          return formatted instanceof Error ? formatted : [formatted.summary];
+        },
+      }
+    );
+    const task = tasks[0]!;
+    const observed: TestServiceResult[] = [];
+    task.onResult((result) => observed.push(result));
+    void task.result.catch(() => undefined);
+
+    try {
+      await task.activate();
+      await expect(task.firstResult).rejects.toThrow("Invalid test run result");
+      await expect(task.result).rejects.toThrow("Invalid test run result");
+      expect(observed).toEqual([]);
+    } finally {
+      await stopVendorTasks(tasks);
+    }
+  });
+
+  it("rejects first-result observation when activation fails", async () => {
+    const tasks = await createWatchVendorTasks<TestServiceResult>(
+      [createTaskOptions(createFailingWatchVendorUrl(), ["--watch"])],
+      {
+        serviceId: "test",
+        label: "Test",
+        activation: "deferred",
+        formatResult: () => [],
+      }
+    );
+    const task = tasks[0]!;
+    void task.result.catch(() => undefined);
+
+    await expect(task.activate()).rejects.toThrow("watch startup failed");
+    await expect(task.firstResult).rejects.toThrow("watch startup failed");
+    await stopVendorTasks(tasks);
+  });
+
+  it("rejects first-result observation when a deferred task stops before activation", async () => {
+    const tasks = await createWatchVendorTasks<TestServiceResult>(
+      [createTaskOptions(createDeferredVendorUrl(), ["--watch"])],
+      {
+        serviceId: "test",
+        label: "Test",
+        activation: "deferred",
+        formatResult: () => [],
+      }
+    );
+    const task = tasks[0]!;
+
+    await task.stop();
+
+    await expect(task.firstResult).rejects.toThrow("stopped before its first valid result");
   });
 
   it("keeps a deferred task idle and coalesces concurrent activation into one worker", async () => {
@@ -627,6 +726,75 @@ function createDeferredVendorUrl() {
       id: "deferred-fixture",
       label: "Deferred Fixture",
       hint: "Deferred fixture",
+      moduleUrl: ${JSON.stringify(targetModule)}
+    };
+  `);
+}
+
+function createObservableVendorUrl() {
+  const targetModule = toDataModule(`
+    export default function start(runtime) {
+      const result = (run) => ({
+        mode: "watch",
+        run,
+        summary: "run " + run,
+        componentIds: runtime.data.components.map((component) => component.id),
+        observed: {},
+      });
+      runtime.postMessage({ type: "ready" });
+      runtime.postMessage({ type: "result", data: result(1) });
+      runtime.onMessage(() => {
+        runtime.postMessage({ type: "result", data: result(2) });
+      });
+      return { stop() {} };
+    }
+  `);
+  return toDataModule(`
+    export const meta = {
+      id: "observable-fixture",
+      label: "Observable Fixture",
+      hint: "Observable fixture",
+      moduleUrl: ${JSON.stringify(targetModule)}
+    };
+  `);
+}
+
+function createInvalidEventVendorUrl() {
+  const targetModule = toDataModule(`
+    export default function start(runtime) {
+      runtime.postMessage({ type: "ready" });
+      runtime.postMessage({ type: "result", data: { invalid: true } });
+      runtime.postMessage({ type: "result", data: {
+        mode: "watch",
+        run: 2,
+        summary: "must not publish",
+        componentIds: [],
+        observed: {},
+      }});
+      return { stop() {} };
+    }
+  `);
+  return toDataModule(`
+    export const meta = {
+      id: "invalid-event-fixture",
+      label: "Invalid Event Fixture",
+      hint: "Invalid event fixture",
+      moduleUrl: ${JSON.stringify(targetModule)}
+    };
+  `);
+}
+
+function createFailingWatchVendorUrl() {
+  const targetModule = toDataModule(`
+    export default function start() {
+      throw new Error("watch startup failed");
+    }
+  `);
+  return toDataModule(`
+    export const meta = {
+      id: "failing-watch-fixture",
+      label: "Failing Watch Fixture",
+      hint: "Failing watch fixture",
       moduleUrl: ${JSON.stringify(targetModule)}
     };
   `);

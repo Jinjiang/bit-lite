@@ -1,15 +1,5 @@
-import {
-  getSelectedEnvKey,
-  resolveVendorSpecifier,
-} from "bit-lite-context";
-import {
-  createVendorContext,
-  createWatchVendorTasks,
-  runVendorTasks,
-  superviseVendorTasks,
-} from "bit-lite-vendors";
+import { superviseVendorTasks } from "bit-lite-vendors";
 import type {
-  CliArguments,
   ParsedCliArgs,
   Workspace,
   WorkspaceEnvGroup,
@@ -18,14 +8,24 @@ import type {
   JsonObject,
   JsonValue,
   VendorTask,
-  VendorTaskRunResult,
-  VendorTaskStartOptions,
 } from "bit-lite-vendors";
 import { createResultStore } from "../utils/result-store.js";
 import type { ResultStore, ResultStoreEntry } from "../utils/result-store.js";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
 import type { ResolvedCommandSelection } from "../utils/command-selection.js";
-import type { WatchCommandContribution } from "./watch-contribution.js";
+import {
+  createEnvServiceExecutionPlan,
+  createVendorWatchExecution,
+  defineVendorExecution,
+  prepareResolvedServiceTaskOptions,
+  runVendorExecutionPlan,
+} from "../utils/vendor-execution.js";
+import type {
+  ImmutableCliArguments,
+  PlannedEnvServiceUnit,
+  VendorRunOutcome,
+} from "../utils/vendor-execution.js";
+import type { WatchCommandContribution } from "../utils/watch-contribution.js";
 import { createTestResultRoutes } from "./test-routes.js";
 
 export type TestServiceResult = JsonObject & {
@@ -67,7 +67,7 @@ export type TestWatchContribution = WatchCommandContribution<VendorTask<unknown,
   groups: readonly WorkspaceEnvGroup[];
   resultStore: ResultStore<TestServiceResult>;
   bindings: TestWatchTaskBinding[];
-  effectiveArgs: CliArguments;
+  effectiveArgs: ImmutableCliArguments;
 };
 
 export type CreateTestWatchContributionOptions = {
@@ -77,8 +77,42 @@ export type CreateTestWatchContributionOptions = {
 const serviceId = "test";
 const label = "Test";
 
+type TestExecutionContext = {
+  workspace: Workspace;
+  resultStore?: ResultStore<TestServiceResult> | undefined;
+};
+
+const testVendorExecution = defineVendorExecution<
+  PlannedEnvServiceUnit,
+  TestExecutionContext,
+  undefined,
+  TestServiceResult,
+  TestServiceResult
+>({
+  serviceId,
+  label,
+  prepare: async ({ unit, args, context }) => ({
+    taskOptions: await prepareResolvedServiceTaskOptions({
+      workspace: context.workspace,
+      args,
+      unit: unit.value,
+    }),
+  }),
+  run: {
+    formatResult: formatTestRunResult,
+  },
+  watch: {
+    activation: "eager",
+    formatResult: formatTestWatchResult,
+    onResult(result, task, _unit, context) {
+      if (context.resultStore) addTestWatchResult(context.resultStore, task, result);
+    },
+  },
+});
+
 export async function runTestCommand(parsed: ParsedCliArgs, options: RunTestCommandOptions = {}) {
   const selection = await prepareResolvedCommandSelection(parsed);
+  const plan = createEnvServiceExecutionPlan(selection, serviceId);
 
   if (parsed.args.options.watch === true && isInteractiveTerminal()) {
     const contribution = await createTestWatchContribution(selection, {
@@ -104,102 +138,64 @@ export async function runTestCommand(parsed: ParsedCliArgs, options: RunTestComm
     return;
   }
 
-  const tasks = (await Promise.all(selection.groups.map((group) =>
-    createTestVendorTaskOptions(selection.context.workspace, group, parsed.args)
-  ))).filter((task): task is VendorTaskStartOptions => task !== undefined);
-
-  if (tasks.length === 0) {
+  if (plan.layers[0]?.length === 0) {
     printNoTestTasks(selection.groups);
     return;
   }
 
-  await runVendorTasks(tasks, {
-    serviceId,
-    label,
-    formatResult: formatTestRunResult,
-    printResults: printTestResults,
+  const execution = await runVendorExecutionPlan({
+    plan,
+    definition: testVendorExecution,
+    context: { workspace: selection.context.workspace },
+    args: parsed.args,
   });
+  const failure = execution.outcomes.find((outcome) => outcome.status === "failed");
+  if (failure?.status === "failed") throw failure.error;
+  const successful = execution.outcomes.filter(
+    (outcome): outcome is Extract<typeof outcome, { status: "successful" }> =>
+      outcome.status === "successful"
+  );
+  printTestResults(successful);
 }
 
 export async function createTestWatchContribution(
   selection: ResolvedCommandSelection,
   options: CreateTestWatchContributionOptions = {}
 ): Promise<TestWatchContribution> {
-  const effectiveArgs = createTestWatchArguments(selection.parsed.args);
-  const taskSpecs = (await Promise.all(selection.groups.map(async (group) => {
-    const taskOptions = await createTestVendorTaskOptions(selection.context.workspace, group, effectiveArgs);
-    return taskOptions ? { group, taskOptions } : undefined;
-  }))).filter((spec): spec is { group: WorkspaceEnvGroup; taskOptions: VendorTaskStartOptions } => spec !== undefined);
   const resultStore = options.resultStore ?? createResultStore<TestServiceResult>();
-  const tasks = await createWatchVendorTasks<TestServiceResult>(
-    taskSpecs.map((spec) => spec.taskOptions),
-    {
-      serviceId,
-      label,
-      formatResult: formatTestWatchResult,
-      onResult(result, task) {
-        addTestWatchResult(resultStore, task, result);
-      },
-    }
-  );
-  const tasksByEnv = new Map(tasks.map((task) => [getSelectedEnvKey(task.context.env), task]));
-  const bindings = taskSpecs.flatMap(({ group }) => {
-    const task = tasksByEnv.get(getSelectedEnvKey(group.env.env));
-    return task
-      ? [{ task, componentIds: group.components.map((component) => component.id) }]
-      : [];
+  const plan = createEnvServiceExecutionPlan(selection, serviceId);
+  const execution = await createVendorWatchExecution({
+    plan,
+    definition: testVendorExecution,
+    context: { workspace: selection.context.workspace, resultStore },
+    args: selection.parsed.args,
   });
-  let disposed = false;
+  const bindings = execution.preparedUnits.map(({ unit, task }) => ({
+    task,
+    componentIds: unit.value.group.components.map((component) => component.id),
+  }));
 
   const contribution: TestWatchContribution = {
     serviceId,
-    tasks,
+    tasks: execution.tasks,
     routes: [],
     groups: selection.groups,
     resultStore,
     bindings,
-    effectiveArgs,
-    dispose() {
-      if (disposed) return;
-      disposed = true;
-    },
+    effectiveArgs: execution.args,
+    dispose: execution.dispose,
   };
-  contribution.routes.push(...createTestResultRoutes(contribution));
-  return contribution;
-}
-
-export function createTestWatchArguments(args: CliArguments): CliArguments {
-  return {
-    raw: [...args.raw],
-    options: { ...args.options, watch: true },
-    passthrough: [...args.passthrough],
-  };
+  try {
+    contribution.routes.push(...createTestResultRoutes(contribution));
+    return contribution;
+  } catch (error) {
+    await contribution.dispose();
+    throw error;
+  }
 }
 
 function isInteractiveTerminal() {
   return process.stdin.isTTY === true && process.stdout.isTTY === true;
-}
-
-async function createTestVendorTaskOptions(
-  workspace: Workspace,
-  group: WorkspaceEnvGroup,
-  args: CliArguments
-): Promise<VendorTaskStartOptions | undefined> {
-  const service = group.env.services.test;
-  if (!service) return undefined;
-  const vendorUrl = await resolveVendorSpecifier({
-    specifier: service.definition.vendor,
-    service,
-    workspaceRoot: workspace.rootDir,
-    selectedEnv: group.env.env.packageName,
-    serviceName: serviceId,
-  });
-  return {
-    vendorUrl,
-    context: createVendorContext({ workspace, args, env: group.env, service }),
-    components: group.components,
-    config: service.definition.config ?? {},
-  };
 }
 
 function printNoTestTasks(groups: readonly WorkspaceEnvGroup[]) {
@@ -213,14 +209,17 @@ function printNoTestTasks(groups: readonly WorkspaceEnvGroup[]) {
 }
 
 function printTestResults(
-  results: VendorTaskRunResult<TestServiceResult>[],
-  tasks: VendorTask<TestServiceResult>[]
+  outcomes: Array<
+    Extract<
+      VendorRunOutcome<PlannedEnvServiceUnit, undefined, TestServiceResult>,
+      { status: "successful" }
+    >
+  >
 ) {
-  if (results.length === 0) return;
+  if (outcomes.length === 0) return;
   console.log("Test results:");
-  for (const [index, result] of results.entries()) {
-    const task = tasks[index];
-    console.log(`- ${task?.label ?? result.vendor.label}: ${result.data.stats.summary}`);
+  for (const { result, task } of outcomes) {
+    console.log(`- ${task.label}: ${result.data.stats.summary}`);
     for (const componentResult of result.data.componentResults) {
       console.log(`  - ${componentResult.componentId}: ${formatComponentResult(componentResult)}`);
     }

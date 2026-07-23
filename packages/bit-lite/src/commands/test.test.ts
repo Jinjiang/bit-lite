@@ -1,14 +1,12 @@
 import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { stopVendorTasks } from "bit-lite-vendors";
 import type { SelectedEnvIdentity } from "bit-lite-context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCli } from "../cli.js";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
 import { createResultStore } from "../utils/result-store.js";
 import {
-  createTestWatchArguments,
   createTestWatchContribution,
   isTestServiceResult,
   runTestCommand,
@@ -85,13 +83,14 @@ describe("test command", () => {
       expect(contribution.effectiveArgs.options).toEqual({ watch: true, coverage: true });
       expect(contribution.effectiveArgs.raw).toEqual(parsed.args.raw);
       expect(contribution.effectiveArgs).not.toBe(parsed.args);
+      expect(Object.isFrozen(contribution.effectiveArgs)).toBe(true);
+      expect(Object.isFrozen(contribution.effectiveArgs.options)).toBe(true);
       expect(parsed.args.options).toEqual({ watch: true, coverage: true });
       expect(contribution.tasks.every((task) => task.context.workspace === selection.context.workspace)).toBe(true);
       expect(process.listenerCount("SIGINT")).toBe(sigintListeners);
       expect(process.listenerCount("SIGTERM")).toBe(sigtermListeners);
       await vi.waitFor(() => expect(store.entries()).toHaveLength(2));
     } finally {
-      await stopVendorTasks(contribution.tasks);
       await contribution.dispose();
       await contribution.dispose();
     }
@@ -156,24 +155,29 @@ describe("test command", () => {
     })).toBe(true);
   });
 
-  it("enables contribution watch mode without mutating or discarding arguments", () => {
-    const args = {
+  it("enables contribution watch mode without mutating or discarding arguments", async () => {
+    const workspaceRoot = await createWorkspace();
+    const parsed = createParsedTestArgs(workspaceRoot);
+    parsed.command = "start";
+    parsed.args = {
       raw: ["start", "--unknown", "value", "--", "fixture.ts"],
       options: { unknown: "value" },
       passthrough: ["fixture.ts"],
     };
+    const selection = await prepareResolvedCommandSelection(parsed);
 
-    const effective = createTestWatchArguments(args);
+    const contribution = await createTestWatchContribution(selection);
 
-    expect(effective).toEqual({
-      raw: args.raw,
+    expect(contribution.effectiveArgs).toEqual({
+      raw: parsed.args.raw,
       options: { unknown: "value", watch: true },
-      passthrough: args.passthrough,
+      passthrough: parsed.args.passthrough,
     });
-    expect(effective).not.toBe(args);
-    expect(effective.raw).not.toBe(args.raw);
-    expect(effective.passthrough).not.toBe(args.passthrough);
-    expect(args.options).toEqual({ unknown: "value" });
+    expect(contribution.effectiveArgs).not.toBe(parsed.args);
+    expect(contribution.effectiveArgs.raw).not.toBe(parsed.args.raw);
+    expect(contribution.effectiveArgs.passthrough).not.toBe(parsed.args.passthrough);
+    expect(parsed.args.options).toEqual({ unknown: "value" });
+    await contribution.dispose();
   });
 });
 

@@ -35,6 +35,7 @@ export type {
   VendorTask,
   VendorTaskRunResult,
   VendorTaskStartOptions,
+  VendorWatchTask,
   WatchVendorTasksOptions,
 } from "./vendor-task.js";
 export type {

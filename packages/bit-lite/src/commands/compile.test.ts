@@ -56,8 +56,12 @@ describe("configured per-component compile services", () => {
     await linkComponentPackages(workspace);
 
     const plan = createCompilePlan(workspace, ["lib/a"]);
-    expect(plan.layers.map((layer) => layer.map((component) => component.id)))
+    expect(plan.layers.map((layer) => layer.map((unit) => unit.value.id)))
       .toEqual([["envs/a"], ["lib/a"]]);
+    expect(plan.layers[1]?.[0]).toMatchObject({
+      id: "compile:lib/a",
+      dependsOn: ["compile:envs/a"],
+    });
     expect((await compileComponentPackages(workspace, ["lib/a"])).map((component) => component.id))
       .toEqual(["envs/a", "lib/a"]);
     await expect(readFile(path.join(root, "node_modules/@scope/env.b/dist/index.json"), "utf8"))
@@ -97,6 +101,18 @@ describe("configured per-component compile services", () => {
     expect(isCompileRunResult({ output: { artifactCount: Number.NaN } })).toBe(false);
   });
 
+  it("rejects an invalid compiler run result through the layered executor", async () => {
+    const root = await createCompileWorkspace([
+      env("envs/a", "@scope/env.a", invalidCompilerVendor("run"), {}),
+      ordinary("lib/a", "@scope/lib.a", "@scope/env.a"),
+    ]);
+    const workspace = await readWorkspace(root);
+    await linkComponentPackages(workspace);
+
+    await expect(compileComponentPackages(workspace, ["lib/a"]))
+      .rejects.toThrow('compile vendor returned an invalid result for component "lib/a"');
+  });
+
   it("creates caller-owned watch tasks in env prerequisite order without process supervision", async () => {
     const root = await createCompileWorkspace([
       env("envs/a", "@scope/env.a", compilerVendor("compiler-a"), { label: "A" }),
@@ -106,15 +122,25 @@ describe("configured per-component compile services", () => {
     await linkComponentPackages(workspace);
     const sigintListeners = process.listenerCount("SIGINT");
     const sigtermListeners = process.listenerCount("SIGTERM");
+    const sourceArgs = {
+      raw: ["start", "--unknown", "value", "--", "fixture.ts"],
+      options: { unknown: "value" },
+      passthrough: ["fixture.ts"],
+    };
     const contribution = await createCompileWatchContribution(
       workspace,
       ["lib/a"],
-      { raw: ["compile", "--watch"], options: { watch: true }, passthrough: [] }
+      sourceArgs
     );
 
     expect(contribution.bindings.map(({ component }) => component.id)).toEqual(["envs/a", "lib/a"]);
     expect(contribution.tasks.map((task) => task.id)).toEqual(["compile:envs/a", "compile:lib/a"]);
     expect(contribution.tasks.every((task) => task.context.args.options.watch === true)).toBe(true);
+    expect(contribution.effectiveArgs.options).toEqual({ unknown: "value", watch: true });
+    expect(contribution.effectiveArgs.raw).toEqual(sourceArgs.raw);
+    expect(contribution.effectiveArgs.passthrough).toEqual(sourceArgs.passthrough);
+    expect(Object.isFrozen(contribution.effectiveArgs)).toBe(true);
+    expect(sourceArgs.options).toEqual({ unknown: "value" });
     expect(process.listenerCount("SIGINT")).toBe(sigintListeners);
     expect(process.listenerCount("SIGTERM")).toBe(sigtermListeners);
     expect(await marker(root, "@scope/lib.a")).toMatchObject({ label: "A" });
@@ -140,6 +166,24 @@ describe("configured per-component compile services", () => {
     )).rejects.toThrow("must export meta and a default CompilerVendorStart");
     expect(process.listenerCount("SIGINT")).toBe(sigintListeners);
     expect(process.listenerCount("SIGTERM")).toBe(sigtermListeners);
+  }, 10_000);
+
+  it("rejects an invalid first watch result without constructing dependent work", async () => {
+    const root = await createCompileWorkspace([
+      env("envs/a", "@scope/env.a", invalidCompilerVendor("watch"), {}),
+      ordinary("lib/a", "@scope/lib.a", "@scope/env.a"),
+      ordinary("lib/b", "@scope/lib.b", "@scope/env.a", { "@scope/lib.a": "workspace:*" }),
+    ]);
+    const workspace = await readWorkspace(root);
+    await linkComponentPackages(workspace);
+
+    await expect(createCompileWatchContribution(
+      workspace,
+      ["lib/b"],
+      { raw: ["compile", "--watch"], options: { watch: true }, passthrough: [] }
+    )).rejects.toThrow("Invalid compile watch result");
+    await expect(readFile(path.join(root, "node_modules/@scope/lib.b/dist/marker.json"), "utf8"))
+      .rejects.toThrow();
   }, 10_000);
 });
 
@@ -304,6 +348,26 @@ function compilerVendor(id: string) {
 function compilerVendorWithoutRunner() {
   const source = `
     export const meta = { id: "one-shot-only", label: "one shot", hint: "fixture", moduleUrl: import.meta.url };
+  `;
+  return `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
+}
+
+function invalidCompilerVendor(mode: "run" | "watch") {
+  const source = `
+    export const meta = {
+      id: "invalid-${mode}",
+      label: "invalid ${mode}",
+      hint: "fixture",
+      moduleUrl: import.meta.url
+    };
+    export default async function start(runtime) {
+      if (runtime.data.context.args.options.watch === true) {
+        runtime.postMessage({ type: "ready" });
+        runtime.postMessage({ type: "result", data: { invalid: true } });
+        return { stop() {} };
+      }
+      return { data: { artifactCount: 1 } };
+    }
   `;
   return `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
 }

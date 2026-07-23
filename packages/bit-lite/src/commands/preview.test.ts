@@ -1,18 +1,14 @@
-import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { getSelectedEnvKey, parseCliArguments } from "bit-lite-context";
 import { ProxyServer } from "bit-lite-proxy";
-import { stopVendorTasks } from "bit-lite-vendors";
 import type { ParsedCliArgs, Workspace, WorkspaceContext, WorkspaceEnvGroup } from "bit-lite-context";
-import { PreviewProxyServer } from "bit-lite-preview/node";
 import { describe, expect, it, vi } from "vitest";
 import {
   createPreviewCommandContribution,
   createPreviewPortHints,
   isPreviewServiceResult,
-  preparePreviewTasks,
   readPreviewLazy,
 } from "./preview.js";
 
@@ -29,48 +25,24 @@ describe("preview command preparation isolation", () => {
       writeFile(path.join(workspaceRoot, "vite.mjs"), "export default {};\n", "utf8"),
     ]);
     const groups: WorkspaceEnvGroup[] = [
-      createGroup("valid", validRoot, "./vite.mjs", workspaceRoot, "parent"),
-      createGroup("failed", failedRoot, "./missing.mjs", workspaceRoot),
+      createGroup("valid", validRoot, "./vite.mjs", workspaceRoot, "parent", previewVendorUrl()),
+      createGroup("failed", failedRoot, "./missing.mjs", workspaceRoot, "failed", previewVendorUrl()),
     ];
     const workspace = createWorkspace(workspaceRoot, groups);
-    const proxy = new PreviewProxyServer({
-      envs: groups.map((group) => ({
-        env: group.env.env,
-        taskId: getSelectedEnvKey(group.env.env),
-        vendor: "vite-preview",
-        status: "starting",
-        components: group.components,
-      })),
+    const contribution = await createPreviewCommandContribution(createSelection(workspace, groups), {
+      proxy: { origin: "http://127.0.0.1:4000", host: "127.0.0.1", port: 4000 },
+      activationMode: "lazy",
     });
 
-    const result = await preparePreviewTasks(
-      groups,
-      workspace,
-      parseCliArguments([]),
-      "http://127.0.0.1:4000",
-      "127.0.0.1",
-      proxy
-    );
-    const task = result.tasks[0];
-    expect(result.tasks).toHaveLength(1);
-    expect(result.failures).toHaveLength(1);
-    expect(task?.options.components).toBe(groups[0]?.components);
-    expect(task?.options.runtime).toEqual(task?.prepared.runtime);
-    expect(Object.keys(task?.options.runtime ?? {})).toEqual(["server", "prepared", "aliases"]);
-    expect(task?.options.runtime?.server).toMatchObject({ preferredPort: 6000, fallbackStartPort: 6001 });
-    expect(task?.options.runtime?.aliases).toEqual([
-      { packageName: "@scope/valid", sourceDir: validRoot },
-    ]);
-    expect(task?.options.context.env.packageName).toBe("valid");
-    expect(task?.options.context.service.source.identity.packageName).toBe("parent");
-    expect(proxy.manifest().envs).toMatchObject([
+    expect(contribution.tasks).toHaveLength(1);
+    expect(contribution.preparationFailures).toHaveLength(1);
+    expect(contribution.tasks[0]?.context.env.packageName).toBe("valid");
+    expect(contribution.tasks[0]?.context.service.source.identity.packageName).toBe("parent");
+    expect(contribution.manifest().envs).toMatchObject([
       { env: selectedEnv("failed"), status: "failed", error: expect.stringContaining("could not resolve") },
-      { env: selectedEnv("valid"), status: "starting", preferredPort: 6000, fallbackStartPort: 6001 },
+      { env: selectedEnv("valid"), status: "idle", preferredPort: 6000, fallbackStartPort: 6001 },
     ]);
-
-    const tempDir = task?.prepared.tempDir;
-    await Promise.all(result.tasks.map((preparedTask) => preparedTask.prepared.cleanup()));
-    await expect(access(tempDir ?? "")).rejects.toThrow();
+    await contribution.dispose();
   });
 
   it("assigns a deterministic preferred range and a shared fallback after it", () => {
@@ -104,37 +76,23 @@ describe("preview command preparation isolation", () => {
       writeFile(path.join(zetaRoot, "zeta.docs.md"), "# Zeta\n", "utf8"),
     ]);
     const groups = [
-      createGroup("zeta", zetaRoot, "./vite.mjs", workspaceRoot),
-      createGroup("alpha", alphaRoot, "./vite.mjs", workspaceRoot),
+      createGroup("zeta", zetaRoot, "./vite.mjs", workspaceRoot, "zeta", previewVendorUrl()),
+      createGroup("alpha", alphaRoot, "./vite.mjs", workspaceRoot, "alpha", previewVendorUrl()),
     ];
     const workspace = createWorkspace(workspaceRoot, groups);
-    const state = new PreviewProxyServer({
-      envs: groups.map((group) => ({
-        env: group.env.env,
-        taskId: group.env.env.packageName,
-        vendor: "fixture",
-        status: "starting",
-        components: group.components,
-      })),
+    const contribution = await createPreviewCommandContribution(createSelection(workspace, groups), {
+      proxy: { origin: "http://127.0.0.1:4000", host: "127.0.0.1", port: 4000 },
+      activationMode: "lazy",
     });
 
-    const result = await preparePreviewTasks(
-      groups,
-      workspace,
-      parseCliArguments([]),
-      "http://127.0.0.1:4000",
-      "127.0.0.1",
-      state
-    );
-
     try {
-      expect(result.tasks.map((task) => task.prepared.env.packageName)).toEqual(["alpha", "zeta"]);
-      expect(result.tasks.map((task) => task.prepared.runtime.server)).toMatchObject([
-        { preferredPort: 6000, fallbackStartPort: 6002 },
-        { preferredPort: 6001, fallbackStartPort: 6002 },
+      expect(contribution.tasks.map((task) => task.context.env.packageName)).toEqual(["alpha", "zeta"]);
+      expect(contribution.manifest().envs).toMatchObject([
+        { env: selectedEnv("alpha"), preferredPort: 6000, fallbackStartPort: 6002 },
+        { env: selectedEnv("zeta"), preferredPort: 6001, fallbackStartPort: 6002 },
       ]);
     } finally {
-      await Promise.all(result.tasks.map((task) => task.prepared.cleanup()));
+      await contribution.dispose();
     }
   });
 
@@ -197,7 +155,14 @@ describe("preview command preparation isolation", () => {
       expect(contribution.tasks[0]?.context.workspace).toBe(workspace);
       expect(contribution.tasks[0]?.context.env).toEqual(selectedEnv("valid"));
       expect(contribution.tasks[0]?.context.service.source.identity.packageName).toBe("parent");
-      expect(contribution.tasks[0]?.context.args).toBe(parsed.args);
+      expect(contribution.tasks[0]?.context.args).not.toBe(parsed.args);
+      expect(contribution.tasks[0]?.context.args).toEqual({
+        raw: parsed.args.raw,
+        options: { unknown: "value", watch: true },
+        passthrough: parsed.args.passthrough,
+      });
+      expect(Object.isFrozen(contribution.tasks[0]?.context.args)).toBe(true);
+      expect(parsed.args.options).toEqual({ unknown: "value" });
       expect(process.listenerCount("SIGINT")).toBe(sigintListeners);
       expect(process.listenerCount("SIGTERM")).toBe(sigtermListeners);
       await vi.waitFor(() => expect(contribution.manifest().envs[0]).toMatchObject({
@@ -207,7 +172,6 @@ describe("preview command preparation isolation", () => {
       }));
       expect(contribution.manifest().envs[0]).not.toHaveProperty("envName");
     } finally {
-      await stopVendorTasks(contribution.tasks);
       await contribution.dispose();
       await contribution.dispose();
     }
@@ -290,6 +254,40 @@ describe("preview command preparation isolation", () => {
       await proxyServer.close();
     }
   }, 20_000);
+
+  it("rejects an invalid validated result without projecting an upstream server", async () => {
+    const fixture = await createContributionSelection(previewInvalidResultVendorUrl());
+    const contribution = await createPreviewCommandContribution(fixture.selection, {
+      proxy: { origin: "http://127.0.0.1:4000", host: "127.0.0.1", port: 4000 },
+    });
+    const task = contribution.tasks[0]!;
+
+    try {
+      await expect(task.firstResult).rejects.toThrow("Invalid preview result");
+      await vi.waitFor(() => expect(contribution.manifest().envs[0]).toMatchObject({
+        status: "failed",
+        error: expect.stringContaining("Invalid preview result"),
+      }));
+      expect(contribution.manifest().envs[0]).not.toHaveProperty("server");
+    } finally {
+      await contribution.dispose();
+    }
+  });
+
+  it("silently omits selected env groups without preview service state", async () => {
+    const fixture = await createContributionSelection(previewVendorUrl());
+    fixture.selection.groups[0]!.env.services = {};
+    const contribution = await createPreviewCommandContribution(fixture.selection, {
+      proxy: { origin: "http://127.0.0.1:4000", host: "127.0.0.1", port: 4000 },
+    });
+
+    expect(contribution.tasks).toEqual([]);
+    expect(contribution.configuredTaskCount).toBe(0);
+    expect(contribution.preparationFailures).toEqual([]);
+    expect(contribution.manifest().envs).toEqual([]);
+    expect(contribution).not.toHaveProperty("unavailable");
+    await contribution.dispose();
+  });
 
   it("continues shared activation when the triggering HTTP client disconnects", async () => {
     const fixture = await createContributionSelection(previewHttpVendorUrl(80));
@@ -416,6 +414,28 @@ function createWorkspace(rootDir: string, groups: WorkspaceEnvGroup[]): Workspac
   };
 }
 
+function createSelection(workspace: Workspace, groups: WorkspaceEnvGroup[]) {
+  const context: WorkspaceContext = {
+    workspace,
+    components: groups.flatMap((group) =>
+      group.components.map((component) => ({ component, env: group.env }))
+    ),
+  };
+  const parsed: ParsedCliArgs = {
+    command: "preview",
+    args: { raw: ["preview"], options: {}, passthrough: [] },
+    workspaceRoot: workspace.rootDir,
+    componentFilters: [],
+    help: false,
+  };
+  return {
+    parsed,
+    context,
+    components: workspace.components,
+    groups,
+  };
+}
+
 function selectedEnv(packageName: string) {
   return { packageName, requestedVersion: "workspace:*", installedVersion: "0.0.0" };
 }
@@ -522,6 +542,24 @@ function previewFailingVendorUrl() {
       id: "preview-failing-fixture",
       label: "Preview Failing Fixture",
       hint: "Preview failing fixture",
+      moduleUrl: ${JSON.stringify(target)}
+    };
+  `);
+}
+
+function previewInvalidResultVendorUrl() {
+  const target = toDataModule(`
+    export default function start(runtime) {
+      runtime.postMessage({ type: "ready" });
+      runtime.postMessage({ type: "result", data: { mode: "serve", port: 0 } });
+      return { stop() {} };
+    }
+  `);
+  return toDataModule(`
+    export const meta = {
+      id: "preview-invalid-result-fixture",
+      label: "Preview Invalid Result Fixture",
+      hint: "Preview invalid result fixture",
       moduleUrl: ${JSON.stringify(target)}
     };
   `);

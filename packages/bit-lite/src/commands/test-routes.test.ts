@@ -136,7 +136,7 @@ describe("start and test routes", () => {
     ]);
     expect(first.components[1]).not.toHaveProperty("preview");
     expect(first.components[1]).not.toHaveProperty("test");
-    expect(first.preview.unavailable).toEqual([]);
+    expect(first.preview).not.toHaveProperty("unavailable");
     expect(JSON.stringify(first)).not.toContain("envName");
     test.tasks[0]!.status = "running";
     expect(createStartManifest(endpoint, preview, test).tests[0]?.status).toBe("running");
@@ -216,7 +216,6 @@ function createPreviewContribution(endpoint: ProxyEndpoint): PreviewCommandContr
     state: {} as PreviewCommandContribution["state"],
     groups: [fixture.group],
     configuredTaskCount: 1,
-    unavailable: [],
     preparationFailures: [],
     manifest: () => manifest,
     dispose: vi.fn(),

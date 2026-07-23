@@ -84,7 +84,7 @@ export async function loadWorkspaceEnvContexts(workspace: Workspace) {
 
 export async function resolveEnvModuleSpecifier(options: {
   specifier: string;
-  service: ResolvedService;
+  service: Pick<ResolvedService, "source">;
   workspaceRoot: string;
   field: string;
   selectedEnv: string;
@@ -146,7 +146,7 @@ export async function resolveServiceSpecifier(options: {
 
 export async function resolveVendorSpecifier(options: {
   specifier: string;
-  service: ResolvedService;
+  service: Pick<ResolvedService, "source">;
   workspaceRoot: string;
   selectedEnv: string;
   serviceName: string;

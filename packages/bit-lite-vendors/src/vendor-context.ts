@@ -1,7 +1,7 @@
 import type {
   CliArguments,
   EnvContext,
-  ResolvedService,
+  PackageLocation,
   Workspace,
 } from "bit-lite-context";
 import type { VendorContext } from "./types/index.js";
@@ -16,7 +16,10 @@ export function createVendorContext(options: {
   workspace: Workspace;
   args: CliArguments;
   env: EnvContext;
-  service: ResolvedService;
+  service: {
+    name: string;
+    source: PackageLocation;
+  };
 }): VendorContext {
   return {
     version: 1,

@@ -24,6 +24,13 @@ lifecycle without creating a worker; stopping during activation prevents the
 worker from surviving shutdown. A managed-terminal item remains the same object
 and becomes attachable only after its worker exists.
 
+Every worker-backed watch task also exposes `firstResult` and `onResult()`.
+`firstResult` is established before eager or deferred activation and resolves
+once with the first validated event result. `onResult()` observes validated
+results emitted after subscription. Invalid payloads are published through
+neither API, and `firstResult` rejects if validation, activation, execution, or
+stopping wins before a valid result.
+
 Commands resolve a vendor module from the effective service's declaring package
 before runner startup. Both inline and worker execution receive the same common
 envelope:

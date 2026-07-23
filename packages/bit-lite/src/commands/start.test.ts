@@ -280,7 +280,6 @@ function createPreviewContribution(
     state: {},
     groups: selection.groups,
     configuredTaskCount: tasks.length,
-    unavailable: [],
     preparationFailures: [],
     manifest: vi.fn(),
     dispose: vi.fn(),

@@ -56,6 +56,16 @@ export type VendorTask<
   onOutput?(listener: (stream: TerminalOutputStream, chunk: Buffer) => void): () => void;
 };
 
+export type VendorWatchTask<
+  EventResult extends JsonValue = JsonValue,
+  InputMessage extends JsonValue = JsonValue,
+> = VendorTask<unknown, EventResult, InputMessage> & {
+  firstResult: Promise<EventResult>;
+  onResult(
+    listener: (result: EventResult, task: VendorWatchTask<EventResult, InputMessage>) => void
+  ): () => void;
+};
+
 export type RunVendorTasksOptions<
   RunResult = unknown,
   InputMessage extends JsonValue = JsonValue,
@@ -82,7 +92,7 @@ export type CreateWatchVendorTasksOptions<
   serviceId: string;
   label: string;
   formatResult(result: unknown): string[] | Error;
-  onResult?(result: EventResult, task: VendorTask<unknown, EventResult, InputMessage>): void;
+  onResult?(result: EventResult, task: VendorWatchTask<EventResult, InputMessage>): void;
   activation?: "eager" | "deferred" | undefined;
   worker?: WorkerRunnerOptions | undefined;
 };
@@ -146,6 +156,17 @@ type ManagedVendorTask<
   eventResult?: CreateVendorTaskResultOptions<RunResult, EventResult, InputMessage>["eventResult"];
   resolveResult?: ((result: VendorTaskRunResult<RunResult>) => void) | undefined;
   rejectResult?: ((error: unknown) => void) | undefined;
+  firstResult: Promise<EventResult>;
+  firstResultSettled: boolean;
+  resolveFirstResult(result: EventResult): void;
+  rejectFirstResult(error: unknown): void;
+  resultListeners: Set<
+    (result: EventResult, task: VendorWatchTask<EventResult, InputMessage>) => void
+  >;
+  onResult(
+    listener: (result: EventResult, task: VendorWatchTask<EventResult, InputMessage>) => void
+  ): () => void;
+  eventResultsClosed: boolean;
 };
 
 export async function runVendorTasks<
@@ -210,7 +231,7 @@ export function createWatchVendorTasks<
       worker: options.worker,
       activation: options.activation ?? "eager",
     }
-  );
+  ) as Promise<VendorWatchTask<EventResult, InputMessage>[]>;
 }
 
 export async function superviseVendorTasks<
@@ -454,6 +475,9 @@ function createManagedVendorTask<
   };
   const messageListeners = new Set<(message: VendorMessage<EventResult>) => void>();
   const outputListeners = new Set<(stream: TerminalOutputStream, chunk: Buffer) => void>();
+  const resultListeners = new Set<
+    (result: EventResult, task: VendorWatchTask<EventResult, InputMessage>) => void
+  >();
   let runner: VendorRunner<VendorConfig, RunResult, EventResult, InputMessage> | undefined;
   let activationPromise: Promise<void> | undefined;
   let activationError: Error | undefined;
@@ -470,6 +494,13 @@ function createManagedVendorTask<
     resolveResult = resolve;
     rejectResult = reject;
   });
+  let resolveFirstResult!: (result: EventResult) => void;
+  let rejectFirstResult!: (error: unknown) => void;
+  const firstResult = new Promise<EventResult>((resolve, reject) => {
+    resolveFirstResult = resolve;
+    rejectFirstResult = reject;
+  });
+  void firstResult.catch(() => undefined);
 
   const task: ManagedVendorTask<RunResult, EventResult, InputMessage> = {
     id: options.taskId ?? `${options.context.service.name}:${getSelectedEnvKey(options.context.env)}:${vendor.id}`,
@@ -491,6 +522,12 @@ function createManagedVendorTask<
     exitPromise,
     resolveResult,
     rejectResult,
+    firstResult,
+    firstResultSettled: false,
+    resolveFirstResult,
+    rejectFirstResult,
+    resultListeners,
+    eventResultsClosed: false,
     activate() {
       if (activationPromise) return activationPromise;
       if (stopRequested) {
@@ -507,6 +544,7 @@ function createManagedVendorTask<
     stop() {
       if (stopPromise) return stopPromise;
       stopRequested = true;
+      closeEventResults(task, new Error(`${task.label} stopped before its first valid result`));
       stopPromise = (async () => {
         if (runner) {
           await runner.stop();
@@ -519,6 +557,7 @@ function createManagedVendorTask<
     },
     async terminate() {
       stopRequested = true;
+      closeEventResults(task, new Error(`${task.label} stopped before its first valid result`));
       if (runner) {
         await runner.terminate();
         return;
@@ -533,6 +572,10 @@ function createManagedVendorTask<
     onMessage(listener) {
       messageListeners.add(listener);
       return () => messageListeners.delete(listener);
+    },
+    onResult(listener) {
+      resultListeners.add(listener);
+      return () => resultListeners.delete(listener);
     },
     onOutput(listener) {
       outputListeners.add(listener);
@@ -641,6 +684,10 @@ function handleVendorExit<
   task: ManagedVendorTask<RunResult, EventResult, InputMessage>,
   code: RunnerExitCode
 ) {
+  closeEventResults(
+    task,
+    new Error(`${task.label} exited before producing its first valid result`)
+  );
   if (code === 0) {
     if (task.runResult !== undefined && !task.completed) {
       rejectVendorRun(task, new Error(`${task.label} completed without a result`));
@@ -697,7 +744,7 @@ function recordVendorEventResult<
   task: ManagedVendorTask<RunResult, EventResult, InputMessage>,
   result: unknown
 ) {
-  if (task.eventResult === undefined) return;
+  if (task.eventResult === undefined || task.completed || task.eventResultsClosed) return;
 
   const details = callFormatResult(task.eventResult.formatResult, result);
   if (details instanceof Error) {
@@ -706,7 +753,14 @@ function recordVendorEventResult<
   }
 
   task.details = details;
-  task.eventResult.onResult?.(result as EventResult, task);
+  const validatedResult = result as EventResult;
+  if (!task.firstResultSettled) {
+    task.firstResultSettled = true;
+    task.resolveFirstResult(validatedResult);
+  }
+  const watchTask = task as unknown as VendorWatchTask<EventResult, InputMessage>;
+  for (const listener of task.resultListeners) listener(validatedResult, watchTask);
+  task.eventResult.onResult?.(validatedResult, watchTask);
 }
 
 function rejectVendorRun<
@@ -719,7 +773,23 @@ function rejectVendorRun<
 ) {
   if (task.completed) return;
   task.completed = true;
-  task.rejectResult?.(error instanceof Error ? error : new Error(formatError(error)));
+  const failure = error instanceof Error ? error : new Error(formatError(error));
+  closeEventResults(task, failure);
+  task.rejectResult?.(failure);
+}
+
+function closeEventResults<
+  RunResult,
+  EventResult extends JsonValue,
+  InputMessage extends JsonValue,
+>(
+  task: ManagedVendorTask<RunResult, EventResult, InputMessage>,
+  error: Error
+) {
+  task.eventResultsClosed = true;
+  if (task.firstResultSettled) return;
+  task.firstResultSettled = true;
+  task.rejectFirstResult(error);
 }
 
 function callFormatResult<Result>(
