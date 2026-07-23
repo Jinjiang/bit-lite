@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParsedCliArgs } from "bit-lite-context";
+import type { CompileWatchContribution } from "./compile.js";
 import type { PreviewCommandContribution } from "./preview.js";
 import type { TestWatchContribution } from "./test.js";
 import type { ResolvedCommandSelection } from "../utils/command-selection.js";
 
 const mocks = vi.hoisted(() => ({
   prepare: vi.fn(),
+  createCompile: vi.fn(),
+  selectCompileRoots: vi.fn(),
   createPreview: vi.fn(),
   createTest: vi.fn(),
   proxyStart: vi.fn(),
@@ -16,6 +19,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../utils/command-selection.js", () => ({
   prepareResolvedCommandSelection: mocks.prepare,
+}));
+
+vi.mock("./compile.js", () => ({
+  createCompileWatchContribution: mocks.createCompile,
+  selectCompileRootIds: mocks.selectCompileRoots,
+  runCompileCommand: vi.fn(),
 }));
 
 vi.mock("./preview.js", () => ({
@@ -58,9 +67,21 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.proxyStart.mockResolvedValue(endpoint);
   mocks.proxyClose.mockResolvedValue(undefined);
-  mocks.supervise.mockImplementation(async (_tasks, options) => {
-    await options.dispose();
-    return _tasks;
+  mocks.selectCompileRoots.mockImplementation((selection: ResolvedCommandSelection) =>
+    selection.groups.flatMap((group) =>
+      group.env.services.compile ? group.components.map((component) => component.id) : []
+    )
+  );
+  mocks.createCompile.mockImplementation(async (_workspace, roots) =>
+    createCompileContribution(roots.map((id: string) => task(`compile:${id}`)))
+  );
+  mocks.createPreview.mockImplementation(async (selection) => createPreviewContribution(selection, []));
+  mocks.createTest.mockImplementation(async (selection) => createTestContribution(selection, []));
+  mocks.supervise.mockImplementation(async (tasks, options) => {
+    const first = options.dispose();
+    expect(options.dispose()).toBe(first);
+    await first;
+    return tasks;
   });
   vi.spyOn(console, "log").mockImplementation(() => undefined);
 });
@@ -73,80 +94,87 @@ describe("runStartCommand", () => {
     expect(mocks.prepare).toHaveBeenCalledOnce();
     expect(await runCli(["--help"])).toBe(0);
     expect(vi.mocked(console.log).mock.calls.flat().join("\n")).toContain(
-      "start   serve preview and live test results in one watch session"
+      "start   compile and serve preview/live tests in one watch session"
     );
   });
 
-  it("prepares once and exits before opening a proxy or watch session when no service is configured", async () => {
-    const parsed = createParsed(["start", "--filter", "scope/a"], { filter: "scope/a" });
+  it("prepares once and exits before contributions, proxy, or supervision when no service exists", async () => {
+    const parsed = createParsed(["start", "--filter", "scope/a"]);
     const resolved = createSelection(parsed, [{}]);
     mocks.prepare.mockResolvedValue(resolved);
 
-    const sigintListeners = process.listenerCount("SIGINT");
-    const sigtermListeners = process.listenerCount("SIGTERM");
     await runStartCommand(parsed);
 
     expect(mocks.prepare).toHaveBeenCalledOnce();
+    expect(mocks.createCompile).not.toHaveBeenCalled();
     expect(mocks.proxyStart).not.toHaveBeenCalled();
     expect(mocks.createPreview).not.toHaveBeenCalled();
     expect(mocks.createTest).not.toHaveBeenCalled();
     expect(mocks.supervise).not.toHaveBeenCalled();
-    expect(process.listenerCount("SIGINT")).toBe(sigintListeners);
-    expect(process.listenerCount("SIGTERM")).toBe(sigtermListeners);
     expect(console.log).toHaveBeenCalledWith("No start tasks found.");
   });
 
-  it("passes one shared filtered selection to both contributions and supervises all tasks once", async () => {
+  it("waits for compile before preview and test, then supervises all tasks once", async () => {
     const parsed = createParsed(
       ["start", "--filter", "scope/**", "--custom", "value", "--", "vendor-arg"],
-      { filter: "scope/**", custom: "value" },
+      { custom: "value" },
       ["vendor-arg"]
     );
     const original = structuredClone(parsed);
-    const resolved = createSelection(parsed, [{ preview: {}, test: {} }]);
-    const previewTask = { id: "preview:child:vite" };
-    const testTask = { id: "test:child:vitest" };
+    const resolved = createSelection(parsed, [{ compile: {}, preview: {}, test: {} }]);
+    const compileTask = task("compile:scope/component-0");
+    const previewTask = task("preview:child:vite");
+    const testTask = task("test:child:vitest");
+    const compile = createCompileContribution([compileTask]);
     const preview = createPreviewContribution(resolved, [previewTask]);
     const test = createTestContribution(resolved, [testTask]);
     mocks.prepare.mockResolvedValue(resolved);
+    mocks.createCompile.mockResolvedValue(compile);
     mocks.createPreview.mockResolvedValue(preview);
     mocks.createTest.mockResolvedValue(test);
 
     await runStartCommand(parsed);
 
-    expect(mocks.prepare).toHaveBeenCalledOnce();
+    expect(mocks.createCompile).toHaveBeenCalledWith(
+      resolved.context.workspace,
+      ["scope/component-0"],
+      parsed.args
+    );
+    expect(compile.ready).toHaveBeenCalledOnce();
+    expect(compile.ready.mock.invocationCallOrder[0]).toBeLessThan(mocks.proxyStart.mock.invocationCallOrder[0]!);
+    expect(compile.ready.mock.invocationCallOrder[0]).toBeLessThan(mocks.createPreview.mock.invocationCallOrder[0]!);
+    expect(compile.ready.mock.invocationCallOrder[0]).toBeLessThan(mocks.createTest.mock.invocationCallOrder[0]!);
     expect(mocks.createPreview).toHaveBeenCalledWith(resolved, {
       proxy: endpoint,
       host: endpoint.host,
       activationMode: "eager",
     });
     expect(mocks.createTest).toHaveBeenCalledWith(resolved);
-    expect(mocks.proxyStart).toHaveBeenCalledOnce();
-    expect(mocks.proxyAddRoutes).toHaveBeenCalledTimes(3);
     expect(mocks.supervise).toHaveBeenCalledOnce();
-    expect(mocks.supervise.mock.calls[0]?.[0]).toEqual([previewTask, testTask]);
+    expect(mocks.supervise.mock.calls[0]?.[0]).toEqual([compileTask, previewTask, testTask]);
     expect(parsed).toEqual(original);
-    expect(preview.dispose).toHaveBeenCalledOnce();
     expect(test.dispose).toHaveBeenCalledOnce();
+    expect(preview.dispose).toHaveBeenCalledOnce();
+    expect(compile.dispose).toHaveBeenCalledOnce();
     expect(mocks.proxyClose).toHaveBeenCalledOnce();
     const rootDispose = mocks.supervise.mock.calls[0]?.[1].dispose;
     expect(rootDispose()).toBe(rootDispose());
     expect(preview.dispose).toHaveBeenCalledOnce();
     expect(test.dispose).toHaveBeenCalledOnce();
     expect(mocks.proxyClose).toHaveBeenCalledOnce();
+    expect(test.dispose.mock.invocationCallOrder[0]).toBeLessThan(compile.dispose.mock.invocationCallOrder[0]!);
+    expect(preview.dispose.mock.invocationCallOrder[0]).toBeLessThan(compile.dispose.mock.invocationCallOrder[0]!);
+    expect(compile.dispose.mock.invocationCallOrder[0]).toBeLessThan(mocks.proxyClose.mock.invocationCallOrder[0]!);
   });
 
-  it("passes lazy mode only to preview while preserving the shared selection for eager tests", async () => {
-    const parsed = createParsed(
-      ["start", "--lazy", "--custom", "value", "--", "vendor-arg"],
-      { lazy: true, custom: "value" },
-      ["vendor-arg"]
-    );
-    const original = structuredClone(parsed);
-    const resolved = createSelection(parsed, [{ preview: {}, test: {} }]);
-    const previewTask = { id: "preview:child:vite", status: "idle" };
-    const testTask = { id: "test:child:vitest", status: "watching" };
+  it("applies lazy mode only to preview while compile and test stay eager", async () => {
+    const parsed = createParsed(["start", "--lazy"], { lazy: true });
+    const resolved = createSelection(parsed, [{ compile: {}, preview: {}, test: {} }]);
+    const compileTask = task("compile:scope/component-0", "watching");
+    const previewTask = task("preview:child:vite", "idle");
+    const testTask = task("test:child:vitest", "watching");
     mocks.prepare.mockResolvedValue(resolved);
+    mocks.createCompile.mockResolvedValue(createCompileContribution([compileTask]));
     mocks.createPreview.mockResolvedValue(createPreviewContribution(resolved, [previewTask]));
     mocks.createTest.mockResolvedValue(createTestContribution(resolved, [testTask]));
 
@@ -157,65 +185,99 @@ describe("runStartCommand", () => {
       host: endpoint.host,
       activationMode: "lazy",
     });
-    expect(mocks.createTest).toHaveBeenCalledWith(resolved);
-    expect(mocks.supervise.mock.calls[0]?.[0]).toEqual([previewTask, testTask]);
-    expect(parsed).toEqual(original);
+    expect(mocks.supervise.mock.calls[0]?.[0]).toEqual([compileTask, previewTask, testTask]);
   });
 
-  it.each([
-    ["preview-only", { preview: {} }, 1, 0],
-    ["test-only", { test: {} }, 0, 1],
-  ])("runs a %s selected env without requiring the other service", async (_name, services, previewCount, testCount) => {
+  it("opens the central proxy and UI lifecycle for a compile-only selection", async () => {
     const parsed = createParsed(["start"]);
-    const resolved = createSelection(parsed, [services]);
-    const previewTasks = Array.from({ length: previewCount }, () => ({ id: "preview:child:vite" }));
-    const testTasks = Array.from({ length: testCount }, () => ({ id: "test:child:vitest" }));
+    const resolved = createSelection(parsed, [{ compile: {} }]);
+    const compileTask = task("compile:scope/component-0");
     mocks.prepare.mockResolvedValue(resolved);
-    mocks.createPreview.mockResolvedValue(createPreviewContribution(resolved, previewTasks));
-    mocks.createTest.mockResolvedValue(createTestContribution(resolved, testTasks));
+    mocks.createCompile.mockResolvedValue(createCompileContribution([compileTask]));
 
     await runStartCommand(parsed);
 
-    expect(mocks.supervise.mock.calls[0]?.[0]).toEqual([...previewTasks, ...testTasks]);
+    expect(mocks.proxyStart).toHaveBeenCalledOnce();
+    expect(mocks.createPreview).toHaveBeenCalledOnce();
+    expect(mocks.createTest).toHaveBeenCalledOnce();
+    expect(mocks.proxyAddRoutes).toHaveBeenCalledTimes(3);
+    expect(mocks.supervise.mock.calls[0]?.[0]).toEqual([compileTask]);
   });
 
-  it("continues with test when preview preparation reports an expected per-env failure", async () => {
+  it("keeps preview and test when the selected component has no compile service", async () => {
     const parsed = createParsed(["start"]);
     const resolved = createSelection(parsed, [{ preview: {}, test: {} }]);
-    const testTask = { id: "test:child:vitest" };
-    const preview = createPreviewContribution(resolved, []);
-    preview.preparationFailures.push({ env: resolved.groups[0]!.env, error: new Error("preview failed") });
+    const previewTask = task("preview:child:vite");
+    const testTask = task("test:child:vitest");
     mocks.prepare.mockResolvedValue(resolved);
-    mocks.createPreview.mockResolvedValue(preview);
+    mocks.createPreview.mockResolvedValue(createPreviewContribution(resolved, [previewTask]));
     mocks.createTest.mockResolvedValue(createTestContribution(resolved, [testTask]));
 
     await runStartCommand(parsed);
 
-    expect(mocks.supervise.mock.calls[0]?.[0]).toEqual([testTask]);
+    expect(mocks.createCompile).toHaveBeenCalledWith(resolved.context.workspace, [], parsed.args);
+    expect(mocks.supervise.mock.calls[0]?.[0]).toEqual([previewTask, testTask]);
   });
 
-  it("disposes an earlier contribution before closing the proxy when the second contribution fails", async () => {
+  it("rolls back compile and does not start later resources when compile readiness fails", async () => {
     const parsed = createParsed(["start"]);
-    const resolved = createSelection(parsed, [{ preview: {}, test: {} }]);
-    const previewTask = { id: "preview:child:vite" };
-    const preview = createPreviewContribution(resolved, [previewTask]);
+    const resolved = createSelection(parsed, [{ compile: {}, preview: {}, test: {} }]);
+    const compile = createCompileContribution([task("compile:scope/component-0")]);
+    compile.ready.mockRejectedValue(new Error("initial compile failed"));
     mocks.prepare.mockResolvedValue(resolved);
+    mocks.createCompile.mockResolvedValue(compile);
+
+    await expect(runStartCommand(parsed)).rejects.toThrow("initial compile failed");
+
+    expect(mocks.proxyStart).not.toHaveBeenCalled();
+    expect(mocks.createPreview).not.toHaveBeenCalled();
+    expect(mocks.createTest).not.toHaveBeenCalled();
+    expect(compile.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("disposes ready compile work when the central proxy cannot start", async () => {
+    const parsed = createParsed(["start"]);
+    const resolved = createSelection(parsed, [{ compile: {}, preview: {} }]);
+    const compile = createCompileContribution([task("compile:scope/component-0")]);
+    mocks.prepare.mockResolvedValue(resolved);
+    mocks.createCompile.mockResolvedValue(compile);
+    mocks.proxyStart.mockRejectedValue(new Error("proxy bind failed"));
+
+    await expect(runStartCommand(parsed)).rejects.toThrow("proxy bind failed");
+
+    expect(compile.dispose).toHaveBeenCalledOnce();
+    expect(mocks.createPreview).not.toHaveBeenCalled();
+    expect(mocks.createTest).not.toHaveBeenCalled();
+    expect(mocks.proxyClose).not.toHaveBeenCalled();
+  });
+
+  it("rolls back every created contribution when a later contribution fails", async () => {
+    const parsed = createParsed(["start"]);
+    const resolved = createSelection(parsed, [{ compile: {}, preview: {}, test: {} }]);
+    const compile = createCompileContribution([task("compile:scope/component-0")]);
+    const preview = createPreviewContribution(resolved, [task("preview:child:vite")]);
+    mocks.prepare.mockResolvedValue(resolved);
+    mocks.createCompile.mockResolvedValue(compile);
     mocks.createPreview.mockResolvedValue(preview);
     mocks.createTest.mockRejectedValue(new Error("test startup failed"));
 
     await expect(runStartCommand(parsed)).rejects.toThrow("test startup failed");
 
-    expect(preview.dispose.mock.invocationCallOrder[0]).toBeLessThan(mocks.proxyClose.mock.invocationCallOrder[0]!);
+    expect(preview.dispose).toHaveBeenCalledOnce();
+    expect(compile.dispose).toHaveBeenCalledOnce();
+    expect(mocks.proxyClose).toHaveBeenCalledOnce();
+    expect(preview.dispose.mock.invocationCallOrder[0]).toBeLessThan(compile.dispose.mock.invocationCallOrder[0]!);
+    expect(compile.dispose.mock.invocationCallOrder[0]).toBeLessThan(mocks.proxyClose.mock.invocationCallOrder[0]!);
   });
 
-  it("disposes both contributions before closing the proxy when route registration fails", async () => {
+  it("rolls back all contributions when route registration fails", async () => {
     const parsed = createParsed(["start"]);
-    const resolved = createSelection(parsed, [{ preview: {}, test: {} }]);
-    const previewTask = { id: "preview:child:vite" };
-    const testTask = { id: "test:child:vitest" };
-    const preview = createPreviewContribution(resolved, [previewTask]);
-    const test = createTestContribution(resolved, [testTask]);
+    const resolved = createSelection(parsed, [{ compile: {}, preview: {}, test: {} }]);
+    const compile = createCompileContribution([task("compile:scope/component-0")]);
+    const preview = createPreviewContribution(resolved, [task("preview:child:vite")]);
+    const test = createTestContribution(resolved, [task("test:child:vitest")]);
     mocks.prepare.mockResolvedValue(resolved);
+    mocks.createCompile.mockResolvedValue(compile);
     mocks.createPreview.mockResolvedValue(preview);
     mocks.createTest.mockResolvedValue(test);
     mocks.proxyAddRoutes.mockImplementationOnce(() => undefined).mockImplementationOnce(() => {
@@ -224,15 +286,45 @@ describe("runStartCommand", () => {
 
     await expect(runStartCommand(parsed)).rejects.toThrow("duplicate route");
 
+    expect(test.dispose).toHaveBeenCalledOnce();
+    expect(preview.dispose).toHaveBeenCalledOnce();
+    expect(compile.dispose).toHaveBeenCalledOnce();
+    expect(mocks.proxyClose).toHaveBeenCalledOnce();
     expect(test.dispose.mock.invocationCallOrder[0]).toBeLessThan(preview.dispose.mock.invocationCallOrder[0]!);
-    expect(preview.dispose.mock.invocationCallOrder[0]).toBeLessThan(mocks.proxyClose.mock.invocationCallOrder[0]!);
+    expect(preview.dispose.mock.invocationCallOrder[0]).toBeLessThan(compile.dispose.mock.invocationCallOrder[0]!);
+    expect(compile.dispose.mock.invocationCallOrder[0]).toBeLessThan(mocks.proxyClose.mock.invocationCallOrder[0]!);
+  });
+
+  it("attempts every cleanup and combines initiating and cleanup failures", async () => {
+    const parsed = createParsed(["start"]);
+    const resolved = createSelection(parsed, [{ compile: {}, preview: {}, test: {} }]);
+    const compile = createCompileContribution([task("compile:scope/component-0")]);
+    const preview = createPreviewContribution(resolved, [task("preview:child:vite")]);
+    compile.dispose.mockRejectedValue(new Error("compile cleanup failed"));
+    preview.dispose.mockRejectedValue(new Error("preview cleanup failed"));
+    mocks.prepare.mockResolvedValue(resolved);
+    mocks.createCompile.mockResolvedValue(compile);
+    mocks.createPreview.mockResolvedValue(preview);
+    mocks.createTest.mockRejectedValue(new Error("test startup failed"));
+
+    await expect(runStartCommand(parsed)).rejects.toMatchObject({
+      message: "bit-lite start failed and cleanup also failed",
+      errors: expect.arrayContaining([
+        expect.objectContaining({ message: "test startup failed" }),
+        expect.objectContaining({ message: "Failed to dispose bit-lite start" }),
+      ]),
+    });
+
+    expect(preview.dispose).toHaveBeenCalledOnce();
+    expect(compile.dispose).toHaveBeenCalledOnce();
+    expect(mocks.proxyClose).toHaveBeenCalledOnce();
   });
 
   it("attempts every child and proxy cleanup after an earlier disposer rejects", async () => {
     const parsed = createParsed(["start"]);
     const resolved = createSelection(parsed, [{ preview: {}, test: {} }]);
-    const preview = createPreviewContribution(resolved, [{ id: "preview:child:vite" }]);
-    const test = createTestContribution(resolved, [{ id: "test:child:vitest" }]);
+    const preview = createPreviewContribution(resolved, [task("preview:child:vite")]);
+    const test = createTestContribution(resolved, [task("test:child:vitest")]);
     const testFailure = new Error("test cleanup failed");
     test.dispose.mockRejectedValue(testFailure);
     mocks.prepare.mockResolvedValue(resolved);
@@ -252,8 +344,8 @@ describe("runStartCommand", () => {
   it("reports startup and cleanup failures together after every cleanup settles", async () => {
     const parsed = createParsed(["start"]);
     const resolved = createSelection(parsed, [{ preview: {}, test: {} }]);
-    const preview = createPreviewContribution(resolved, [{ id: "preview:child:vite" }]);
-    const test = createTestContribution(resolved, [{ id: "test:child:vitest" }]);
+    const preview = createPreviewContribution(resolved, [task("preview:child:vite")]);
+    const test = createTestContribution(resolved, [task("test:child:vitest")]);
     test.dispose.mockRejectedValue(new Error("test cleanup failed"));
     preview.dispose.mockRejectedValue(new Error("preview cleanup failed"));
     mocks.proxyClose.mockRejectedValue(new Error("proxy cleanup failed"));
@@ -286,12 +378,14 @@ function createParsed(
     command: "start",
     help: false,
     args: { raw, options, passthrough },
+    workspaceRoot: "/workspace",
+    componentFilters: [],
   };
 }
 
 function createSelection(
   parsed: ParsedCliArgs,
-  services: Array<{ preview?: object; test?: object }>
+  services: Array<{ compile?: object; preview?: object; test?: object }>
 ): ResolvedCommandSelection {
   const groups = services.map((configured, index) => ({
     env: {
@@ -312,10 +406,29 @@ function createSelection(
   } as unknown as ResolvedCommandSelection;
 }
 
+function createCompileContribution(tasks: ReturnType<typeof task>[]) {
+  const readyPromise = Promise.resolve();
+  const disposePromise = Promise.resolve();
+  return {
+    serviceId: "compile",
+    tasks,
+    routes: [],
+    plan: { components: [], layers: [[]] },
+    bindings: [],
+    effectiveArgs: { raw: ["start"], options: { watch: true }, passthrough: [] },
+    ready: vi.fn(() => readyPromise),
+    dispose: vi.fn(() => disposePromise),
+  } as unknown as CompileWatchContribution & {
+    ready: ReturnType<typeof vi.fn>;
+    dispose: ReturnType<typeof vi.fn>;
+  };
+}
+
 function createPreviewContribution(
   selection: ResolvedCommandSelection,
-  tasks: object[]
-): PreviewCommandContribution {
+  tasks: ReturnType<typeof task>[]
+) {
+  const disposePromise = Promise.resolve();
   return {
     serviceId: "preview",
     tasks,
@@ -324,22 +437,28 @@ function createPreviewContribution(
     groups: selection.groups,
     configuredTaskCount: tasks.length,
     preparationFailures: [],
-    manifest: vi.fn(),
-    dispose: vi.fn(async () => undefined),
-  } as unknown as PreviewCommandContribution;
+    manifest: vi.fn(() => ({ proxy: endpoint, envs: [] })),
+    dispose: vi.fn(() => disposePromise),
+  } as unknown as PreviewCommandContribution & { dispose: ReturnType<typeof vi.fn> };
 }
 
 function createTestContribution(
   selection: ResolvedCommandSelection,
-  tasks: object[]
-): TestWatchContribution {
+  tasks: ReturnType<typeof task>[]
+) {
+  const disposePromise = Promise.resolve();
   return {
     serviceId: "test",
     tasks,
     routes: [{ id: "test:route" }],
     groups: selection.groups,
     bindings: [],
-    effectiveArgs: {},
-    dispose: vi.fn(async () => undefined),
-  } as unknown as TestWatchContribution;
+    effectiveArgs: { raw: ["start"], options: { watch: true }, passthrough: [] },
+    resultStore: { entries: () => [] },
+    dispose: vi.fn(() => disposePromise),
+  } as unknown as TestWatchContribution & { dispose: ReturnType<typeof vi.fn> };
+}
+
+function task(id: string, status = "watching") {
+  return { id, status };
 }

@@ -11,6 +11,8 @@ import {
   type TestServiceResult,
   type TestWatchContribution,
 } from "./test.js";
+import type { CompileWatchContribution } from "./compile.js";
+import type { ResolvedCommandSelection } from "../utils/command-selection.js";
 import type {
   EnvContext,
   SelectedEnvIdentity,
@@ -115,7 +117,13 @@ describe("start and test routes", () => {
     const endpoint: ProxyEndpoint = { origin: "http://127.0.0.1:47010", host: "127.0.0.1", port: 47_010 };
     const preview = createPreviewContribution(endpoint);
     const test = createTestContribution(["scope/preview", "scope/test-only"]);
-    const first = createStartManifest(endpoint, preview, test);
+    const selection = createSelection(["scope/preview", "scope/source-only", "scope/test-only"]);
+    const compile = createCompileContribution(selection, [
+      ["scope/preview", "watching"],
+      ["env/prerequisite", "ready"],
+    ]);
+    compile.bindings[0]!.task.rawOutput.append("stderr", "compiler details stay terminal-scoped");
+    const first = createStartManifest(endpoint, preview, test, { selection, compile });
 
     expect(first.components).toMatchObject([
       {
@@ -124,6 +132,11 @@ describe("start and test routes", () => {
         source: { route: "/source?component=scope%2Fpreview" },
         preview: { overviewRoute: "/env/child-env/#scope%2Fpreview" },
         test: { status: "watching" },
+        compile: {
+          taskId: "compile:scope/preview",
+          vendor: "fixture-compiler",
+          status: "watching",
+        },
       },
       {
         componentId: "scope/source-only",
@@ -139,14 +152,42 @@ describe("start and test routes", () => {
     ]);
     expect(first.components[1]).not.toHaveProperty("preview");
     expect(first.components[1]).not.toHaveProperty("test");
+    expect(first.components[1]).not.toHaveProperty("compile");
+    expect(first.compiles).toEqual([
+      {
+        taskId: "compile:scope/preview",
+        componentId: "scope/preview",
+        env: selectedEnv("child-env"),
+        vendor: "fixture-compiler",
+        status: "watching",
+      },
+      {
+        taskId: "compile:env/prerequisite",
+        componentId: "env/prerequisite",
+        env: selectedEnv("child-env"),
+        vendor: "fixture-compiler",
+        status: "ready",
+      },
+    ]);
     expect(first.preview).not.toHaveProperty("unavailable");
     expect(JSON.stringify(first)).not.toContain("envName");
+    expect(JSON.stringify(first)).not.toContain("compiler details stay terminal-scoped");
     test.tasks[0]!.status = "running";
-    expect(createStartManifest(endpoint, preview, test).tests[0]?.status).toBe("running");
+    compile.bindings[0]!.task.status = "failed";
+    const updated = createStartManifest(endpoint, preview, test, { selection, compile });
+    expect(updated.tests[0]?.status).toBe("running");
+    expect(updated.compiles[0]?.status).toBe("failed");
+    expect(updated.components[0]?.compile?.status).toBe("failed");
 
     const server = track(new ProxyServer());
-    const sourceCatalog = createStartSourceCatalog(preview.groups.flatMap((group) => group.components));
-    server.addRoutes(createStartRoutes(endpoint, preview, test, sourceCatalog));
+    const sourceCatalog = createStartSourceCatalog(selection.components);
+    server.addRoutes(createStartRoutes(
+      endpoint,
+      preview,
+      test,
+      sourceCatalog,
+      { selection, compile }
+    ));
     await server.start("127.0.0.1", 47_010);
     const html = await fetch(`${server.origin}/`).then((response) => response.text());
     expect(html).toContain("bit-lite start");
@@ -155,7 +196,41 @@ describe("start and test routes", () => {
     const manifest = await fetch(`${server.origin}/__bit-lite/manifest.json`).then((response) => response.json());
     expect(manifest.tests[0].status).toBe("running");
     expect(manifest.tests[0].env).toEqual(selectedEnv("child-env"));
+    expect(manifest.compiles[0]).toMatchObject({
+      componentId: "scope/preview",
+      status: "failed",
+    });
+    expect(manifest.compiles[1]).toMatchObject({
+      componentId: "env/prerequisite",
+      status: "ready",
+    });
     expect(manifest.components[0].source.route).toBe("/source?component=scope%2Fpreview");
+  });
+
+  it("keeps canonical components visible in a compile-only manifest", () => {
+    const endpoint: ProxyEndpoint = { origin: "http://127.0.0.1:47011", host: "127.0.0.1", port: 47_011 };
+    const selection = createSelection(["scope/compile-only", "scope/no-compile"]);
+    const preview = createPreviewContribution(endpoint);
+    preview.groups = [];
+    preview.manifest = () => ({ proxy: endpoint, envs: [] });
+    const test = createTestContribution([]);
+    test.tasks = [];
+    test.bindings = [];
+    const compile = createCompileContribution(selection, [["scope/compile-only", "watching"]]);
+
+    const manifest = createStartManifest(endpoint, preview, test, { selection, compile });
+
+    expect(manifest.components.map((component) => component.componentId)).toEqual([
+      "scope/compile-only",
+      "scope/no-compile",
+    ]);
+    expect(manifest.components[0]).toMatchObject({
+      source: { route: "/source?component=scope%2Fcompile-only" },
+      compile: { taskId: "compile:scope/compile-only", status: "watching" },
+    });
+    expect(manifest.components[1]).not.toHaveProperty("compile");
+    expect(manifest.preview.envs).toEqual([]);
+    expect(manifest.tests).toEqual([]);
   });
 
   it("ships test and shell pages as source assets", async () => {
@@ -167,6 +242,10 @@ describe("start and test routes", () => {
     expect(testPage).toContain("data.env");
     expect(shell).toContain("/__bit-lite/manifest.json");
     expect(shell).toContain("component.source.route");
+    expect(shell).toContain("renderCompileTasks");
+    expect(shell).toContain("component.compile.status");
+    expect(shell).not.toContain("rawOutput");
+    expect(shell).not.toContain("compile-rerun");
     expect(sourcePage).toContain("/__bit-lite/source-files.json");
     expect(sourcePage).toContain("/__bit-lite/source-file.json");
     expect(sourcePage).toContain("textContent");
@@ -236,6 +315,79 @@ function createTask(workspace: Workspace, rawOutput: RawOutputBuffer): VendorTas
     result: new Promise(() => undefined),
     postMessage() {},
     async stop() {},
+  };
+}
+
+function createCompileContribution(
+  selection: ResolvedCommandSelection,
+  entries: Array<[componentId: string, status: string]>
+): CompileWatchContribution {
+  const selectedById = new Map(selection.components.map((component) => [component.id, component]));
+  const bindings = entries.map(([componentId, status]) => {
+    const component = selectedById.get(componentId) ?? createComponent(componentId);
+    const task: VendorTask = {
+      id: `compile:${componentId}`,
+      label: `Compile: ${componentId}`,
+      context: {
+        ...createVendorContext(selection.context.workspace),
+        service: {
+          ...createVendorContext(selection.context.workspace).service,
+          name: "compile",
+        },
+      },
+      vendor: {
+        id: "fixture-compiler",
+        label: "Fixture compiler",
+        hint: "Compile",
+        moduleUrl: "data:text/javascript,",
+      },
+      status,
+      rawOutput: new RawOutputBuffer(),
+      result: new Promise(() => undefined),
+      postMessage() {},
+      stop() {},
+    };
+    return { component, task };
+  });
+  const settled = Promise.resolve();
+  return {
+    serviceId: "compile",
+    tasks: bindings.map(({ task }) => task),
+    routes: [],
+    plan: {
+      components: bindings.map(({ component }) => component),
+      layers: [bindings.map(({ component }) => ({
+        id: `compile:${component.id}`,
+        dependsOn: [],
+        value: component,
+      }))],
+    },
+    bindings,
+    effectiveArgs: { raw: ["start"], options: { watch: true }, passthrough: [] },
+    ready: () => settled,
+    dispose: () => settled,
+  };
+}
+
+function createSelection(componentIds: string[]): ResolvedCommandSelection {
+  const fixture = createFixture(componentIds);
+  return {
+    parsed: {
+      command: "start",
+      args: { raw: ["start"], options: {}, passthrough: [] },
+      workspaceRoot: fixture.workspace.rootDir,
+      componentFilters: [],
+      help: false,
+    },
+    context: {
+      workspace: fixture.workspace,
+      components: fixture.group.components.map((component) => ({
+        component,
+        env: fixture.group.env,
+      })),
+    },
+    components: fixture.group.components,
+    groups: [fixture.group],
   };
 }
 

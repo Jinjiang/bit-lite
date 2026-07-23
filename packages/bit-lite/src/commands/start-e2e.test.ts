@@ -3,10 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "bit-lite-context";
 import { ProxyServer } from "bit-lite-proxy";
-import { stopVendorTasks } from "bit-lite-vendors";
 import { describe, expect, it, vi } from "vitest";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
 import { createPreviewCommandContribution } from "./preview.js";
+import {
+  createCompileWatchContribution,
+  selectCompileRootIds,
+} from "./compile.js";
 import { createStartSourceCatalog } from "./start-source.js";
 import { createStartRoutes } from "./start.js";
 import { createTestWatchContribution } from "./test.js";
@@ -20,26 +23,53 @@ describe("start end-to-end", () => {
     const endpoint = await proxy.start("127.0.0.1", 48_000);
     let preview: Awaited<ReturnType<typeof createPreviewCommandContribution>> | undefined;
     let test: Awaited<ReturnType<typeof createTestWatchContribution>> | undefined;
+    let compile: Awaited<ReturnType<typeof createCompileWatchContribution>> | undefined;
     let socket: WebSocket | undefined;
 
     try {
-      expect(selection.groups).toHaveLength(1);
-      expect(selection.groups[0]?.env.env).toEqual({
+      expect(selection.groups).toHaveLength(2);
+      const previewGroup = selection.groups.find(
+        (group) => group.env.env.packageName === "@fixture/env-child"
+      );
+      expect(previewGroup?.env.env).toEqual({
         packageName: "@fixture/env-child",
         requestedVersion: "1.0.0",
         installedVersion: "1.0.0",
       });
-      expect(selection.groups[0]?.env.services.preview?.source.identity.packageName).toBe("@fixture/env-parent");
-      expect(selection.groups[0]?.env.services.test?.source.identity.packageName).toBe("@fixture/env-parent");
+      expect(previewGroup?.env.services.preview?.source.identity.packageName).toBe("@fixture/env-parent");
+      expect(previewGroup?.env.services.test?.source.identity.packageName).toBe("@fixture/env-parent");
+      expect(previewGroup?.env.services.compile?.source.identity.packageName).toBe("@fixture/env-parent");
 
+      compile = await createCompileWatchContribution(
+        selection.context.workspace,
+        selectCompileRootIds(selection),
+        selection.parsed.args
+      );
+      await compile.ready();
+      await expect(access(path.join(workspaceRoot, "node_modules/@fixture/dependency/dist/index.js")))
+        .resolves.toBeUndefined();
+      await expect(access(path.join(workspaceRoot, "node_modules/@fixture/sample/dist/index.js")))
+        .resolves.toBeUndefined();
       preview = await createPreviewCommandContribution(selection, { proxy: endpoint, host: endpoint.host });
       test = await createTestWatchContribution(selection);
-      proxy.addRoutes(createStartRoutes(endpoint, preview, test, createStartSourceCatalog(selection.components)));
+      proxy.addRoutes(createStartRoutes(
+        endpoint,
+        preview,
+        test,
+        createStartSourceCatalog(selection.components),
+        { selection, compile }
+      ));
       proxy.addRoutes(preview.routes);
       proxy.addRoutes(test.routes);
 
       expect(preview.tasks).toHaveLength(1);
       expect(test.tasks).toHaveLength(1);
+      expect(compile.tasks).toHaveLength(2);
+      expect(compile.tasks.every((task) => task.context.args.options.watch === true)).toBe(true);
+      expect(compile.bindings.map(({ component }) => component.id)).toEqual([
+        "components/dependency",
+        "components/sample",
+      ]);
       expect(preview.tasks[0]?.context.service.source.identity.packageName).toBe("@fixture/env-parent");
       expect(test.tasks[0]?.context.service.source.identity.packageName).toBe("@fixture/env-parent");
       await vi.waitFor(() => expect(preview?.manifest().envs[0]?.status).toBe("ready"), { timeout: 20_000 });
@@ -51,7 +81,10 @@ describe("start end-to-end", () => {
       expect(rootHtml).toContain("bit-lite start");
       expect(rootHtml).toContain('link("source", component.source.route)');
       const manifest = await fetch(`${endpoint.origin}/__bit-lite/manifest.json`).then((response) => response.json());
-      expect(manifest.components[0]).toMatchObject({
+      const sampleManifest = manifest.components.find(
+        (component: { componentId: string }) => component.componentId === "components/sample"
+      );
+      expect(sampleManifest).toMatchObject({
         componentId: "components/sample",
         env: {
           packageName: "@fixture/env-child",
@@ -60,10 +93,14 @@ describe("start end-to-end", () => {
         },
         source: { route: "/source?component=components%2Fsample" },
         test: { vendor: "vitest" },
+        compile: { vendor: "typescript-compiler" },
       });
+      expect(manifest.compiles.map(
+        (item: { componentId: string }) => item.componentId
+      )).toEqual(["components/dependency", "components/sample"]);
       expect(JSON.stringify(manifest)).not.toContain("envName");
 
-      const sourcePage = await fetch(new URL(manifest.components[0].source.route, endpoint.origin));
+      const sourcePage = await fetch(new URL(sampleManifest.source.route, endpoint.origin));
       expect(sourcePage.status).toBe(200);
       expect(await sourcePage.text()).toContain("Component source");
       const sourceIndexUrl = new URL("/__bit-lite/source-files.json", endpoint.origin);
@@ -86,11 +123,19 @@ describe("start end-to-end", () => {
       expect(initialSource).toMatchObject({
         path: "index.ts",
         kind: "text",
-        content: "export const add = (a: number, b: number) => a + b;\n",
+        content: [
+          'import { increment } from "@fixture/dependency";',
+          "export const add = (a: number, b: number) => increment(a + b - 1);",
+          "",
+        ].join("\n"),
       });
       await writeFile(
         path.join(workspaceRoot, "components", "sample", "index.ts"),
-        "export const add = (a: number, b: number) => a + b; // source browser refresh\n",
+        [
+          'import { increment } from "@fixture/dependency";',
+          "export const add = (a: number, b: number) => increment(a + b - 1); // source browser refresh",
+          "",
+        ].join("\n"),
         "utf8"
       );
       const updatedSource = await fetch(sourceFileUrl).then((response) => response.json());
@@ -143,9 +188,9 @@ describe("start end-to-end", () => {
       expect(result.notices.join(" ")).toContain("may include other components");
     } finally {
       socket?.close();
-      await stopVendorTasks([...(preview?.tasks ?? []), ...(test?.tasks ?? [])]);
       await test?.dispose();
       await preview?.dispose();
+      await compile?.dispose();
       await proxy.close();
       await removeWorkspace(workspaceRoot);
     }
@@ -159,16 +204,29 @@ describe("start end-to-end", () => {
     const endpoint = await proxy.start("127.0.0.1", 48_100);
     let preview: Awaited<ReturnType<typeof createPreviewCommandContribution>> | undefined;
     let test: Awaited<ReturnType<typeof createTestWatchContribution>> | undefined;
+    let compile: Awaited<ReturnType<typeof createCompileWatchContribution>> | undefined;
     let socket: WebSocket | undefined;
 
     try {
+      compile = await createCompileWatchContribution(
+        selection.context.workspace,
+        selectCompileRootIds(selection),
+        selection.parsed.args
+      );
+      await compile.ready();
       preview = await createPreviewCommandContribution(selection, {
         proxy: endpoint,
         host: endpoint.host,
         activationMode: "lazy",
       });
       test = await createTestWatchContribution(selection);
-      proxy.addRoutes(createStartRoutes(endpoint, preview, test, createStartSourceCatalog(selection.components)));
+      proxy.addRoutes(createStartRoutes(
+        endpoint,
+        preview,
+        test,
+        createStartSourceCatalog(selection.components),
+        { selection, compile }
+      ));
       proxy.addRoutes(preview.routes);
       proxy.addRoutes(test.routes);
       const previewTask = preview.tasks[0]!;
@@ -176,6 +234,7 @@ describe("start end-to-end", () => {
 
       expect(previewTask.status).toBe("idle");
       expect(previewTask.canAttach).toBe(false);
+      expect(compile.tasks[0]?.status).not.toBe("idle");
       await vi.waitFor(() => expect(test?.resultStore.entries().length).toBeGreaterThan(0), { timeout: 20_000 });
       expect(activate).not.toHaveBeenCalled();
 
@@ -183,6 +242,7 @@ describe("start end-to-end", () => {
       const before = await fetch(`${endpoint.origin}/__bit-lite/manifest.json`).then((response) => response.json());
       expect(before.preview.envs[0].status).toBe("idle");
       expect(before.tests[0].status).not.toBe("idle");
+      expect(before.compiles[0].status).not.toBe("idle");
       expect(activate).not.toHaveBeenCalled();
 
       const basePath = "/env/%40fixture%2Fenv-child/";
@@ -201,9 +261,73 @@ describe("start end-to-end", () => {
       expect(activate).toHaveBeenCalledOnce();
     } finally {
       socket?.close();
-      await stopVendorTasks([...(preview?.tasks ?? []), ...(test?.tasks ?? [])]);
       await test?.dispose();
       await preview?.dispose();
+      await compile?.dispose();
+      await proxy.close();
+      await removeWorkspace(workspaceRoot);
+    }
+  }, 60_000);
+
+  it("keeps preview and test available when the selected component has no compile service", async () => {
+    const workspaceRoot = await createInheritedStartWorkspace();
+    const parsed = parseArgs(["start", "--workspace", workspaceRoot, "--filter", "components/sample"]);
+    const resolved = await prepareResolvedCommandSelection(parsed);
+    const selection = {
+      ...resolved,
+      groups: resolved.groups.map((group) => ({
+        ...group,
+        env: {
+          ...group.env,
+          services: {
+            preview: group.env.services.preview,
+            test: group.env.services.test,
+          },
+        },
+      })),
+    };
+    const proxy = new ProxyServer();
+    const endpoint = await proxy.start("127.0.0.1", 48_200);
+    const compile = await createCompileWatchContribution(
+      selection.context.workspace,
+      selectCompileRootIds(selection),
+      selection.parsed.args
+    );
+    let preview: Awaited<ReturnType<typeof createPreviewCommandContribution>> | undefined;
+    let test: Awaited<ReturnType<typeof createTestWatchContribution>> | undefined;
+
+    try {
+      await compile.ready();
+      expect(compile.tasks).toHaveLength(0);
+      preview = await createPreviewCommandContribution(selection, {
+        proxy: endpoint,
+        host: endpoint.host,
+      });
+      test = await createTestWatchContribution(selection);
+      proxy.addRoutes(createStartRoutes(
+        endpoint,
+        preview,
+        test,
+        createStartSourceCatalog(selection.components),
+        { selection, compile }
+      ));
+      proxy.addRoutes(preview.routes);
+      proxy.addRoutes(test.routes);
+
+      await vi.waitFor(() => expect(preview?.manifest().envs[0]?.status).toBe("ready"), { timeout: 20_000 });
+      await vi.waitFor(() => expect(test?.resultStore.entries().length).toBeGreaterThan(0), { timeout: 20_000 });
+      const manifest = await fetch(`${endpoint.origin}/__bit-lite/manifest.json`).then((response) => response.json());
+      expect(manifest.compiles).toEqual([]);
+      expect(manifest.components[0]).toMatchObject({
+        componentId: "components/sample",
+        preview: expect.any(Object),
+        test: expect.any(Object),
+      });
+      expect(manifest.components[0]).not.toHaveProperty("compile");
+    } finally {
+      await test?.dispose();
+      await preview?.dispose();
+      await compile.dispose();
       await proxy.close();
       await removeWorkspace(workspaceRoot);
     }
@@ -213,22 +337,50 @@ describe("start end-to-end", () => {
 async function createInheritedStartWorkspace() {
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "bit-lite-start-e2e-"));
   const componentRoot = path.join(workspaceRoot, "components", "sample");
+  const dependencyRoot = path.join(workspaceRoot, "components", "dependency");
   await mkdir(componentRoot, { recursive: true });
+  await mkdir(dependencyRoot, { recursive: true });
   await writeFile(
     path.join(workspaceRoot, "bit-lite.json"),
     JSON.stringify({
-      components: [{
-        id: "components/sample",
-        path: "components/sample",
-        packageName: "@fixture/sample",
-        env: { packageName: "@fixture/env-child", version: "1.0.0" },
-      }],
+      components: [
+        {
+          id: "components/sample",
+          path: "components/sample",
+          packageName: "@fixture/sample",
+          env: { packageName: "@fixture/env-child", version: "1.0.0" },
+        },
+        {
+          id: "components/dependency",
+          path: "components/dependency",
+          packageName: "@fixture/dependency",
+          env: { packageName: "@fixture/env-dependency", version: "1.0.0" },
+        },
+      ],
     }, null, 2),
     "utf8"
   );
   await writeFile(path.join(workspaceRoot, "package.json"), '{"type":"module"}\n', "utf8");
-  await writeFile(path.join(componentRoot, ".comp.json"), "{}\n", "utf8");
-  await writeFile(path.join(componentRoot, "index.ts"), "export const add = (a: number, b: number) => a + b;\n", "utf8");
+  await writeFile(
+    path.join(componentRoot, ".comp.json"),
+    JSON.stringify({ dependencies: { "@fixture/dependency": "workspace:*" } }),
+    "utf8"
+  );
+  await writeFile(
+    path.join(componentRoot, "index.ts"),
+    [
+      'import { increment } from "@fixture/dependency";',
+      "export const add = (a: number, b: number) => increment(a + b - 1);",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  await writeFile(path.join(dependencyRoot, ".comp.json"), "{}\n", "utf8");
+  await writeFile(
+    path.join(dependencyRoot, "index.ts"),
+    "export const increment = (value: number) => value + 1;\n",
+    "utf8"
+  );
   await writeFile(path.join(componentRoot, "sample.docs.mdx"), "# Start E2E docs\n", "utf8");
   await writeFile(
     path.join(componentRoot, "sample.demo.ts"),
@@ -240,8 +392,10 @@ async function createInheritedStartWorkspace() {
   const envRoot = path.join(workspaceRoot, ".fixture-envs");
   const parentRoot = path.join(envRoot, "parent");
   const childRoot = path.join(envRoot, "child");
+  const dependencyEnvRoot = path.join(envRoot, "dependency");
   await mkdir(parentRoot, { recursive: true });
   await mkdir(childRoot, { recursive: true });
+  await mkdir(dependencyEnvRoot, { recursive: true });
   await writeFile(path.join(parentRoot, "package.json"), JSON.stringify({
     name: "@fixture/env-parent",
     version: "1.0.0",
@@ -263,6 +417,10 @@ async function createInheritedStartWorkspace() {
         vendor: "demo-vendors/testers/vitest",
         config: { configFile: "demo-config/testers/vitest/node" },
       },
+      compile: {
+        vendor: "demo-vendors/compilers/typescript",
+        config: { target: "ES2022", jsx: "react-jsx" },
+      },
     },
   }), "utf8");
   await writeFile(path.join(childRoot, "package.json"), JSON.stringify({
@@ -277,6 +435,21 @@ async function createInheritedStartWorkspace() {
     extends: "@fixture/env-parent",
     services: {},
   }), "utf8");
+  await writeFile(path.join(dependencyEnvRoot, "package.json"), JSON.stringify({
+    name: "@fixture/env-dependency",
+    version: "1.0.0",
+    type: "module",
+    exports: { ".": "./index.json" },
+  }), "utf8");
+  await writeFile(path.join(dependencyEnvRoot, "index.json"), JSON.stringify({
+    name: "@fixture/env-dependency",
+    services: {
+      compile: {
+        vendor: "demo-vendors/compilers/typescript",
+        config: { target: "ES2022", jsx: "react-jsx" },
+      },
+    },
+  }), "utf8");
   await linkPackage(path.join(childRoot, "node_modules", "@fixture", "env-parent"), parentRoot);
 
   const selectedEnvTarget = path.join(
@@ -284,6 +457,12 @@ async function createInheritedStartWorkspace() {
     ".bit-lite", "deps", "components", "@fixture", "sample", "node_modules", "@fixture", "env-child"
   );
   await linkPackage(selectedEnvTarget, childRoot);
+  const dependencyEnvTarget = path.join(
+    workspaceRoot,
+    ".bit-lite", "deps", "components", "@fixture", "dependency",
+    "node_modules", "@fixture", "env-dependency"
+  );
+  await linkPackage(dependencyEnvTarget, dependencyEnvRoot);
   await linkPackage(path.join(workspaceRoot, "node_modules", "demo-config"), path.join(repoRoot(), "packages", "demo-config"));
   await linkPackage(path.join(workspaceRoot, "node_modules", "demo-vendors"), path.join(repoRoot(), "packages", "demo-vendors"));
   return workspaceRoot;

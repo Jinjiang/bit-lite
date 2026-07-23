@@ -16,6 +16,9 @@
       .component:first-child { border-top: 0; }
       .component-id { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
       .links { display: flex; flex-wrap: wrap; gap: 10px; justify-content: end; }
+      .compile-tasks { margin: 14px 0 20px; padding: 14px 16px; background: #fff; border: 1px solid #d1d5db; border-radius: 8px; }
+      .compile-task { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+      .compile-task:first-child { margin-top: 0; }
       a { color: #0f766e; font-weight: 600; text-decoration: none; }
       a:hover { text-decoration: underline; }
       .status { padding: 2px 7px; color: #374151; background: #e5e7eb; border-radius: 999px; font-size: 12px; }
@@ -56,7 +59,25 @@
           byEnv.set(key, group);
         }
         const envs = Array.from(byEnv.values(), ({ env, components }) => renderEnv(env, components));
-        app.replaceChildren(...(envs.length ? envs : [element("div", "No start components are running.", "empty")]));
+        const compileTasks = renderCompileTasks(manifest.compiles || []);
+        app.replaceChildren(
+          ...(compileTasks ? [compileTasks] : []),
+          ...(envs.length ? envs : [element("div", "No start components are running.", "empty")])
+        );
+      }
+
+      function renderCompileTasks(compiles) {
+        if (compiles.length === 0) return null;
+        const section = element("section", "", "compile-tasks");
+        for (const compile of compiles) {
+          const row = element("div", "", "compile-task");
+          row.append(
+            element("span", `compile ${compile.componentId} · ${compile.vendor}`, "component-id"),
+            element("span", compile.status, "status")
+          );
+          section.append(row);
+        }
+        return section;
       }
 
       function renderEnv(env, components) {
@@ -79,6 +100,13 @@
         if (component.test) {
           links.append(link("tests", component.test.route));
           links.append(element("span", component.test.status, "status"));
+        }
+        if (component.compile) {
+          links.append(element(
+            "span",
+            `compile ${component.compile.vendor}: ${component.compile.status}`,
+            "status"
+          ));
         }
         row.append(links);
         return row;

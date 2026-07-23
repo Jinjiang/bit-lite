@@ -37,6 +37,7 @@ import type {
   ImmutableCliArguments,
   VendorExecutionPlan,
 } from "../utils/vendor-execution.js";
+import type { ResolvedCommandSelection } from "../utils/command-selection.js";
 import { getPackageDirectory, linkComponentPackages } from "./link.js";
 import type { WatchCommandContribution } from "../utils/watch-contribution.js";
 
@@ -63,6 +64,7 @@ export type CompileWatchContribution = WatchCommandContribution<
   plan: CompilePlan;
   bindings: CompileWatchTaskBinding[];
   effectiveArgs: ImmutableCliArguments;
+  ready(): Promise<void>;
 };
 
 type CompileExecutionContext = {
@@ -155,6 +157,7 @@ export async function createCompileWatchContribution(
     task,
     component: unit.value,
   }));
+  let readinessPromise: Promise<void> | undefined;
 
   return {
     serviceId: "compile",
@@ -163,8 +166,38 @@ export async function createCompileWatchContribution(
     plan,
     bindings,
     effectiveArgs: execution.args,
+    ready() {
+      if (readinessPromise) return readinessPromise;
+      readinessPromise = Promise.all(
+        execution.preparedUnits.map(({ unit }) => execution.ensureUnitReady(unit.id))
+      ).then(
+        () => undefined,
+        async (error) => {
+          try {
+            await execution.dispose();
+          } catch (cleanupError) {
+            throw new AggregateError(
+              [error, cleanupError],
+              "Compile watch readiness and cleanup failed"
+            );
+          }
+          throw error;
+        }
+      );
+      return readinessPromise;
+    },
     dispose: execution.dispose,
   };
+}
+
+export function selectCompileRootIds(
+  selection: Pick<ResolvedCommandSelection, "groups">
+): string[] {
+  return selection.groups.flatMap((group) =>
+    group.env.services.compile
+      ? group.components.map((component) => component.id)
+      : []
+  );
 }
 
 async function validateCompileWatchVendor(vendorUrl: string, selectedEnv: string) {
@@ -277,7 +310,10 @@ export async function prepareCompileVendorTaskOptions(
   const env = await loadEnvForComponent(component, workspace, envCache);
   const service = getResolvedService(env, "compile");
   if (!service) {
-    throw new BitLiteError(`selected env "${env.env.packageName}" does not define services.compile`);
+    throw new BitLiteError(
+      `compile component "${component.id}" selected env "${env.env.packageName}" ` +
+      "does not define services.compile"
+    );
   }
   const distDir = path.join(getPackageDirectory(workspace.rootDir, component.packageName), "dist");
   return prepareResolvedServiceTaskOptions({

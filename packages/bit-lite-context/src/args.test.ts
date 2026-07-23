@@ -59,6 +59,14 @@ describe("CLI args", () => {
     expect(() => parseArgs(["preview", "--lazy=sometimes"])).toThrow("--lazy requires a boolean value");
   });
 
+  it("keeps -w assigned to workspace and parses an explicit negative watch option", () => {
+    const parsed = parseArgs(["watch", "-w", "demo-workspace", "--no-watch"]);
+
+    expect(parsed.workspaceRoot).toBe(path.resolve("demo-workspace"));
+    expect(parsed.args.options.watch).toBe(false);
+    expect(parsed.command).toBe("watch");
+  });
+
   it("rejects workspace flags without a path", () => {
     expect(() => parseArgs(["--workspace"])).toThrow("--workspace requires a path");
   });

@@ -8,6 +8,7 @@ import {
   createCompileWatchContribution,
   createCompilePlan,
   isCompileRunResult,
+  selectCompileRootIds,
 } from "./compile.js";
 import { linkComponentPackages } from "./link.js";
 
@@ -80,7 +81,7 @@ describe("configured per-component compile services", () => {
     await linkComponentPackages(workspace);
 
     await expect(compileComponentPackages(workspace)).rejects.toThrow(
-      'selected env "@scope/env.missing" does not define services.compile'
+      'compile component "lib/fail" selected env "@scope/env.missing" does not define services.compile'
     );
     expect(await marker(root, "@scope/lib.good")).toEqual({
       env: selectedEnv("@scope/env.good"),
@@ -143,14 +144,82 @@ describe("configured per-component compile services", () => {
     expect(sourceArgs.options).toEqual({ unknown: "value" });
     expect(process.listenerCount("SIGINT")).toBe(sigintListeners);
     expect(process.listenerCount("SIGTERM")).toBe(sigtermListeners);
-    expect(await marker(root, "@scope/lib.a")).toMatchObject({ label: "A" });
 
+    const readiness = contribution.ready();
+    expect(contribution.ready()).toBe(readiness);
+    await readiness;
+    expect(await marker(root, "@scope/lib.a")).toMatchObject({ label: "A" });
     const taskStops = contribution.tasks.map((task) => vi.spyOn(task, "stop"));
     const firstDispose = contribution.dispose();
     const concurrentDispose = contribution.dispose();
     expect(concurrentDispose).toBe(firstDispose);
     await firstDispose;
     expect(taskStops.every((stop) => stop.mock.calls.length === 1)).toBe(true);
+  }, 10_000);
+
+  it("selects only compile-enabled roots from a resolved start selection", () => {
+    const compileEnabled = { id: "lib/compile" };
+    const previewOnly = { id: "lib/preview" };
+    const selection = {
+      groups: [
+        {
+          env: { services: { compile: {} } },
+          components: [compileEnabled],
+        },
+        {
+          env: { services: { preview: {} } },
+          components: [previewOnly],
+        },
+      ],
+    };
+
+    expect(selectCompileRootIds(selection as never)).toEqual(["lib/compile"]);
+  });
+
+  it("waits for the first result of a single-layer compile contribution", async () => {
+    const root = await createCompileWorkspace([
+      env("envs/a", "@scope/env.a", compilerVendor("compiler-a"), { label: "A" }),
+    ]);
+    const workspace = await readWorkspace(root);
+    await linkComponentPackages(workspace);
+    const contribution = await createCompileWatchContribution(
+      workspace,
+      ["envs/a"],
+      { raw: ["start"], options: {}, passthrough: [] }
+    );
+
+    try {
+      const readiness = contribution.ready();
+      expect(contribution.ready()).toBe(readiness);
+      await readiness;
+      expect(await marker(root, "@scope/env.a", "env-marker.json")).toEqual({
+        componentId: "envs/a",
+        compiler: "bootstrap-env-compiler",
+      });
+    } finally {
+      await contribution.dispose();
+    }
+  }, 10_000);
+
+  it("reports a mandatory local env prerequisite that lacks compile", async () => {
+    const root = await createCompileWorkspace([
+      env("envs/a", "@scope/env.a", compilerVendor("compiler-a"), { label: "A" }),
+      ordinary("lib/a", "@scope/lib.a", "@scope/env.a"),
+    ]);
+    await writeFile(
+      path.join(root, ".fixture", "env.bootstrap", "index.json"),
+      JSON.stringify({ name: "@fixture/env.bootstrap", services: {} })
+    );
+    const workspace = await readWorkspace(root);
+    await linkComponentPackages(workspace);
+
+    await expect(createCompileWatchContribution(
+      workspace,
+      ["lib/a"],
+      { raw: ["start"], options: {}, passthrough: [] }
+    )).rejects.toThrow(
+      'compile component "envs/a" selected env "@fixture/env.bootstrap" does not define services.compile'
+    );
   }, 10_000);
 
   it("retains worker-backed compile stdout and stderr for late terminal replay", async () => {
@@ -172,9 +241,10 @@ describe("configured per-component compile services", () => {
 
       await vi.waitFor(() => {
         const retained = task?.rawOutput.entries() ?? [];
-        expect(retained.some(({ stream }) => stream === "stdout")).toBe(true);
-        expect(retained.some(({ stream }) => stream === "stderr")).toBe(true);
-      });
+        const retainedOutput = retained.map(({ chunk }) => chunk.toString("utf8")).join("");
+        expect(retainedOutput).toContain("[compile:lib/a] Compiled successfully");
+        expect(retainedOutput).toContain("fixture watcher diagnostic");
+      }, { timeout: 5_000 });
 
       const stdout = task?.rawOutput.entries()
         .filter(({ stream }) => stream === "stdout")
@@ -221,13 +291,15 @@ describe("configured per-component compile services", () => {
     const workspace = await readWorkspace(root);
     await linkComponentPackages(workspace);
 
-    await expect(createCompileWatchContribution(
+    const contribution = await createCompileWatchContribution(
       workspace,
       ["lib/b"],
       { raw: ["compile", "--watch"], options: { watch: true }, passthrough: [] }
-    )).rejects.toThrow("Invalid compile watch result");
+    );
+    await expect(contribution.ready()).rejects.toThrow("Invalid compile watch result");
     await expect(readFile(path.join(root, "node_modules/@scope/lib.b/dist/marker.json"), "utf8"))
       .rejects.toThrow();
+    await contribution.dispose();
   }, 10_000);
 });
 

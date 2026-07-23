@@ -10,6 +10,11 @@ import { BitLiteError } from "../utils/errors.js";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
 import type { ResolvedCommandSelection } from "../utils/command-selection.js";
 import {
+  createCompileWatchContribution,
+  selectCompileRootIds,
+  type CompileWatchContribution,
+} from "./compile.js";
+import {
   createPreviewCommandContribution,
   readPreviewLazy,
   type PreviewCommandContribution,
@@ -33,6 +38,11 @@ export type StartManifestComponent = {
     route: string;
   };
   preview?: PreviewProxyComponent | undefined;
+  compile?: {
+    taskId: string;
+    vendor: string;
+    status: string;
+  } | undefined;
   test?: {
     taskId: string;
     vendor: string;
@@ -43,6 +53,13 @@ export type StartManifestComponent = {
 
 export type StartManifest = {
   proxy: ProxyEndpoint;
+  compiles: Array<{
+    taskId: string;
+    componentId: string;
+    env: SelectedEnvIdentity;
+    vendor: string;
+    status: string;
+  }>;
   preview: PreviewProxyManifest;
   tests: Array<{
     taskId: string;
@@ -56,7 +73,8 @@ export type StartManifest = {
 
 export async function runStartCommand(parsed: ParsedCliArgs) {
   const selection = await prepareResolvedCommandSelection(parsed);
-  if (!hasConfiguredStartService(selection)) {
+  const compileRootIds = selectCompileRootIds(selection);
+  if (!hasConfiguredStartService(selection, compileRootIds)) {
     printNoStartTasks(selection);
     return;
   }
@@ -66,8 +84,10 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
   const activationMode = readPreviewLazy(parsed.args.options.lazy) ? "lazy" : "eager";
   const proxyServer = new ProxyServer();
   const sourceCatalog = createStartSourceCatalog(selection.components);
+  let compile: CompileWatchContribution | undefined;
   let preview: PreviewCommandContribution | undefined;
   let test: TestWatchContribution | undefined;
+  let proxyStarted = false;
   let disposePromise: Promise<void> | undefined;
 
   const disposeResources = () => {
@@ -84,27 +104,50 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
       } catch (error) {
         failures.push(error);
       }
-      try {
-        await proxyServer.close();
-      } catch (error) {
-        failures.push(error);
+      if (compile) {
+        try {
+          await compile.dispose();
+        } catch (error) {
+          failures.push(error);
+        }
       }
-      throwCombinedErrors(failures, "Failed to dispose start command resources");
+      if (proxyStarted) {
+        try {
+          await proxyServer.close();
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      throwCombinedErrors(failures, "Failed to dispose bit-lite start");
     })();
     return disposePromise;
   };
 
   const failures: unknown[] = [];
   try {
+    compile = await createCompileWatchContribution(
+      selection.context.workspace,
+      compileRootIds,
+      selection.parsed.args
+    );
+    await compile.ready();
+
     const endpoint = await proxyServer.start(host, port);
+    proxyStarted = true;
     preview = await createPreviewCommandContribution(selection, { proxy: endpoint, host, activationMode });
     test = await createTestWatchContribution(selection);
 
-    proxyServer.addRoutes(createStartRoutes(endpoint, preview, test, sourceCatalog));
+    proxyServer.addRoutes(createStartRoutes(
+      endpoint,
+      preview,
+      test,
+      sourceCatalog,
+      { selection, compile }
+    ));
     proxyServer.addRoutes(preview.routes);
     proxyServer.addRoutes(test.routes);
 
-    const tasks = [...preview.tasks, ...test.tasks] as VendorTask[];
+    const tasks = [...compile.tasks, ...preview.tasks, ...test.tasks] as VendorTask[];
     if (tasks.length === 0) {
       printNoStartTasks(selection, preview);
     } else {
@@ -122,7 +165,7 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
   } catch (error) {
     if (!failures.includes(error)) failures.push(error);
   }
-  throwCombinedErrors(failures, "Start command failed");
+  throwCombinedErrors(failures, "bit-lite start failed and cleanup also failed");
 }
 
 function throwCombinedErrors(errors: unknown[], message: string): void {
@@ -135,7 +178,11 @@ function throwCombinedErrors(errors: unknown[], message: string): void {
 export function createStartManifest(
   proxy: ProxyEndpoint,
   preview: PreviewCommandContribution,
-  test: TestWatchContribution
+  test: TestWatchContribution,
+  options?: {
+    selection: ResolvedCommandSelection;
+    compile: CompileWatchContribution;
+  }
 ): StartManifest {
   const previewManifest = preview.manifest();
   const components = new Map<string, StartManifestComponent>();
@@ -149,7 +196,7 @@ export function createStartManifest(
     return component;
   };
 
-  for (const group of preview.groups) {
+  for (const group of options?.selection.groups ?? preview.groups) {
     for (const component of group.components) ensureComponent(component.id, group.env.env);
   }
   for (const env of previewManifest.envs) {
@@ -167,9 +214,28 @@ export function createStartManifest(
       };
     }
   }
+  for (const binding of options?.compile.bindings ?? []) {
+    const selected = options?.selection.components.some(
+      (component) => component.id === binding.component.id
+    );
+    if (selected) {
+      ensureComponent(binding.component.id, binding.task.context.env).compile = {
+        taskId: binding.task.id,
+        vendor: binding.task.vendor.id,
+        status: binding.task.status,
+      };
+    }
+  }
 
   return {
     proxy,
+    compiles: (options?.compile.bindings ?? []).map((binding) => ({
+      taskId: binding.task.id,
+      componentId: binding.component.id,
+      env: binding.task.context.env,
+      vendor: binding.task.vendor.id,
+      status: binding.task.status,
+    })),
     preview: previewManifest,
     tests: test.bindings.map((binding) => ({
       taskId: binding.task.id,
@@ -189,7 +255,11 @@ export function createStartRoutes(
   proxy: ProxyEndpoint,
   preview: PreviewCommandContribution,
   test: TestWatchContribution,
-  sourceCatalog: StartSourceCatalog
+  sourceCatalog: StartSourceCatalog,
+  options?: {
+    selection: ResolvedCommandSelection;
+    compile: CompileWatchContribution;
+  }
 ): ProxyRoute[] {
   return [
     {
@@ -213,15 +283,18 @@ export function createStartRoutes(
           sendText(response, 405, "Method not allowed");
           return;
         }
-        sendJson(response, createStartManifest(proxy, preview, test));
+        sendJson(response, createStartManifest(proxy, preview, test, options));
       },
     },
     ...createStartSourceRoutes(sourceCatalog),
   ];
 }
 
-function hasConfiguredStartService(selection: ResolvedCommandSelection) {
-  return selection.groups.some((group) =>
+function hasConfiguredStartService(
+  selection: ResolvedCommandSelection,
+  compileRootIds: readonly string[]
+) {
+  return compileRootIds.length > 0 || selection.groups.some((group) =>
     group.env.services.preview !== undefined || group.env.services.test !== undefined
   );
 }
@@ -242,7 +315,9 @@ function printNoStartTasks(
       .join("; ");
     console.log(`Preview preparation failures: ${failures}`);
   }
-  console.log("Make sure selected envs define services.preview or services.test in their env packages.");
+  console.log(
+    "Make sure selected components define services.compile or their envs define services.preview or services.test."
+  );
 }
 
 function readHost(value: CliOptionValue | undefined) {

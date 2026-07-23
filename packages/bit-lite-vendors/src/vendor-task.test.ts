@@ -391,22 +391,28 @@ describe("vendor task helpers", () => {
   it("supervises task output and input through one interactive terminal", async () => {
     const input = new FakeInput();
     const output = new FakeOutput();
+    const compileInput = vi.fn();
     const firstInput = vi.fn();
     const secondInput = vi.fn();
+    const compile = createFakeTask("compile:component", "Compile", compileInput);
     const first = createFakeTask("test:first", "First", firstInput);
     const second = createFakeTask("preview:second", "Second", secondInput);
+    compile.rawOutput.append("stdout", "compile buffered\n");
     first.rawOutput.append("stdout", "first buffered\n");
     second.rawOutput.append("stdout", "second buffered\n");
     const dispose = vi.fn(() => {
       expect(input.isRaw).toBe(false);
       expect(input.isPaused()).toBe(true);
       expect(output.text()).toContain("\x1b[?25h");
-      return stopVendorTasks([first, second]);
+      return stopVendorTasks([compile, first, second]);
     });
     const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
 
     try {
       setImmediate(() => {
+        input.emit("keypress", "\r", { name: "return" });
+        input.emit("keypress", undefined, { name: "escape" });
+        input.emit("keypress", undefined, { name: "down" });
         input.emit("keypress", undefined, { name: "down" });
         input.emit("keypress", "\r", { name: "return" });
         input.emit("keypress", "x", { name: "x" });
@@ -415,7 +421,7 @@ describe("vendor task helpers", () => {
         expect(dispose).not.toHaveBeenCalled();
         input.emit("keypress", undefined, { ctrl: true, name: "c" });
       });
-      await superviseVendorTasks([first, second], {
+      await superviseVendorTasks([compile, first, second], {
         title: "Combined",
         interactive: true,
         dispose,
@@ -429,43 +435,72 @@ describe("vendor task helpers", () => {
       kill.mockRestore();
     }
 
+    expect(compileInput).not.toHaveBeenCalled();
     expect(firstInput).not.toHaveBeenCalled();
     expect(secondInput).toHaveBeenCalledWith("x");
+    expect(output.text()).toContain("compile buffered");
     expect(output.text()).toContain("second buffered");
     expect(dispose).toHaveBeenCalledOnce();
+    expect(compile.stop).toHaveBeenCalledOnce();
     expect(first.stop).toHaveBeenCalledOnce();
     expect(second.stop).toHaveBeenCalledOnce();
+  });
+
+  it("delegates a non-interactive combined session to one disposer without duplicate task stops", async () => {
+    const compile = createFakeTask("compile:component", "Compile", vi.fn());
+    const preview = createFakeTask("preview:env", "Preview", vi.fn());
+    const test = createFakeTask("test:env", "Test", vi.fn());
+    const dispose = vi.fn(async () => {
+      await Promise.all([compile.stop(), preview.stop(), test.stop()]);
+    });
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
+    setImmediate(() => process.emit("SIGTERM"));
+
+    try {
+      await superviseVendorTasks([compile, preview, test], {
+        title: "Non-interactive combined",
+        interactive: false,
+        dispose,
+      });
+    } finally {
+      kill.mockRestore();
+    }
+
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(compile.stop).toHaveBeenCalledOnce();
+    expect(preview.stop).toHaveBeenCalledOnce();
+    expect(test.stop).toHaveBeenCalledOnce();
   });
 
   it.each(["SIGINT", "SIGTERM"] as const)(
     "detaches presentation listeners before delegating %s cleanup",
     async (signal) => {
-    const events: string[] = [];
-    const task = createFakeTask("test:signal", "Signal", vi.fn(), events);
-    const dispose = vi.fn(async () => {
-      events.push("dispose");
-    });
-    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
-
-    try {
-      setImmediate(() => {
-        process.emit(signal);
-        process.emit(signal);
+      const events: string[] = [];
+      const task = createFakeTask("test:signal", "Signal", vi.fn(), events);
+      const dispose = vi.fn(async () => {
+        events.push("dispose");
       });
-      await superviseVendorTasks([task], {
-        title: "Signal",
-        interactive: false,
-        dispose,
-      });
+      const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
 
-      expect(events).toEqual(["unsubscribe-message", "unsubscribe-output", "dispose"]);
-      expect(task.stop).not.toHaveBeenCalled();
-      expect(dispose).toHaveBeenCalledOnce();
-      expect(kill).toHaveBeenCalledTimes(1);
-      expect(kill).toHaveBeenCalledWith(process.pid, signal);
-    } finally {
-      kill.mockRestore();
-    }
+      try {
+        setImmediate(() => {
+          process.emit(signal);
+          process.emit(signal);
+        });
+        await superviseVendorTasks([task], {
+          title: "Signal",
+          interactive: false,
+          dispose,
+        });
+
+        expect(events).toEqual(["unsubscribe-message", "unsubscribe-output", "dispose"]);
+        expect(task.stop).not.toHaveBeenCalled();
+        expect(dispose).toHaveBeenCalledOnce();
+        expect(kill).toHaveBeenCalledTimes(1);
+        expect(kill).toHaveBeenCalledWith(process.pid, signal);
+      } finally {
+        kill.mockRestore();
+      }
     }
   );
 

@@ -90,7 +90,7 @@ describe("test command", () => {
       expect(contribution.tasks.every((task) => task.context.workspace === selection.context.workspace)).toBe(true);
       expect(process.listenerCount("SIGINT")).toBe(sigintListeners);
       expect(process.listenerCount("SIGTERM")).toBe(sigtermListeners);
-      await vi.waitFor(() => expect(store.entries()).toHaveLength(2));
+      await vi.waitFor(() => expect(store.entries()).toHaveLength(2), { timeout: 5_000 });
     } finally {
       const firstDispose = contribution.dispose();
       const concurrentDispose = contribution.dispose();

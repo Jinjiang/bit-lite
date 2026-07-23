@@ -11,6 +11,8 @@ bit-lite test --workspace <dir> --watch
 bit-lite compile --workspace <dir>
 bit-lite compile --workspace <dir> --filter <component-pattern>
 bit-lite compile --workspace <dir> --watch
+bit-lite watch --workspace <dir>
+bit-lite watch --workspace <dir> --filter <component-pattern> -- --vendor-option
 bit-lite install --workspace <dir>
 bit-lite install --workspace <dir> --compile
 bit-lite preview --workspace <dir>
@@ -20,6 +22,13 @@ bit-lite start --workspace <dir>
 bit-lite start --workspace <dir> --filter <component-pattern> --port 4000
 bit-lite start --workspace <dir> --lazy
 ```
+
+`bit-lite watch` is a strict alias for `bit-lite compile --watch`. It preserves
+the original raw invocation, named vendor options, passthrough arguments,
+workspace, and repeated filters while forcing the effective `watch` option to
+`true`. `bit-lite watch --no-watch` is rejected instead of falling back to a
+one-shot compile. The existing `-w` shorthand continues to mean `--workspace`;
+there is no short watch flag.
 
 Every component has an explicit `{ packageName, version }` env reference.
 `workspace:` resolves only to a registered `kind: "env"` component; every other
@@ -89,15 +98,18 @@ through the generic runner. The compiler vendor reads
 vendor owns file watching, incremental behavior, recovery, and cleanup. The
 compile command contributes caller-owned tasks and the standalone command
 supervises them centrally; a managed terminal is used only in an interactive
-session. Compile watch is intentionally not integrated into `bit-lite start`
-yet. Compile-specific contracts and validators are exported by
+session. `bit-lite start` consumes that same contribution directly instead of
+invoking the standalone wrapper, so composed sessions do not create nested
+terminals, signal handlers, or task cleanup. Compile-specific contracts and validators are exported by
 `bit-lite-compiler`; `bit-lite-vendors` remains service-agnostic.
 
 Run `bit-lite compile` before preview when a component imports a workspace
 package owned by another env. Preview aliases only the current env's selected
 components to source because other envs may require incompatible loaders or
 plugins; cross-env imports continue to resolve through compiled package `dist`
-artifacts.
+artifacts. `bit-lite start` performs this compile-watch preparation itself and
+waits for every included task's first validated successful result before
+creating preview or test contributions.
 
 `bit-lite preview` prepares one HTML and one browser entry per selected env,
 then starts the configured preview dev-server vendor behind a shared proxy.
@@ -131,16 +143,27 @@ reports the port it bound. The internal preferred range starts at 6000 in stable
 env order; conflicts fall back after the complete preferred range so activating
 one env cannot consume an idle env's preferred port.
 
-`bit-lite start` composes preview and test watch tasks for the same filtered
-component selection. It opens one public proxy and one managed terminal, keeps
-preview vendor servers internal, and serves a combined component index at the
-proxy root. Component test pages are read-only: structured results are
+`bit-lite start` composes component-level compile, env-level preview, and
+env-level test watch tasks for the same filtered component selection. Selected
+components without `services.compile` skip only compile and retain any available
+preview/test behavior. Compile-enabled roots and their required local env
+prerequisites follow the compiler dependency plan, and all included compile
+tasks cross their first-success readiness barrier before preview or test starts.
+A missing or failed mandatory compile prerequisite rolls startup back.
+
+Start opens one public proxy and at most one managed terminal, keeps preview
+vendor servers internal, and serves a combined component index at the proxy
+root. A compile-only selection is valid and still serves the central manifest,
+source browser, and UI. The manifest and UI expose live compile task
+identity/status, while raw compiler stdout/stderr remains scoped to its task in
+the unified terminal and is not presented as component compile history or a
+control surface. Component test pages remain read-only: structured results are
 component-scoped, while terminal text is explicitly labeled as the latest
 retained output for the whole selected env and may include sibling components.
 Test watch mode is enabled automatically by `start`; a rerun control is not
-provided. `start --lazy` applies only to preview; every configured test watch
-task still starts eagerly and shares the same fixed task array, terminal,
-proxy, and coordinated shutdown path.
+provided. `start --lazy` applies only to preview; every compile and test task
+still starts eagerly and shares the same fixed task array, terminal, proxy, one
+SIGINT/SIGTERM owner, and aggregate disposal path.
 
 Resident compile, test, preview, and start sessions terminate only for Ctrl+C,
 SIGINT, or SIGTERM. Pressing `q` in the parent task menu does not stop the

@@ -5,6 +5,7 @@ import { runInstallCommand } from "./commands/install.js";
 import { runPreviewCommand } from "./commands/preview.js";
 import { runStartCommand } from "./commands/start.js";
 import { runTestCommand } from "./commands/test.js";
+import { runWatchCommand } from "./commands/watch.js";
 import type { ParsedCliArgs } from "bit-lite-context";
 import { BitLiteError } from "./utils/errors.js";
 
@@ -17,6 +18,7 @@ const commands: Record<string, CommandHandler> = {
   preview: runPreviewCommand,
   start: runStartCommand,
   test: runTestCommand,
+  watch: runWatchCommand,
 };
 
 export async function runCli(argv = process.argv.slice(2)): Promise<number> {
@@ -52,7 +54,8 @@ Commands:
   compile compile component packages once or watch with vendor-owned --watch
   install install/link packages and optionally compile once with --compile
   preview serve component docs and compositions
-  start   serve preview and live test results in one watch session
+  start   compile and serve preview/live tests in one watch session
   test    run the configured test service
+  watch   alias for compile --watch
 `);
 }

@@ -1,5 +1,4 @@
 import path from "node:path";
-import { createVitest, startVitest } from "vitest/node";
 import type { Reporter, TestModule, TestRunResult, Vitest } from "vitest/node";
 import type { JsonObject, VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
 import { readTestVendorConfig } from "../config.js";
@@ -99,6 +98,7 @@ export default async function startVitestVendor(
   }
 
   async function runVitestFiles(configFile: string, files: string[]) {
+    const { createVitest } = await import("vitest/node");
     const vitest = await createVitest(
       "test",
       {
@@ -127,6 +127,7 @@ export default async function startVitestVendor(
     files: string[],
     targets: Awaited<ReturnType<typeof findComponentTestTargets>>
   ) {
+    const { startVitest } = await import("vitest/node");
     const reporter: Reporter = {
       onTestRunStart() {
         runtime.postMessage({ type: "status", status: "running" });

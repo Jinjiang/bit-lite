@@ -529,7 +529,7 @@ export async function createVendorWatchExecution<
   };
 
   try {
-    for (const layer of plan.layers) {
+    for (const [layerIndex, layer] of plan.layers.entries()) {
       const preparation = await Promise.all(layer.map(async (unit) => {
         try {
           return {
@@ -618,7 +618,7 @@ export async function createVendorWatchExecution<
       for (const task of layerTasks) void task.result.catch(() => undefined);
       if (creationFailure) throw creationFailure.error;
 
-      if (isLayeredExecution) {
+      if (isLayeredExecution && layerIndex < plan.layers.length - 1) {
         await Promise.all(layerTasks.map((task) => task.firstResult));
       }
     }
