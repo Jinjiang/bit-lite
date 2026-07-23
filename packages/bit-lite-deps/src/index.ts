@@ -5,10 +5,19 @@ import { mutateModules, type InstallOptions, type MutatedProject, type ProjectOp
 import { createOrConnectStoreController } from "@pnpm/store-connection-manager";
 import type { ProjectManifest, ProjectRootDir } from "@pnpm/types";
 import { finishWorkers, restartWorkerPool } from "@pnpm/worker";
-import { isRecord } from "bit-lite-utils";
+import { isRecord, throwCombinedErrors } from "bit-lite-utils";
 import { isNodeErrorCode } from "bit-lite-utils/node";
 import fg from "fast-glob";
 import { parse as parseYaml } from "yaml";
+import {
+  observeDependencyInstallProgress,
+  type DependencyInstallProgressEvent,
+} from "./progress.js";
+
+export type {
+  DependencyInstallProgressCounts,
+  DependencyInstallProgressEvent,
+} from "./progress.js";
 
 export type DependencyProject = {
   rootDir: string;
@@ -24,76 +33,89 @@ export type InstallDependencyProjectsOptions = {
    * long-term package source for Bit components is a dedicated npm registry.
    */
   workspacePackages?: DependencyProject[];
+  onProgress?: (event: DependencyInstallProgressEvent) => void;
 };
 
 export async function installDependencyProjects(options: InstallDependencyProjectsOptions) {
-  const { config } = await getConfig({
-    cliOptions: {
-      dir: options.rootDir,
-      ignoreScripts: true,
-    },
-    packageManager: {
-      name: "pnpm",
-      version: "11.7.0",
-    },
-  });
-  const store = await createOrConnectStoreController({
-    ...config,
-    dir: options.rootDir,
-    workspaceDir: options.rootDir,
-  });
-  const allProjects: ProjectOptions[] = options.projects.map((project) => ({
-    buildIndex: 0,
-    manifest: project.manifest,
-    rootDir: project.rootDir as ProjectRootDir,
-  }));
-  const workspacePackages = createWorkspacePackageMap(options.workspacePackages ?? []);
-  const mutations: MutatedProject[] = options.projects.map((project) => ({
-    rootDir: project.rootDir as ProjectRootDir,
-    mutation: "install",
-  }));
-  const installOptions: InstallOptions = {
-    allProjects,
-    autoInstallPeers: false,
-    autoInstallPeersFromHighestMatch: false,
-    confirmModulesPurge: false,
-    dedupeDirectDeps: true,
-    dedupePeerDependents: true,
-    depth: 0,
-    dir: options.rootDir,
-    enableModulesDir: true,
-    excludeLinksFromLockfile: true,
-    hoistPattern: [],
-    ignoreScripts: true,
-    include: {
-      dependencies: true,
-      devDependencies: true,
-      optionalDependencies: true,
-    },
-    injectWorkspacePackages: false,
-    linkWorkspacePackagesDepth: workspacePackages.size > 0 ? 0 : -1,
-    lockfileOnly: false,
-    modulesCacheMaxAge: Infinity,
-    nodeLinker: "isolated",
-    preferFrozenLockfile: true,
-    preferWorkspacePackages: workspacePackages.size > 0,
-    pruneLockfileImporters: true,
-    rawConfig: config.rawConfig,
-    registries: config.registries,
-    resolutionMode: "highest",
-    resolvePeersFromWorkspaceRoot: false,
-    storeController: store.ctrl,
-    storeDir: store.dir,
-    strictPeerDependencies: false,
-    workspacePackages,
-  };
-
+  const disposeProgress = options.onProgress
+    ? observeDependencyInstallProgress(options.rootDir, options.onProgress)
+    : undefined;
+  const failures: unknown[] = [];
   try {
+    const { config } = await getConfig({
+      cliOptions: {
+        dir: options.rootDir,
+        ignoreScripts: true,
+      },
+      packageManager: {
+        name: "pnpm",
+        version: "11.7.0",
+      },
+    });
+    const store = await createOrConnectStoreController({
+      ...config,
+      dir: options.rootDir,
+      workspaceDir: options.rootDir,
+    });
+    const allProjects: ProjectOptions[] = options.projects.map((project) => ({
+      buildIndex: 0,
+      manifest: project.manifest,
+      rootDir: project.rootDir as ProjectRootDir,
+    }));
+    const workspacePackages = createWorkspacePackageMap(options.workspacePackages ?? []);
+    const mutations: MutatedProject[] = options.projects.map((project) => ({
+      rootDir: project.rootDir as ProjectRootDir,
+      mutation: "install",
+    }));
+    const installOptions: InstallOptions = {
+      allProjects,
+      autoInstallPeers: false,
+      autoInstallPeersFromHighestMatch: false,
+      confirmModulesPurge: false,
+      dedupeDirectDeps: true,
+      dedupePeerDependents: true,
+      depth: 0,
+      dir: options.rootDir,
+      enableModulesDir: true,
+      excludeLinksFromLockfile: true,
+      hoistPattern: [],
+      ignoreScripts: true,
+      include: {
+        dependencies: true,
+        devDependencies: true,
+        optionalDependencies: true,
+      },
+      injectWorkspacePackages: false,
+      linkWorkspacePackagesDepth: workspacePackages.size > 0 ? 0 : -1,
+      lockfileOnly: false,
+      modulesCacheMaxAge: Infinity,
+      nodeLinker: "isolated",
+      preferFrozenLockfile: true,
+      preferWorkspacePackages: workspacePackages.size > 0,
+      pruneLockfileImporters: true,
+      rawConfig: config.rawConfig,
+      registries: config.registries,
+      resolutionMode: "highest",
+      resolvePeersFromWorkspaceRoot: false,
+      storeController: store.ctrl,
+      storeDir: store.dir,
+      strictPeerDependencies: false,
+      workspacePackages,
+    };
+
     await restartWorkerPool();
     await mutateModules(mutations, installOptions);
-  } finally {
-    await finishWorkers();
+  } catch (error) {
+    failures.push(error);
   }
+  try {
+    await finishWorkers();
+  } catch (error) {
+    failures.push(error);
+  } finally {
+    disposeProgress?.();
+  }
+  throwCombinedErrors(failures, "Dependency installation and worker cleanup failed");
 }
 
 /**

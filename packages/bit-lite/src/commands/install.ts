@@ -12,6 +12,10 @@ import {
   sortStringRecord,
   writeJsonFile,
 } from "./link.js";
+import {
+  createInstallReporter,
+  type InstallReporter,
+} from "./install-reporter.js";
 
 type DependencyManifest = {
   name: string;
@@ -22,34 +26,93 @@ type DependencyManifest = {
   devDependencies?: Record<string, string>;
 };
 
-export async function runInstallCommand(parsed: ParsedCliArgs) {
-  const workspace = await readWorkspace(parsed.workspaceRoot);
-  const shouldCompile = readCompileOption(parsed.args.options.compile);
-  const projects = await createDependencyProjects(workspace.rootDir, workspace.components);
-  // Temporary demo bridge: reuse locally developed packages when this Bit workspace
-  // happens to be nested in a pnpm workspace. Its absence is normal; production Bit
-  // component installation is expected to resolve through a dedicated npm registry.
-  const workspacePackages = await discoverPnpmWorkspacePackages(workspace.rootDir);
+export type RunInstallCommandOptions = {
+  reporter?: InstallReporter;
+};
 
-  await installDependencyProjects({
-    rootDir: getDependencyInstallRoot(workspace.rootDir),
-    projects,
-    workspacePackages,
-  });
-  await linkComponentPackages(workspace);
-
-  const externalRequirements = countExternalRequirements(workspace.components);
-  console.log(
-    `Installed ${externalRequirements} external dependency requirement${externalRequirements === 1 ? "" : "s"} across ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}.`
-  );
-  console.log(`Linked ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}.`);
-
-  if (shouldCompile) {
-    const compiledComponents = await compileComponentPackages(workspace, undefined, parsed.args);
-    console.log(`Compiled ${compiledComponents.length} component package${compiledComponents.length === 1 ? "" : "s"}.`);
-    for (const component of compiledComponents) {
-      console.log(`- ${component.packageName}`);
+export async function runInstallCommand(
+  parsed: ParsedCliArgs,
+  options: RunInstallCommandOptions = {}
+) {
+  const reporter = options.reporter ?? createInstallReporter();
+  try {
+    reporter.start("Reading workspace");
+    let workspace;
+    try {
+      workspace = await readWorkspace(parsed.workspaceRoot);
+      reporter.succeed(
+        `Found ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}`
+      );
+    } catch (error) {
+      reporter.fail("Workspace discovery failed");
+      throw error;
     }
+
+    const shouldCompile = readCompileOption(parsed.args.options.compile);
+    reporter.start(
+      `Preparing dependencies for ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}`
+    );
+    try {
+      const projects = await createDependencyProjects(workspace.rootDir, workspace.components);
+      // Temporary demo bridge: reuse locally developed packages when this Bit workspace
+      // happens to be nested in a pnpm workspace. Its absence is normal; production Bit
+      // component installation is expected to resolve through a dedicated npm registry.
+      const workspacePackages = await discoverPnpmWorkspacePackages(workspace.rootDir);
+      reporter.update("Installing dependencies");
+      await installDependencyProjects({
+        rootDir: getDependencyInstallRoot(workspace.rootDir),
+        projects,
+        workspacePackages,
+        onProgress: (event) => reporter.dependency(event),
+      });
+      reporter.succeed(
+        `Installed dependencies for ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}`
+      );
+    } catch (error) {
+      reporter.fail("Dependency installation failed");
+      throw error;
+    }
+
+    reporter.start(
+      `Linking ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}`
+    );
+    try {
+      await linkComponentPackages(workspace);
+      reporter.succeed(
+        `Linked ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}`
+      );
+    } catch (error) {
+      reporter.fail("Component linking failed");
+      throw error;
+    }
+
+    const externalRequirements = countExternalRequirements(workspace.components);
+    console.log(
+      `Installed ${externalRequirements} external dependency requirement${externalRequirements === 1 ? "" : "s"} across ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}.`
+    );
+    console.log(`Linked ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}.`);
+
+    if (shouldCompile) {
+      reporter.start(
+        `Compiling ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}`
+      );
+      let compiledComponents;
+      try {
+        compiledComponents = await compileComponentPackages(workspace, undefined, parsed.args);
+        reporter.succeed(
+          `Compiled ${compiledComponents.length} component package${compiledComponents.length === 1 ? "" : "s"}`
+        );
+      } catch (error) {
+        reporter.fail("Component compilation failed");
+        throw error;
+      }
+      console.log(`Compiled ${compiledComponents.length} component package${compiledComponents.length === 1 ? "" : "s"}.`);
+      for (const component of compiledComponents) {
+        console.log(`- ${component.packageName}`);
+      }
+    }
+  } finally {
+    reporter.close();
   }
 }
 
