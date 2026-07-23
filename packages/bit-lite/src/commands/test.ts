@@ -1,4 +1,6 @@
 import { superviseVendorTasks } from "bit-lite-vendors";
+import { isJsonObject } from "bit-lite-utils";
+import { isInteractiveTerminal } from "bit-lite-utils/node";
 import type {
   ParsedCliArgs,
   SelectedEnvIdentity,
@@ -7,7 +9,6 @@ import type {
 } from "bit-lite-context";
 import type {
   JsonObject,
-  JsonValue,
   VendorTask,
 } from "bit-lite-vendors";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
@@ -207,10 +208,6 @@ export async function createTestWatchContribution(
   }
 }
 
-function isInteractiveTerminal() {
-  return process.stdin.isTTY === true && process.stdout.isTTY === true;
-}
-
 function printNoTestTasks(groups: readonly WorkspaceEnvGroup[]) {
   console.log("No test tasks found.");
   if (groups.length === 0) {
@@ -362,21 +359,4 @@ function formatTestResultText(vendor: string, result: TestServiceResult) {
       `${componentResult.componentId}: ${formatComponentResult(componentResult)}`
     ),
   ].join("\n");
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  if (!isRecord(value)) return false;
-  return Object.values(value).every(isJsonValue);
-}
-
-function isJsonValue(value: unknown): value is JsonValue {
-  if (value === null) return true;
-  if (typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  return isJsonObject(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

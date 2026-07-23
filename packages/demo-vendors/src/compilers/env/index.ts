@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
 import {
@@ -15,6 +15,12 @@ import type {
 import type {
   VendorDefinition,
 } from "bit-lite-vendors";
+import {
+  isRecord,
+  readDefaultExport,
+  readStringRecord,
+} from "bit-lite-utils";
+import { collectFiles, replaceExtension } from "bit-lite-utils/node";
 import { startCompilerWatch } from "../watch.js";
 
 const typeScriptExtensions = new Set([".ts", ".tsx"]);
@@ -56,7 +62,11 @@ async function compileOnce(input: CompileVendorInput) {
   await rm(runtime.distDir, { recursive: true, force: true });
   await mkdir(runtime.distDir, { recursive: true });
 
-  const sourceFiles = await collectFiles(component.rootDir);
+  const sourceFiles = await collectFiles(component.rootDir, {
+    ignoredDirectories,
+    ignoredFiles,
+    order: "sorted",
+  });
   for (const sourceFile of sourceFiles) {
     const relativePath = path.relative(component.rootDir, sourceFile);
     if (path.resolve(sourceFile) === path.resolve(sourceEntry)) continue;
@@ -113,28 +123,15 @@ async function resolveDependencyEnv(packageRoot: string, packageName: string) {
   if (!isRecord(manifest) || manifest.name !== packageName) {
     throw new Error(`env dependency "${packageName}" has an invalid package manifest at ${dependencyRoot}`);
   }
-  const entry = readDefaultExport(manifest, packageName);
+  const entry = readDefaultExport(manifest, {
+    createMissingExportError: () =>
+      new Error(`env dependency "${packageName}" does not define a default export`),
+  });
   return {
     packageRoot: dependencyRoot,
     entryFile: path.resolve(dependencyRoot, entry),
     dependencies: readStringRecord(manifest.dependencies),
   };
-}
-
-function readDefaultExport(manifest: Record<string, unknown>, packageName: string) {
-  const exports = manifest.exports;
-  if (typeof exports === "string") return exports;
-  if (isRecord(exports)) {
-    const root = exports["."];
-    if (typeof root === "string") return root;
-    if (isRecord(root)) {
-      for (const condition of ["default", "import", "require"]) {
-        if (typeof root[condition] === "string") return root[condition];
-      }
-    }
-  }
-  if (typeof manifest.main === "string") return manifest.main;
-  throw new Error(`env dependency "${packageName}" does not define a default export`);
 }
 
 async function transpileSupportFile(
@@ -173,35 +170,4 @@ async function transpileSupportFile(
 async function copySupportFile(sourceFile: string, outputPath: string) {
   await mkdir(path.dirname(outputPath), { recursive: true });
   await copyFile(sourceFile, outputPath);
-}
-
-async function collectFiles(rootDir: string) {
-  const files: string[] = [];
-  await visit(rootDir);
-  return files.sort((left, right) => left.localeCompare(right));
-
-  async function visit(directory: string) {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      if (entry.isDirectory() && ignoredDirectories.has(entry.name)) continue;
-      if (entry.isFile() && ignoredFiles.has(entry.name)) continue;
-      const entryPath = path.join(directory, entry.name);
-      if (entry.isDirectory()) await visit(entryPath);
-      else if (entry.isFile()) files.push(entryPath);
-    }
-  }
-}
-
-function replaceExtension(filePath: string, extension: string) {
-  return path.join(path.dirname(filePath), `${path.basename(filePath, path.extname(filePath))}${extension}`);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function readStringRecord(value: unknown) {
-  if (!isRecord(value)) return {};
-  return Object.fromEntries(
-    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string")
-  );
 }

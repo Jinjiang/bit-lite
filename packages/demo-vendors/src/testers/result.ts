@@ -1,4 +1,6 @@
 import path from "node:path";
+import { formatError, isJsonValue } from "bit-lite-utils";
+import { toPosixPath } from "bit-lite-utils/node";
 import type { JsonObject, JsonValue } from "bit-lite-vendors";
 import type { ComponentTestTarget } from "./files.js";
 
@@ -94,7 +96,7 @@ export function createTestServiceResult(options: {
 export function addFileLoadFailure(result: MutableComponentResult, error: unknown) {
   result.stats.total += 1;
   result.stats.failed += 1;
-  result.errors.push(formatError(error));
+  result.errors.push(formatError(error, "object-message-aware"));
 }
 
 export function finishStats(stats: MutableStats): TestStats {
@@ -110,30 +112,12 @@ export function formatSummary(result: Pick<TestStats, "total" | "passed" | "fail
   return `${result.passed}/${result.total} passed`;
 }
 
-export function formatError(error: unknown) {
-  if (error instanceof Error) return error.stack ?? error.message;
-  if (typeof error === "object" && error !== null && "message" in error) {
-    return String((error as { message: unknown }).message);
-  }
-  return String(error);
-}
-
 export function toJsonObject(config: Record<string, unknown>): JsonObject {
   const result: JsonObject = {};
   for (const [key, value] of Object.entries(config)) {
-    if (isJsonValue(value)) result[key] = value;
+    if (isJsonValue(value, { numberPolicy: "allow-non-finite" })) {
+      result[key] = value;
+    }
   }
   return result;
-}
-
-function isJsonValue(value: unknown): value is JsonValue {
-  if (value === null) return true;
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return true;
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  if (typeof value === "object") return Object.values(value).every(isJsonValue);
-  return false;
-}
-
-function toPosixPath(filePath: string) {
-  return filePath.split(path.sep).join("/");
 }

@@ -1,4 +1,6 @@
-import path from "node:path";
+import { toPosixPath } from "bit-lite-utils/node";
+
+export { toPosixPath };
 
 /**
  * What: converts a filesystem path to POSIX-style separators (`/`) without
@@ -15,10 +17,6 @@ import path from "node:path";
  * - `toPosixPath(path.relative(root, componentDir))` gives a portable
  *   component id candidate.
  */
-export function toPosixPath(filePath: string) {
-  return filePath.split(path.sep).join("/");
-}
-
 /**
  * What: prepares a relative path for matching by converting separators to `/`,
  * removing one leading `./`, and trimming one trailing slash.

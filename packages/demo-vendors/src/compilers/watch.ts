@@ -1,4 +1,5 @@
 import chokidar from "chokidar";
+import { formatError } from "bit-lite-utils";
 import type {
   CompileOutput,
   CompileRunResult,
@@ -37,7 +38,7 @@ export async function startCompilerWatch(
 
   watcher.on("all", () => queueCompile());
   watcher.on("error", (error) => {
-    const diagnostic = formatError(error);
+    const diagnostic = formatError(error, "stack-preferred");
     console.error(`[compile:${componentId}] Watcher error\n${diagnostic}`);
     runtime.postMessage({ type: "error", message: diagnostic });
   });
@@ -80,7 +81,7 @@ export async function startCompilerWatch(
         runtime.postMessage({ type: "result", data });
         runtime.postMessage({ type: "status", status: "watching" });
       } catch (error) {
-        const diagnostic = formatError(error);
+        const diagnostic = formatError(error, "stack-preferred");
         console.error(`[compile:${componentId}] Compilation failed\n${diagnostic}`);
         runtime.postMessage({ type: "error", message: diagnostic });
       }
@@ -106,8 +107,4 @@ function isIgnoredPath(watchedPath: string, rootDir: string) {
   return relative.split("/").some((segment) =>
     segment === "node_modules" || segment === "dist" || segment === ".git" || segment === ".bit-lite"
   );
-}
-
-function formatError(error: unknown) {
-  return error instanceof Error ? error.stack ?? error.message : String(error);
 }

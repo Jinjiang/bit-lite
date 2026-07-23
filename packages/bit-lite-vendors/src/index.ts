@@ -1,4 +1,5 @@
 export { createInlineRunner, createRunner, createWorkerRunner } from "./runner/index.js";
+export { isVendorDefinition } from "./vendor-definition.js";
 export {
   createWatchVendorTasks,
   runVendorTasks,

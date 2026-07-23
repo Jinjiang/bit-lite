@@ -4,6 +4,7 @@ import { lstat, open, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { TextDecoder } from "node:util";
 import { sendHtml, sendJson, sendText } from "bit-lite-proxy";
+import { toPosixPath } from "bit-lite-utils/node";
 import type { WorkspaceComponent } from "bit-lite-context";
 import type { ProxyRoute } from "bit-lite-proxy";
 
@@ -349,9 +350,6 @@ function isPathInside(root: string, candidate: string) {
   return relative.length > 0 && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
 
-function toPosixPath(value: string) {
-  return value.split(path.sep).join("/");
-}
 
 function allowGet(method: string | undefined, response: Parameters<typeof sendText>[0]) {
   if (method === "GET") return true;

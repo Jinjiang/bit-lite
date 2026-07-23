@@ -1,5 +1,6 @@
 import { createElement, isValidElement, type ComponentType, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
+import { isRecord } from "bit-lite-utils";
 
 type PreviewMounterContext = {
   componentId: string;
@@ -23,8 +24,4 @@ function toReactElement(composition: unknown): ReactElement {
     return createElement(composition.component as ComponentType, isRecord(composition.props) ? composition.props : {});
   }
   return createElement("pre", undefined, JSON.stringify(composition, null, 2));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

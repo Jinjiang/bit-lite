@@ -8,6 +8,7 @@ import {
   runVendorTasks,
   stopVendorTasks,
 } from "bit-lite-vendors";
+import { throwCombinedErrors } from "bit-lite-utils";
 import type {
   CliArguments,
   CliOptionValue,
@@ -645,10 +646,4 @@ function assertServiceId(serviceId: string) {
 
 function asError(error: unknown) {
   return error instanceof Error ? error : new Error(String(error));
-}
-
-function throwCombinedErrors(errors: unknown[], message: string): void {
-  if (errors.length === 0) return;
-  if (errors.length === 1) throw errors[0];
-  throw new AggregateError(errors, message);
 }

@@ -9,6 +9,7 @@ import {
   sendJson,
 } from "bit-lite-proxy";
 import { getSelectedEnvKey } from "bit-lite-context";
+import { escapeHtml, formatError } from "bit-lite-utils";
 import type { SelectedEnvIdentity } from "bit-lite-context";
 import type { ProxyEndpoint, ProxyRoute } from "bit-lite-proxy";
 import type { PreparedPreviewComponent } from "./preparation.js";
@@ -311,21 +312,4 @@ function renderMessagePage(title: string, message: string) {
   return previewMessageTemplate
     .replaceAll("{{TITLE}}", escapeHtml(title))
     .replace("{{MESSAGE}}", escapeHtml(message));
-}
-
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (char) => {
-    switch (char) {
-      case "&": return "&amp;";
-      case "<": return "&lt;";
-      case ">": return "&gt;";
-      case '"': return "&quot;";
-      case "'": return "&#39;";
-      default: return char;
-    }
-  });
-}
-
-function formatError(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
 }

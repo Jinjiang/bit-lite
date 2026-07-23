@@ -1,3 +1,4 @@
+import { isRecord, readPort } from "bit-lite-utils";
 import type { JsonObject, PreviewPackageAlias, PreviewPreparedRuntime } from "./types.js";
 
 export type {
@@ -53,8 +54,18 @@ export function readPreviewPreparedRuntime(runtime: JsonObject | undefined): Pre
   if (typeof host !== "string" || host.length === 0) {
     throw new Error("preview vendor runtime.server.host is missing");
   }
-  readPort(preferredPort, "preferredPort");
-  readPort(fallbackStartPort, "fallbackStartPort");
+  const validatedPreferredPort = readPort(preferredPort, {
+    createError: () =>
+      new Error(
+        "preview vendor runtime.server.preferredPort must be an integer between 1 and 65535"
+      ),
+  });
+  const validatedFallbackStartPort = readPort(fallbackStartPort, {
+    createError: () =>
+      new Error(
+        "preview vendor runtime.server.fallbackStartPort must be an integer between 1 and 65535"
+      ),
+  });
   if (typeof basePath !== "string" || !basePath.startsWith("/")) {
     throw new Error("preview vendor runtime.server.basePath is missing");
   }
@@ -70,19 +81,16 @@ export function readPreviewPreparedRuntime(runtime: JsonObject | undefined): Pre
   const packageAliases = aliases.map(readPackageAlias);
 
   return {
-    server: { host, preferredPort, fallbackStartPort, basePath, proxyOrigin },
+    server: {
+      host,
+      preferredPort: validatedPreferredPort,
+      fallbackStartPort: validatedFallbackStartPort,
+      basePath,
+      proxyOrigin,
+    },
     prepared: { entryFile, htmlFile },
     aliases: packageAliases,
   };
-}
-
-function readPort(
-  value: unknown,
-  field: "preferredPort" | "fallbackStartPort"
-): asserts value is number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0 || value > 65535) {
-    throw new Error(`preview vendor runtime.server.${field} must be an integer between 1 and 65535`);
-  }
 }
 
 function readPackageAlias(value: unknown, index: number): PreviewPackageAlias {
@@ -97,8 +105,4 @@ function readPackageAlias(value: unknown, index: number): PreviewPackageAlias {
     throw new Error(`preview vendor runtime.aliases[${index}].sourceDir is missing`);
   }
   return { packageName, sourceDir };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

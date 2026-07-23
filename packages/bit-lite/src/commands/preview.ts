@@ -3,6 +3,13 @@ import {
   resolveEnvModuleSpecifier,
 } from "bit-lite-context";
 import { ProxyServer } from "bit-lite-proxy";
+import {
+  formatError,
+  isJsonObject,
+  readHost,
+  readPort,
+  throwCombinedErrors,
+} from "bit-lite-utils";
 import { superviseVendorTasks } from "bit-lite-vendors";
 import { BitLiteError } from "../utils/errors.js";
 import {
@@ -108,8 +115,12 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
     return;
   }
 
-  const host = readHost(parsed.args.options.host);
-  const proxyPort = readPort(parsed.args.options.port, "--port", defaultProxyPort);
+  const host = readPreviewHost(parsed.args.options.host);
+  const proxyPort = readPreviewPort(
+    parsed.args.options.port,
+    "--port",
+    defaultProxyPort
+  );
   const activationMode = readPreviewLazy(parsed.args.options.lazy) ? "lazy" : "eager";
   const proxyServer = new ProxyServer();
   let contribution: PreviewCommandContribution | undefined;
@@ -129,7 +140,11 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
       } catch (error) {
         failures.push(error);
       }
-      throwCombinedErrors(failures, "Failed to dispose preview command resources");
+      throwCombinedErrors(
+        failures,
+        "Failed to dispose preview command resources",
+        "deduplicate"
+      );
     })();
     return disposePromise;
   };
@@ -162,7 +177,7 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
   } catch (error) {
     if (!failures.includes(error)) failures.push(error);
   }
-  throwCombinedErrors(failures, "Preview command failed");
+  throwCombinedErrors(failures, "Preview command failed", "deduplicate");
 }
 
 export async function createPreviewCommandContribution(
@@ -254,7 +269,11 @@ export async function createPreviewCommandContribution(
       } catch (error) {
         failures.push(error);
       }
-      throwCombinedErrors(failures, "Failed to dispose preview contribution");
+      throwCombinedErrors(
+        failures,
+        "Failed to dispose preview contribution",
+        "deduplicate"
+      );
     })();
     return disposePromise;
   };
@@ -273,13 +292,6 @@ export async function createPreviewCommandContribution(
     manifest: () => state.manifest(options.proxy),
     dispose,
   };
-}
-
-function throwCombinedErrors(errors: unknown[], message: string): void {
-  const uniqueErrors = [...new Set(errors)];
-  if (uniqueErrors.length === 0) return;
-  if (uniqueErrors.length === 1) throw uniqueErrors[0];
-  throw new AggregateError(uniqueErrors, message);
 }
 
 async function preparePreviewUnit(options: {
@@ -447,51 +459,25 @@ function printNoPreviewTasks(groups: readonly WorkspaceEnvGroup[]) {
 }
 
 export function readPreviewHost(value: CliOptionValue | undefined) {
-  if (value === undefined) return defaultHost;
-  if (typeof value !== "string" || value.length === 0) throw new BitLiteError("--host requires a host name");
-  return value;
+  return readHost(value, {
+    fallback: defaultHost,
+    createError: () => new BitLiteError("--host requires a host name"),
+  });
 }
 
 export function readPreviewPort(value: CliOptionValue | undefined, optionName: string, fallback: number) {
-  if (value === undefined) return fallback;
-  const port = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new BitLiteError(`${optionName} requires a port number between 1 and 65535`);
-  }
-  return port;
+  return readPort(value, {
+    fallback,
+    acceptNumericString: true,
+    createError: () =>
+      new BitLiteError(
+        `${optionName} requires a port number between 1 and 65535`
+      ),
+  });
 }
 
 export function readPreviewLazy(value: CliOptionValue | undefined) {
   if (value === undefined) return false;
   if (typeof value === "boolean") return value;
   throw new BitLiteError("--lazy requires a boolean value");
-}
-
-function readHost(value: CliOptionValue | undefined) {
-  return readPreviewHost(value);
-}
-
-function readPort(value: CliOptionValue | undefined, optionName: string, fallback: number) {
-  return readPreviewPort(value, optionName, fallback);
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  if (!isRecord(value)) return false;
-  return Object.values(value).every(isJsonValue);
-}
-
-function isJsonValue(value: unknown): value is JsonObject[keyof JsonObject] {
-  if (value === null) return true;
-  if (typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  return isJsonObject(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function formatError(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
 }

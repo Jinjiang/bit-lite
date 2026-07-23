@@ -1,4 +1,12 @@
 import { createRunner } from "./runner/index.js";
+import { isVendorDefinition } from "./vendor-definition.js";
+import {
+  formatError,
+  formatExitCode,
+  isRecord,
+  throwCombinedErrors,
+} from "bit-lite-utils";
+import { isInteractiveTerminal } from "bit-lite-utils/node";
 import { ManagedTerminal, RawOutputBuffer } from "bit-lite-terminal";
 import { getSelectedEnvKey } from "bit-lite-context";
 import type {
@@ -623,12 +631,6 @@ async function waitForRunnerExit(exitPromise: Promise<RunnerExitCode>, timeoutMs
     : { timedOut: true as const };
 }
 
-function throwCombinedErrors(errors: unknown[], message: string): void {
-  if (errors.length === 0) return;
-  if (errors.length === 1) throw errors[0];
-  throw new AggregateError(errors, message);
-}
-
 function handleVendorMessage<
   RunResult,
   EventResult extends JsonValue,
@@ -808,30 +810,4 @@ async function loadVendor(
   }
 
   return vendorModule.meta;
-}
-
-function isVendorDefinition(value: unknown): value is VendorDefinition {
-  return (
-    isRecord(value) &&
-    typeof value.id === "string" &&
-    typeof value.label === "string" &&
-    typeof value.hint === "string" &&
-    (typeof value.moduleUrl === "string" || value.moduleUrl instanceof URL)
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function formatExitCode(code: RunnerExitCode) {
-  return typeof code === "number" ? String(code) : "unknown";
-}
-
-function formatError(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isInteractiveTerminal() {
-  return process.stdin.isTTY === true && process.stdout.isTTY === true;
 }

@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { getSelectedEnvKey } from "bit-lite-context";
+import { isFileUrl, isRecord, sanitizeFileName } from "bit-lite-utils";
+import { isFile, toPosixPath } from "bit-lite-utils/node";
 import type { SelectedEnvIdentity, WorkspaceComponent } from "bit-lite-context";
 import { formatCompositionRoute, formatDocsRoute, formatOverviewRoute } from "./routes.js";
 import type { PreviewPreparedRuntime } from "./types.js";
@@ -352,14 +354,6 @@ async function resolvePreviewBrowserModule() {
   throw new PreviewPreparationError("bit-lite-preview/browser could not be resolved for generated preview entry");
 }
 
-async function isFile(filePath: string) {
-  try {
-    return (await stat(filePath)).isFile();
-  } catch {
-    return false;
-  }
-}
-
 function readRequiredSpecifier(value: unknown, selectedEnvPackageName: string, field: string) {
   if (typeof value !== "string" || value.length === 0) {
     throw new PreviewPreparationError(
@@ -381,10 +375,6 @@ function relativeImport(fromDir: string, target: string) {
 
 function stringLiteral(value: string) {
   return JSON.stringify(value);
-}
-
-function sanitizeFileName(value: string) {
-  return value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "env";
 }
 
 function readDocsTitle(source: string) {
@@ -578,35 +568,6 @@ function readScriptKind(filePath: string) {
     case ".cjs": return ts.ScriptKind.JS;
     default: return ts.ScriptKind.TS;
   }
-}
-
-function isFileUrl(value: string) {
-  try {
-    return new URL(value).protocol === "file:";
-  } catch {
-    return false;
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function toPosixPath(value: string) {
-  return value.split(path.sep).join("/");
-}
-
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (character) => {
-    switch (character) {
-      case "&": return "&amp;";
-      case "<": return "&lt;";
-      case ">": return "&gt;";
-      case '"': return "&quot;";
-      case "'": return "&#39;";
-      default: return character;
-    }
-  });
 }
 
 export class PreviewPreparationError extends Error {

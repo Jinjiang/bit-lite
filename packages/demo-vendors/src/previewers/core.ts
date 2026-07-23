@@ -1,4 +1,5 @@
 import { readPreviewPreparedRuntime, type PreviewPreparedRuntime } from "bit-lite-preview/node";
+import { formatError } from "bit-lite-utils";
 import type { JsonObject } from "bit-lite-vendors";
 
 export type PreviewVendorRuntime = PreviewPreparedRuntime;
@@ -33,9 +34,11 @@ export function createPreviewServiceResult(port: number): PreviewServiceResult {
 }
 
 export function withPreviewVendorContext(error: unknown, env: { packageName: string }, vendor: string) {
-  return new Error(`${vendor} failed for preview env "${env.packageName}": ${formatError(error)}`, { cause: error });
-}
-
-function formatError(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+  return new Error(
+    `${vendor} failed for preview env "${env.packageName}": ${formatError(
+      error,
+      "message-only"
+    )}`,
+    { cause: error }
+  );
 }

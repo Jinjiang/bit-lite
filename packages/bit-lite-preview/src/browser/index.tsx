@@ -1,5 +1,6 @@
 import { Component, createElement, type ErrorInfo, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { formatError } from "bit-lite-utils";
 import {
   formatCompositionRoute,
   formatDocsRoute,
@@ -59,7 +60,13 @@ export function startPreview(options: StartPreviewOptions): PreviewRuntimeContro
     const handled = task.catch(async (error: unknown) => {
       if (!stopped && version === requestedVersion) {
         await disposeSurface().catch(() => undefined);
-        renderReact(renderState("error", "Preview failed", formatError(error)));
+        renderReact(
+          renderState(
+            "error",
+            "Preview failed",
+            formatError(error, "stack-preferred")
+          )
+        );
       }
     });
     queue = handled;
@@ -250,7 +257,7 @@ class PreviewErrorBoundary extends Component<PreviewErrorBoundaryProps, PreviewE
   state: PreviewErrorBoundaryState = { error: undefined };
 
   static getDerivedStateFromError(error: unknown): PreviewErrorBoundaryState {
-    return { error: formatError(error) };
+    return { error: formatError(error, "stack-preferred") };
   }
 
   componentDidCatch(_error: unknown, _info: ErrorInfo) {
@@ -270,8 +277,4 @@ function renderState(kind: string, title: string, detail: string) {
     createElement("h1", undefined, title),
     createElement("p", undefined, detail)
   );
-}
-
-function formatError(error: unknown) {
-  return error instanceof Error ? error.stack ?? error.message : String(error);
 }

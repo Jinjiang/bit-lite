@@ -1,8 +1,12 @@
 import http from "node:http";
 import net from "node:net";
+import { formatError } from "bit-lite-utils";
+import { listen, sendHtml } from "bit-lite-utils/node";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import type { Duplex } from "node:stream";
+
+export { sendHtml };
 
 export type ProxyEndpoint = {
   origin: string;
@@ -145,12 +149,6 @@ export function encodeRouteSegment(value: string) {
   return encodeURIComponent(value);
 }
 
-export function sendHtml(response: ServerResponse, status: number, html: string) {
-  response.statusCode = status;
-  response.setHeader("content-type", "text/html; charset=utf-8");
-  response.end(html);
-}
-
 export function sendJson(response: ServerResponse, value: unknown, status = 200) {
   response.statusCode = status;
   response.setHeader("content-type", "application/json; charset=utf-8");
@@ -238,26 +236,6 @@ async function canListen(host: string, port: number) {
   }
 }
 
-function listen(server: http.Server | net.Server, host: string, port: number) {
-  return new Promise<void>((resolve, reject) => {
-    const cleanup = () => {
-      server.off("error", handleError);
-      server.off("listening", handleListening);
-    };
-    const handleListening = () => {
-      cleanup();
-      resolve();
-    };
-    const handleError = (error: Error) => {
-      cleanup();
-      reject(error);
-    };
-    server.once("error", handleError);
-    server.once("listening", handleListening);
-    server.listen(port, host);
-  });
-}
-
 function writeUpgradeHeaders(request: IncomingMessage, targetHost: string, socket: Duplex) {
   let wroteHost = false;
   for (let index = 0; index < request.rawHeaders.length; index += 2) {
@@ -276,8 +254,4 @@ function writeUpgradeHeaders(request: IncomingMessage, targetHost: string, socke
 
 function isAddressInUse(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && (error.code === "EADDRINUSE" || error.code === "EACCES");
-}
-
-function formatError(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
 }

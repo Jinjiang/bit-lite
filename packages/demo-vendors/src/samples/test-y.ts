@@ -4,6 +4,7 @@ import type {
   VendorStartResult,
   VendorRuntime,
 } from "bit-lite-vendors";
+import { isInteractiveTerminal } from "bit-lite-utils/node";
 import type { TestServiceResult } from "./test-result.js";
 import { wait } from "./vendor-utils.js";
 
@@ -97,8 +98,4 @@ export default async function startTestYVendor(
     finish("success");
     return data;
   }
-}
-
-function isInteractiveTerminal() {
-  return process.stdin.isTTY === true && process.stdout.isTTY === true;
 }

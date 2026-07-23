@@ -1,5 +1,6 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { installWorkerTtyShim, isTerminalResizeMessage, setTerminalSize } from "bit-lite-terminal";
+import { formatError } from "bit-lite-utils";
 import {
   isWorkerRunnerShutdownMessage,
   WORKER_RUNNER_START_RESULT_MESSAGE_TYPE,
@@ -71,7 +72,10 @@ try {
     data: runnerStartResult?.data,
   });
 } catch (error) {
-  runtime.postMessage({ type: "error", message: formatError(error) });
+  runtime.postMessage({
+    type: "error",
+    message: formatError(error, "stack-preferred"),
+  });
   console.error(error);
   process.exit(1);
 }
@@ -92,8 +96,4 @@ function shutdown() {
     }
   })();
   return shutdownPromise;
-}
-
-function formatError(error: unknown) {
-  return error instanceof Error ? error.stack ?? error.message : String(error);
 }

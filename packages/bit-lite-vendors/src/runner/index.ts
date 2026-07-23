@@ -1,5 +1,6 @@
 import { Worker } from "node:worker_threads";
 import { bindTerminalResize, readTerminalSize } from "bit-lite-terminal";
+import { formatError, formatExitCode } from "bit-lite-utils";
 import type { TerminalOutputStream, TerminalSize } from "bit-lite-terminal";
 import {
   WORKER_RUNNER_SHUTDOWN_MESSAGE_TYPE,
@@ -184,7 +185,10 @@ export function createInlineRunner<Data, ChildMessage = unknown, ParentMessage =
           if (stopPromise) await stopTarget();
           return runnerStartResult?.data;
         } catch (error) {
-          runtime.postMessage({ type: "error", message: formatError(error) } as ChildMessage);
+          runtime.postMessage({
+            type: "error",
+            message: formatError(error, "stack-preferred"),
+          } as ChildMessage);
           console.error(error);
           settleExit(1);
           return undefined;
@@ -350,12 +354,4 @@ function createWorkerEntryUrl() {
 
 function toModuleUrl(moduleUrl: URL | string) {
   return moduleUrl instanceof URL ? moduleUrl.href : moduleUrl;
-}
-
-function formatExitCode(code: RunnerExitCode) {
-  return typeof code === "number" ? String(code) : "unknown";
-}
-
-function formatError(error: unknown) {
-  return error instanceof Error ? error.stack ?? error.message : String(error);
 }

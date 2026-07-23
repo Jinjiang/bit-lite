@@ -58,6 +58,7 @@
     "@swc/core": "^1.15.43",
     "@swc/jest": "^0.2.39",
     "bit-lite-preview": "workspace:*",
+    "bit-lite-utils": "workspace:*",
     "demo-utils": "workspace:*",
     "jest-environment-jsdom": "^30.4.1",
     "vite": "^8.1.2"

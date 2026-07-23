@@ -6,6 +6,8 @@ import { pathToFileURL } from "node:url";
 import webpack from "webpack";
 import webpackDevMiddleware from "webpack-dev-middleware";
 import webpackHotMiddleware from "webpack-hot-middleware";
+import { isPortUnavailableError, isRecord, sanitizeFileName } from "bit-lite-utils";
+import { listen, sendHtml } from "bit-lite-utils/node";
 import type { Server } from "node:http";
 import type { JsonObject, VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
 import type { Configuration, Stats } from "webpack";
@@ -224,26 +226,6 @@ function waitUntilValid(middleware: WebpackPreviewMiddleware) {
   });
 }
 
-function listen(server: Server, host: string, port: number) {
-  return new Promise<void>((resolve, reject) => {
-    const cleanup = () => {
-      server.off("error", handleError);
-      server.off("listening", handleListening);
-    };
-    const handleListening = () => {
-      cleanup();
-      resolve();
-    };
-    const handleError = (error: Error) => {
-      cleanup();
-      reject(error);
-    };
-    server.once("error", handleError);
-    server.once("listening", handleListening);
-    server.listen(port, host);
-  });
-}
-
 async function listenOnPreviewPort(
   server: Server,
   host: string,
@@ -254,7 +236,7 @@ async function listenOnPreviewPort(
     await listen(server, host, preferredPort);
     return readServerPort(server);
   } catch (error) {
-    if (!isPortUnavailableError(error)) throw error;
+    if (!isPortUnavailableError(error, "code-only")) throw error;
   }
 
   for (let port = fallbackStartPort; port <= 65535; port += 1) {
@@ -262,7 +244,7 @@ async function listenOnPreviewPort(
       await listen(server, host, port);
       return readServerPort(server);
     } catch (error) {
-      if (!isPortUnavailableError(error)) throw error;
+      if (!isPortUnavailableError(error, "code-only")) throw error;
     }
   }
   throw new Error(`No available preview port found at or after ${fallbackStartPort}`);
@@ -274,10 +256,6 @@ function readServerPort(server: Server) {
     throw new Error("Webpack preview server did not expose its actual bound port");
   }
   return address.port;
-}
-
-function isPortUnavailableError(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "EADDRINUSE";
 }
 
 function closeMiddleware(middleware: WebpackPreviewMiddleware | undefined) {
@@ -299,20 +277,6 @@ function closeServer(server: Server | undefined) {
       else resolve();
     });
   });
-}
-
-function sendHtml(response: http.ServerResponse, statusCode: number, html: string) {
-  response.statusCode = statusCode;
-  response.setHeader("content-type", "text/html; charset=utf-8");
-  response.end(html);
-}
-
-function sanitizeFileName(value: string) {
-  return value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "env";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isServerNotRunningError(error: Error | undefined) {

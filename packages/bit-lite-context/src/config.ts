@@ -1,5 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { isRecord, readPackageName } from "bit-lite-utils";
+import { isNodeErrorCode } from "bit-lite-utils/node";
 import { BitLiteError } from "./utils/errors.js";
 import type { PackageRef, WorkspaceComponentConfig, WorkspaceConfig } from "./types/index.js";
 
@@ -57,7 +59,10 @@ export function validateConfig(value: unknown): WorkspaceConfig {
     const component: WorkspaceComponentConfig = {
       path: readRequiredString(entry.path, `component entry at index ${index} field "path"`),
       id: readRequiredString(entry.id, `component entry at index ${index} field "id"`),
-      packageName: readPackageName(entry.packageName, `component entry at index ${index} field "packageName"`),
+      packageName: readConfigPackageName(
+        entry.packageName,
+        `component entry at index ${index} field "packageName"`
+      ),
       env: readPackageRef(entry.env, `component entry at index ${index} env`),
     };
     assertComponentId(component.id);
@@ -88,7 +93,10 @@ export function validateConfig(value: unknown): WorkspaceConfig {
 
 export function readPackageRef(value: unknown, label: string): PackageRef {
   if (!isRecord(value)) throw new BitLiteError(`${label} must be an object`);
-  const packageName = readPackageName(value.packageName, `${label}.packageName`);
+  const packageName = readConfigPackageName(
+    value.packageName,
+    `${label}.packageName`
+  );
   const version = readRequiredString(value.version, `${label}.version`);
   if (/\s/.test(version)) throw new BitLiteError(`${label}.version must be a supported package version specifier`);
   return { packageName, version };
@@ -116,14 +124,17 @@ function rejectLegacyFields(value: Record<string, unknown>) {
   }
 }
 
-function readPackageName(value: unknown, label: string) {
-  const name = readRequiredString(value, label);
-  try {
-    assertPackageName(name);
-  } catch {
-    throw new BitLiteError(`${label} must be a valid npm package name`);
-  }
-  return name;
+function readConfigPackageName(value: unknown, label: string) {
+  return readPackageName(value, {
+    invalidTypeReason: "required-string",
+    pattern: packageNamePattern,
+    createError: (reason) =>
+      new BitLiteError(
+        reason === "required-string"
+          ? `${label} must be a non-empty string`
+          : `${label} must be a valid npm package name`
+      ),
+  });
 }
 
 function assertPackageScope(scope: string) {
@@ -144,12 +155,4 @@ function readRequiredString(value: unknown, label: string) {
     throw new BitLiteError(`${label} must be a non-empty string`);
   }
   return value;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isNodeErrorCode(error: unknown, code: string) {
-  return error instanceof Error && "code" in error && error.code === code;
 }

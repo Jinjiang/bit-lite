@@ -1,7 +1,6 @@
-import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
+import { collectFiles, toPosixPath } from "bit-lite-utils/node";
 import type { WorkspaceComponent } from "./types/index.js";
-import { toPosixPath } from "./utils/path-utils.js";
 import { matchPattern } from "./utils/patterns.js";
 
 const ignoredDirs = new Set([".git", "dist", "node_modules"]);
@@ -17,8 +16,11 @@ export async function findComponentFiles(
 ) {
   if (patterns.length === 0) return [];
 
-  const files: string[] = [];
-  await collectFiles(component.rootDir, files);
+  const files = await collectFiles(component.rootDir, {
+    ignoredDirectories: ignoredDirs,
+    missingDirectory: "ignore",
+    traversal: "parallel",
+  });
 
   return files
     .filter((file) => {
@@ -40,27 +42,4 @@ export async function findComponentFileTargets(
     });
   }
   return targets;
-}
-
-async function collectFiles(dir: string, files: string[]): Promise<void> {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-
-  await Promise.all(
-    entries.map(async (entry) => {
-      const absolutePath = path.join(dir, entry.name);
-      if (entry.isFile()) {
-        files.push(absolutePath);
-        return;
-      }
-
-      if (!entry.isDirectory() || ignoredDirs.has(entry.name)) return;
-      const stat = await lstat(absolutePath);
-      if (!stat.isSymbolicLink()) await collectFiles(absolutePath, files);
-    })
-  );
 }

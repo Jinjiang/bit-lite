@@ -1,6 +1,16 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  createComponentFileMap,
+  formatError,
+  isRecord,
+} from "bit-lite-utils";
+import {
+  isInteractiveTerminal,
+  normalizeFilePath,
+  toPosixPath,
+} from "bit-lite-utils/node";
 import type { JsonObject, VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
 import { readTestVendorConfig } from "../config.js";
 import { findComponentTestTargets } from "../files.js";
@@ -10,7 +20,6 @@ import {
   createEmptyComponentResults,
   createTestServiceResult,
   finishComponentResults,
-  formatError,
   type MutableComponentResult,
   type TestServiceResult,
 } from "../result.js";
@@ -74,7 +83,10 @@ export default async function startJestVendor(
   if (watch) {
     runtime.postMessage({ type: "status", status: "watching" });
     void runWatch().catch((error) => {
-      runtime.postMessage({ type: "error", message: formatError(error) });
+      runtime.postMessage({
+        type: "error",
+        message: formatError(error, "object-message-aware"),
+      });
       finish("error");
     });
     return {
@@ -241,7 +253,11 @@ function applyJestResults(
   componentResults: MutableComponentResult[],
   jestResult: JestAggregatedResult | undefined
 ) {
-  const componentByFile = createComponentFileMap(targets, componentResults);
+  const componentByFile = createComponentFileMap(
+    targets,
+    componentResults,
+    normalizeFilePath
+  );
 
   for (const testResult of jestResult?.testResults ?? []) {
     const result = componentByFile.get(normalizeFilePath(testResult.testFilePath));
@@ -270,7 +286,9 @@ function applyJestTestResult(result: MutableComponentResult, testResult: JestTes
 
   if (testResult.failureMessage) result.errors.push(testResult.failureMessage);
   if (testResult.testExecError !== undefined) {
-    result.errors.push(formatError(testResult.testExecError));
+    result.errors.push(
+      formatError(testResult.testExecError, "object-message-aware")
+    );
     if (failed === 0) {
       result.stats.failed += 1;
       result.stats.total += 1;
@@ -282,39 +300,10 @@ function applyJestTestResult(result: MutableComponentResult, testResult: JestTes
     Math.max(0, (testResult.perfStats?.end ?? 0) - (testResult.perfStats?.start ?? 0));
 }
 
-function createComponentFileMap(
-  targets: readonly { files: string[] }[],
-  componentResults: MutableComponentResult[]
-) {
-  const componentByFile = new Map<string, MutableComponentResult>();
-  targets.forEach((target, index) => {
-    const result = componentResults[index];
-    if (result === undefined) return;
-    for (const file of target.files) componentByFile.set(normalizeFilePath(file), result);
-  });
-  return componentByFile;
-}
-
-function normalizeFilePath(filePath: string) {
-  return path.resolve(filePath);
-}
-
-function toPosixPath(filePath: string) {
-  return filePath.split(path.sep).join("/");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 async function safeRealpath(filePath: string) {
   try {
     return await realpath(filePath);
   } catch {
     return filePath;
   }
-}
-
-function isInteractiveTerminal() {
-  return process.stdin.isTTY === true && process.stdout.isTTY === true;
 }

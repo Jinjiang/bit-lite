@@ -1,5 +1,6 @@
-import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { collectFiles, replaceExtension, toPosixPath } from "bit-lite-utils/node";
 import type {
   CompileVendorInput,
   CompileVendorRuntime,
@@ -20,6 +21,7 @@ const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"])
 const staticAssetExtensions = new Set([".vue", ".css", ".scss", ".sass", ".less", ".json"]);
 const ignoredSourceNameFragments = [".test.", ".spec."];
 const ignoredSourceNames = new Set([".comp.json", "preview.ts", "preview.tsx", "lint-demo.ts"]);
+const ignoredDirectories = new Set(["node_modules", "dist", ".git"]);
 
 export const meta: VendorDefinition = {
   id: "typescript-compiler",
@@ -147,23 +149,11 @@ async function ensureEntryDeclaration(input: TypeScriptCompileRuntime) {
 }
 
 async function findComponentSourceFiles(componentRootDir: string) {
-  const results: string[] = [];
-  await collectFiles(componentRootDir, results);
-  return results.sort((left, right) => left.localeCompare(right));
-}
-
-async function collectFiles(dir: string, results: string[]) {
-  const entries = await readdir(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const entryPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === "dist" || entry.name === ".git") continue;
-      await collectFiles(entryPath, results);
-      continue;
-    }
-
-    if (entry.isFile() && shouldCompileFile(entry.name)) results.push(entryPath);
-  }
+  return collectFiles(componentRootDir, {
+    ignoredDirectories,
+    includeFile: shouldCompileFile,
+    order: "sorted",
+  });
 }
 
 function shouldCompileFile(fileName: string) {
@@ -178,21 +168,10 @@ function extensionToJavaScriptExtension(extension: string) {
   return ".js";
 }
 
-function replaceExtension(filePath: string, extension: string) {
-  return path.join(
-    path.dirname(filePath),
-    `${path.basename(filePath, path.extname(filePath))}${extension}`
-  );
-}
-
 function stripKnownExtension(filePath: string) {
   return toPosixPath(filePath).replace(/\.(tsx?|jsx?|mjs|cjs|vue)$/, "");
 }
 
 function hasDefaultExport(source: string) {
   return /\bexport\s+default\b/.test(source) || /\bexport\s*\{\s*default\b/.test(source);
-}
-
-function toPosixPath(value: string) {
-  return value.split(path.sep).join("/");
 }

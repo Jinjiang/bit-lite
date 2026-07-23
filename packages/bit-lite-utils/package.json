@@ -1,5 +1,5 @@
 {
-  "name": "bit-lite-vendors",
+  "name": "bit-lite-utils",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,25 +10,15 @@
       "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
-    "./runner": {
-      "types": "./src/runner/index.ts",
-      "default": "./dist/runner/index.js"
-    },
-    "./vendor-task": {
-      "types": "./src/vendor-task.ts",
-      "default": "./dist/vendor-task.js"
+    "./node": {
+      "types": "./src/node.ts",
+      "default": "./dist/node.js"
     }
   },
   "scripts": {
     "test": "vitest run",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
-  },
-  "dependencies": {
-    "bit-lite-context": "workspace:*",
-    "bit-lite-env": "workspace:*",
-    "bit-lite-terminal": "workspace:*",
-    "bit-lite-utils": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

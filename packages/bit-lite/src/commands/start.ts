@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
 import { getSelectedEnvKey } from "bit-lite-context";
 import { ProxyServer, sendHtml, sendJson, sendText } from "bit-lite-proxy";
+import {
+  formatError,
+  readHost,
+  readPort,
+  throwCombinedErrors,
+} from "bit-lite-utils";
 import { superviseVendorTasks } from "bit-lite-vendors";
-import type { CliOptionValue, ParsedCliArgs, SelectedEnvIdentity } from "bit-lite-context";
+import type { ParsedCliArgs, SelectedEnvIdentity } from "bit-lite-context";
 import type { ProxyEndpoint, ProxyRoute } from "bit-lite-proxy";
 import type { PreviewProxyComponent, PreviewProxyManifest } from "bit-lite-preview/node";
 import type { VendorTask } from "bit-lite-vendors";
@@ -79,8 +85,16 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
     return;
   }
 
-  const host = readHost(parsed.args.options.host);
-  const port = readPort(parsed.args.options.port, "--port", defaultPort);
+  const host = readHost(parsed.args.options.host, {
+    fallback: defaultHost,
+    createError: () => new BitLiteError("--host requires a host name"),
+  });
+  const port = readPort(parsed.args.options.port, {
+    fallback: defaultPort,
+    acceptNumericString: true,
+    createError: () =>
+      new BitLiteError("--port requires a port number between 1 and 65535"),
+  });
   const activationMode = readPreviewLazy(parsed.args.options.lazy) ? "lazy" : "eager";
   const proxyServer = new ProxyServer();
   const sourceCatalog = createStartSourceCatalog(selection.components);
@@ -118,7 +132,11 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
           failures.push(error);
         }
       }
-      throwCombinedErrors(failures, "Failed to dispose bit-lite start");
+      throwCombinedErrors(
+        failures,
+        "Failed to dispose bit-lite start",
+        "deduplicate"
+      );
     })();
     return disposePromise;
   };
@@ -165,14 +183,11 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
   } catch (error) {
     if (!failures.includes(error)) failures.push(error);
   }
-  throwCombinedErrors(failures, "bit-lite start failed and cleanup also failed");
-}
-
-function throwCombinedErrors(errors: unknown[], message: string): void {
-  const uniqueErrors = [...new Set(errors)];
-  if (uniqueErrors.length === 0) return;
-  if (uniqueErrors.length === 1) throw uniqueErrors[0];
-  throw new AggregateError(uniqueErrors, message);
+  throwCombinedErrors(
+    failures,
+    "bit-lite start failed and cleanup also failed",
+    "deduplicate"
+  );
 }
 
 export function createStartManifest(
@@ -318,23 +333,4 @@ function printNoStartTasks(
   console.log(
     "Make sure selected components define services.compile or their envs define services.preview or services.test."
   );
-}
-
-function readHost(value: CliOptionValue | undefined) {
-  if (value === undefined) return defaultHost;
-  if (typeof value !== "string" || value.length === 0) throw new BitLiteError("--host requires a host name");
-  return value;
-}
-
-function readPort(value: CliOptionValue | undefined, optionName: string, fallback: number) {
-  if (value === undefined) return fallback;
-  const port = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new BitLiteError(`${optionName} requires a port number between 1 and 65535`);
-  }
-  return port;
-}
-
-function formatError(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
 }

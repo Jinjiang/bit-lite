@@ -1,3 +1,4 @@
+import { isRecord, readPackageName } from "bit-lite-utils";
 import { supportedEnvServiceNames } from "./types/index.js";
 import type {
   CompiledEnvDefinition,
@@ -12,8 +13,6 @@ import type {
   TestServiceConfig,
 } from "./types/index.js";
 import { compiledEnvFormatVersion } from "./types/index.js";
-
-const packageNamePattern = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 
 export class BitLiteEnvConfigError extends Error {
   constructor(message: string) {
@@ -30,7 +29,7 @@ export function validateEnvDefinition(value: unknown, expectedPackageName?: stri
   if (!isRecord(value)) throw new BitLiteEnvConfigError("env definition must be an object");
   rejectUnknownFields(value, ["name", "extends", "services", "config"], "env definition");
 
-  const name = readPackageName(value.name, 'env definition field "name"');
+  const name = readEnvPackageName(value.name, 'env definition field "name"');
   if (expectedPackageName !== undefined && name !== expectedPackageName) {
     throw new BitLiteEnvConfigError(
       `env definition name mismatch: expected "${expectedPackageName}" but received "${name}"`
@@ -39,7 +38,7 @@ export function validateEnvDefinition(value: unknown, expectedPackageName?: stri
 
   const parent = value.extends === undefined
     ? undefined
-    : readPackageName(value.extends, 'env definition field "extends"');
+    : readEnvPackageName(value.extends, 'env definition field "extends"');
   if (value.services === undefined) {
     throw new BitLiteEnvConfigError('env definition field "services" must be an object');
   }
@@ -76,7 +75,7 @@ export function validateCompiledEnvDefinition(
       `compiled env format version must be ${compiledEnvFormatVersion}; received ${String(value.formatVersion)}`
     );
   }
-  const name = readPackageName(value.name, 'compiled env definition field "name"');
+  const name = readEnvPackageName(value.name, 'compiled env definition field "name"');
   if (expectedPackageName !== undefined && name !== expectedPackageName) {
     throw new BitLiteEnvConfigError(
       `env definition name mismatch: expected "${expectedPackageName}" but received "${name}"`
@@ -223,16 +222,18 @@ function validateJsonValue(value: unknown, label: string, stack: Set<object>): a
   stack.delete(value);
 }
 
-function readPackageName(value: unknown, label: string) {
-  if (typeof value !== "string" || !packageNamePattern.test(value) || value.length > 214) {
-    throw new BitLiteEnvConfigError(`${label} must be a valid npm package name`);
-  }
-  return value;
+function readEnvPackageName(value: unknown, label: string) {
+  return readPackageName(value, {
+    createError: () =>
+      new BitLiteEnvConfigError(`${label} must be a valid npm package name`),
+  });
 }
 
 function readPackageNameArray(value: unknown, label: string) {
   if (!Array.isArray(value)) throw new BitLiteEnvConfigError(`${label} must be an array`);
-  return value.map((item, index) => readPackageName(item, `${label}[${index}]`));
+  return value.map((item, index) =>
+    readEnvPackageName(item, `${label}[${index}]`)
+  );
 }
 
 function validateCompiledServiceOrigin(
@@ -288,8 +289,4 @@ function rejectUnknownFields(value: Record<string, unknown>, allowed: string[], 
   for (const field of Object.keys(value)) {
     if (!allowedSet.has(field)) throw new BitLiteEnvConfigError(`${label} field "${field}" is not supported`);
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

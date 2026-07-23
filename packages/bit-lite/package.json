@@ -25,6 +25,7 @@
     "bit-lite-env": "workspace:*",
     "bit-lite-preview": "workspace:*",
     "bit-lite-proxy": "workspace:*",
+    "bit-lite-utils": "workspace:*",
     "bit-lite-vendors": "workspace:*"
   },
   "devDependencies": {

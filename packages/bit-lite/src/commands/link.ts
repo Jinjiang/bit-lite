@@ -1,10 +1,12 @@
-import { access, lstat, mkdir, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   isWorkspaceProtocolSpec,
   orderWorkspaceComponents,
   readWorkspace,
 } from "bit-lite-context";
+import { isRecord, sortStringRecord } from "bit-lite-utils";
+import { isNodeErrorCode, readJsonFile } from "bit-lite-utils/node";
 import type {
   PackageRef,
   ParsedCliArgs,
@@ -15,6 +17,7 @@ import { BitLiteError } from "../utils/errors.js";
 
 export type { PackageRef, Workspace, WorkspaceComponent } from "bit-lite-context";
 export { isWorkspaceProtocolSpec, orderWorkspaceComponents, readWorkspace };
+export { sortStringRecord };
 
 export async function runLinkCommand(parsed: ParsedCliArgs) {
   const workspace = await readWorkspace(parsed.workspaceRoot);
@@ -40,10 +43,6 @@ export function getPackageDirectory(workspaceRoot: string, packageName: string) 
 
 export function getComponentDependencyDirectory(workspaceRoot: string, packageName: string) {
   return path.join(workspaceRoot, ".bit-lite", "deps", "components", ...packageName.split("/"));
-}
-
-export function sortStringRecord(record: Record<string, string>) {
-  return Object.fromEntries(Object.entries(record).sort(([left], [right]) => left.localeCompare(right)));
 }
 
 export async function writeJsonFile(filePath: string, value: unknown) {
@@ -105,7 +104,14 @@ async function preparePackageDirectory(packageDir: string, component: WorkspaceC
 
   const existingManifestPath = path.join(packageDir, "package.json");
   try {
-    const existingManifest = await readJsonFile(existingManifestPath, `failed parsing ${existingManifestPath}`);
+    const existingManifest = await readJsonFile(existingManifestPath, {
+      mapParseError: (error) =>
+        new BitLiteError(
+          `failed parsing ${existingManifestPath}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        ),
+    });
     if (isRecord(existingManifest) && typeof existingManifest.name === "string" && existingManifest.name !== component.packageName) {
       throw new BitLiteError(
         `cannot link ${component.packageName}: ${packageDir} already belongs to ${existingManifest.name}`
@@ -193,22 +199,4 @@ async function removeManagedDependencyLink(destination: string, source: string) 
 async function symlinkPointsTo(linkPath: string, expectedTarget: string) {
   const target = await readlink(linkPath);
   return path.resolve(path.dirname(linkPath), target) === path.resolve(expectedTarget);
-}
-
-async function readJsonFile(filePath: string, errorPrefix: string): Promise<unknown> {
-  const raw = await readFile(filePath, "utf8");
-  try {
-    return JSON.parse(raw);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new BitLiteError(`${errorPrefix}: ${message}`);
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isNodeErrorCode(error: unknown, code: string) {
-  return error instanceof Error && "code" in error && error.code === code;
 }

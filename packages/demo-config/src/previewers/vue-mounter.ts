@@ -1,4 +1,5 @@
 import { createApp, h, type Component } from "vue";
+import { isRecord } from "bit-lite-utils";
 
 type PreviewMounterContext = {
   componentId: string;
@@ -28,8 +29,4 @@ function readVueComposition(composition: unknown): { component: Component; props
     };
   }
   return { component: composition as Component, props: {} };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

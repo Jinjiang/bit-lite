@@ -1,5 +1,10 @@
 import path from "node:path";
 import type { Reporter, TestModule, TestRunResult, Vitest } from "vitest/node";
+import { createComponentFileMap, formatError } from "bit-lite-utils";
+import {
+  isInteractiveTerminal,
+  normalizeFilePath,
+} from "bit-lite-utils/node";
 import type { JsonObject, VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
 import { readTestVendorConfig } from "../config.js";
 import { findComponentTestTargets } from "../files.js";
@@ -8,7 +13,6 @@ import {
   createEmptyComponentResults,
   createTestServiceResult,
   finishComponentResults,
-  formatError,
   type MutableComponentResult,
   type TestServiceResult,
 } from "../result.js";
@@ -42,7 +46,10 @@ export default async function startVitestVendor(
   if (watch) {
     runtime.postMessage({ type: "status", status: "watching" });
     void runWatch().catch((error) => {
-      runtime.postMessage({ type: "error", message: formatError(error) });
+      runtime.postMessage({
+        type: "error",
+        message: formatError(error, "object-message-aware"),
+      });
       finish("error");
     });
     return {
@@ -185,7 +192,11 @@ function applyVitestResults(
   componentResults: MutableComponentResult[],
   testRun: TestRunResult | undefined
 ) {
-  const componentByFile = createComponentFileMap(targets, componentResults);
+  const componentByFile = createComponentFileMap(
+    targets,
+    componentResults,
+    normalizeFilePath
+  );
 
   for (const module of testRun?.testModules ?? []) {
     const result = componentByFile.get(normalizeFilePath(module.moduleId));
@@ -207,7 +218,11 @@ function applyVitestModuleResult(result: MutableComponentResult, module: TestMod
     if (state === "passed") result.stats.passed += 1;
     else if (state === "failed") {
       result.stats.failed += 1;
-      result.errors.push(...(test.result().errors ?? []).map(formatError));
+      result.errors.push(
+        ...(test.result().errors ?? []).map((error) =>
+          formatError(error, "object-message-aware")
+        )
+      );
     } else {
       result.stats.skipped += 1;
     }
@@ -215,7 +230,11 @@ function applyVitestModuleResult(result: MutableComponentResult, module: TestMod
 
   const moduleErrors = module.errors();
   if (moduleErrors.length > 0) {
-    result.errors.push(...moduleErrors.map(formatError));
+    result.errors.push(
+      ...moduleErrors.map((error) =>
+        formatError(error, "object-message-aware")
+      )
+    );
     if (tests.length === 0) {
       result.stats.total += moduleErrors.length;
       result.stats.failed += moduleErrors.length;
@@ -223,25 +242,4 @@ function applyVitestModuleResult(result: MutableComponentResult, module: TestMod
   }
 
   result.durationMs += module.diagnostic().duration;
-}
-
-function createComponentFileMap(
-  targets: readonly { files: string[] }[],
-  componentResults: MutableComponentResult[]
-) {
-  const componentByFile = new Map<string, MutableComponentResult>();
-  targets.forEach((target, index) => {
-    const result = componentResults[index];
-    if (result === undefined) return;
-    for (const file of target.files) componentByFile.set(normalizeFilePath(file), result);
-  });
-  return componentByFile;
-}
-
-function normalizeFilePath(filePath: string) {
-  return path.resolve(filePath);
-}
-
-function isInteractiveTerminal() {
-  return process.stdin.isTTY === true && process.stdout.isTTY === true;
 }

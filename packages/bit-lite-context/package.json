@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "bit-lite-env": "workspace:*",
+    "bit-lite-utils": "workspace:*",
     "yargs-parser": "^22.0.0"
   }
 }

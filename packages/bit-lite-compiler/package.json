@@ -12,14 +12,17 @@
     }
   },
   "scripts": {
+    "test": "vitest run",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "bit-lite-utils": "workspace:*",
     "bit-lite-vendors": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
   }
 }

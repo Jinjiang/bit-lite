@@ -81,6 +81,7 @@
     "bit-lite-context": "workspace:*",
     "bit-lite-env": "workspace:*",
     "bit-lite-preview": "workspace:*",
+    "bit-lite-utils": "workspace:*",
     "bit-lite-vendors": "workspace:*",
     "chokidar": "^5.0.0",
     "jest": "^30.4.2",

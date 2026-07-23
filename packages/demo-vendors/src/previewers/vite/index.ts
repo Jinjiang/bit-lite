@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createServer, type Plugin, type ViteDevServer } from "vite";
+import { isPortUnavailableError, sanitizeFileName } from "bit-lite-utils";
+import { toPosixPath } from "bit-lite-utils/node";
 import type { JsonObject, VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
 import {
   createPreviewServiceResult,
@@ -68,14 +70,14 @@ async function startVitePreviewServer(
   try {
     return await startOnPort(runtime.server.preferredPort);
   } catch (error) {
-    if (!isPortUnavailableError(error)) throw error;
+    if (!isPortUnavailableError(error, "recursive")) throw error;
   }
 
   for (let port = runtime.server.fallbackStartPort; port <= 65535; port += 1) {
     try {
       return await startOnPort(port);
     } catch (error) {
-      if (!isPortUnavailableError(error)) throw error;
+      if (!isPortUnavailableError(error, "recursive")) throw error;
     }
   }
   throw new Error(`No available preview port found at or after ${runtime.server.fallbackStartPort}`);
@@ -116,13 +118,6 @@ function readViteServerPort(server: ViteDevServer) {
     throw new Error("Vite preview server did not expose its actual bound port");
   }
   return address.port;
-}
-
-function isPortUnavailableError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  if ("code" in error && error.code === "EADDRINUSE") return true;
-  if (/port \d+ is already in use/i.test(error.message)) return true;
-  return "cause" in error && isPortUnavailableError(error.cause);
 }
 
 export function createViteWorkspaceAliases(runtime: PreviewVendorRuntime) {
@@ -201,12 +196,4 @@ function createHmrOptions(runtime: PreviewVendorRuntime) {
     clientPort: proxy.port ? Number(proxy.port) : proxy.protocol === "https:" ? 443 : 80,
     protocol: proxy.protocol === "https:" ? ("wss" as const) : ("ws" as const),
   };
-}
-
-function toPosixPath(value: string) {
-  return value.split(path.sep).join("/");
-}
-
-function sanitizeFileName(value: string) {
-  return value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "env";
 }

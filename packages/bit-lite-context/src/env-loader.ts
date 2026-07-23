@@ -7,6 +7,13 @@ import {
   validateCompiledEnvDefinition,
   validateEnvDefinition,
 } from "bit-lite-env";
+import {
+  isFileUrl,
+  isRecord,
+  readDefaultExport,
+  readStringRecord,
+} from "bit-lite-utils";
+import { isFile, isNodeErrorCode } from "bit-lite-utils/node";
 import type {
   CompiledEnvDefinition,
   EnvDefinition,
@@ -425,7 +432,12 @@ async function resolvePackageFromContext(packageName: string, contextDir: string
 
 async function resolvePackageFromDirectory(packageDir: string, packageName: string) {
   const raw = await readPackageJson(path.join(packageDir, "package.json"));
-  const entry = readDefaultExport(raw, packageName);
+  const entry = readDefaultExport(raw, {
+    createMissingExportError: () =>
+      new BitLiteError(
+        `env package "${packageName}" does not define a default package export`
+      ),
+  });
   return resolvePackageFromEntry(path.resolve(packageDir, entry), packageName);
 }
 
@@ -459,22 +471,6 @@ async function readPackageJson(manifestPath: string): Promise<Record<string, unk
   return raw;
 }
 
-function readDefaultExport(manifest: Record<string, unknown>, packageName: string) {
-  const exports = manifest.exports;
-  if (typeof exports === "string") return exports;
-  if (isRecord(exports)) {
-    const root = exports["."];
-    if (typeof root === "string") return root;
-    if (isRecord(root)) {
-      for (const condition of ["default", "import", "require"]) {
-        if (typeof root[condition] === "string") return root[condition];
-      }
-    }
-  }
-  if (typeof manifest.main === "string") return manifest.main;
-  throw new BitLiteError(`env package "${packageName}" does not define a default package export`);
-}
-
 function normalizeManifest(raw: Record<string, unknown>, manifestPath: string): PackageManifest {
   if (typeof raw.name !== "string" || typeof raw.version !== "string") {
     throw new BitLiteError(`package manifest must define name and version: ${manifestPath}`);
@@ -486,11 +482,6 @@ function normalizeManifest(raw: Record<string, unknown>, manifestPath: string): 
     devDependencies: readStringRecord(raw.devDependencies),
     bitLiteGenerated: isRecord(raw.bitLite) && raw.bitLite.generated === true,
   };
-}
-
-function readStringRecord(value: unknown) {
-  if (!isRecord(value)) return {};
-  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }
 
 function satisfiesVersion(installed: string, requested: string) {
@@ -545,34 +536,10 @@ async function resolveFileCandidate(candidate: string) {
   return undefined;
 }
 
-async function isFile(filePath: string) {
-  try {
-    return (await stat(filePath)).isFile();
-  } catch {
-    return false;
-  }
-}
-
 async function isDirectoryOrSymlink(filePath: string) {
   try {
     return (await stat(filePath)).isDirectory();
   } catch {
     return false;
   }
-}
-
-function isFileUrl(value: string) {
-  try {
-    return new URL(value).protocol === "file:";
-  } catch {
-    return false;
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isNodeErrorCode(error: unknown, code: string) {
-  return error instanceof Error && "code" in error && error.code === code;
 }

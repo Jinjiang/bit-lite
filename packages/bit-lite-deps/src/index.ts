@@ -5,6 +5,8 @@ import { mutateModules, type InstallOptions, type MutatedProject, type ProjectOp
 import { createOrConnectStoreController } from "@pnpm/store-connection-manager";
 import type { ProjectManifest, ProjectRootDir } from "@pnpm/types";
 import { finishWorkers, restartWorkerPool } from "@pnpm/worker";
+import { isRecord } from "bit-lite-utils";
+import { isNodeErrorCode } from "bit-lite-utils/node";
 import fg from "fast-glob";
 import { parse as parseYaml } from "yaml";
 
@@ -154,12 +156,4 @@ async function findWorkspaceRoot(startDir: string) {
     if (parent === current) return undefined;
     current = parent;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isNodeErrorCode(error: unknown, code: string) {
-  return error instanceof Error && "code" in error && error.code === code;
 }

@@ -1,3 +1,4 @@
+import { isRecord } from "bit-lite-utils";
 import type { PackageRef, SelectedEnvIdentity } from "./types/index.js";
 
 export function getSelectedEnvKey(
@@ -21,10 +22,6 @@ export function isSelectedEnvIdentity(value: unknown): value is SelectedEnvIdent
     isNonEmptyString(value.packageName) &&
     isNonEmptyString(value.requestedVersion) &&
     isNonEmptyString(value.installedVersion);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isNonEmptyString(value: unknown): value is string {
