@@ -35,9 +35,6 @@ export async function startCompilerWatch(
     ignored: (watchedPath) => isIgnoredPath(watchedPath, component.rootDir),
   });
 
-  const unsubscribe = runtime.onMessage((message) => {
-    if (isShutdownMessage(message)) void stop();
-  });
   watcher.on("all", () => queueCompile());
   watcher.on("error", (error) => {
     const diagnostic = formatError(error);
@@ -98,7 +95,6 @@ export async function startCompilerWatch(
       queued = false;
       await watcher.close();
       await running?.catch(() => undefined);
-      unsubscribe();
       runtime.postMessage({ type: "status", status: "stopped" });
     })();
     return stopping;
@@ -110,10 +106,6 @@ function isIgnoredPath(watchedPath: string, rootDir: string) {
   return relative.split("/").some((segment) =>
     segment === "node_modules" || segment === "dist" || segment === ".git" || segment === ".bit-lite"
   );
-}
-
-function isShutdownMessage(value: unknown) {
-  return typeof value === "object" && value !== null && (value as { type?: unknown }).type === "shutdown";
 }
 
 function formatError(error: unknown) {

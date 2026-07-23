@@ -142,6 +142,13 @@ provided. `start --lazy` applies only to preview; every configured test watch
 task still starts eagerly and shares the same fixed task array, terminal,
 proxy, and coordinated shutdown path.
 
+Resident compile, test, preview, and start sessions terminate only for Ctrl+C,
+SIGINT, or SIGTERM. Pressing `q` in the parent task menu does not stop the
+session. The root session restores terminal state first, then awaits one cached
+aggregate disposer. Each contribution owns stopping its logical tasks and
+releasing prepared files, listeners, state, and other auxiliary resources; a
+cleanup failure does not skip later owned cleanup.
+
 The first lazy version does not defer discovery or generated-file preparation,
 make tests lazy, evict active servers, retry failed activation, cap active
 servers, or combine multiple envs in one dev server. Omit `--lazy` to retain the

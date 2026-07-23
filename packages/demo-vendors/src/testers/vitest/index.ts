@@ -13,7 +13,6 @@ import {
   type MutableComponentResult,
   type TestServiceResult,
 } from "../result.js";
-import { isShutdownMessage } from "../vendor-utils.js";
 
 export const meta: VendorDefinition = {
   id: "vitest",
@@ -39,12 +38,6 @@ export default async function startVitestVendor(
     runtime.postMessage({ type: "status", status });
   };
 
-  const unsubscribe = runtime.onMessage(async (message) => {
-    if (isShutdownMessage(message)) {
-      await stopVitest();
-    }
-  });
-
   runtime.postMessage({ type: "ready" });
 
   if (watch) {
@@ -60,7 +53,6 @@ export default async function startVitestVendor(
 
   const data = await runSnapshot();
   finish(data.stats.failed > 0 ? "failed" : "success");
-  unsubscribe();
   return { data };
 
   async function runSnapshot(): Promise<TestServiceResult> {
@@ -181,7 +173,6 @@ export default async function startVitestVendor(
       activeVitest = undefined;
       await vitest?.close();
       finish("stopped");
-      unsubscribe();
     })();
 
     return stoppingVitest;

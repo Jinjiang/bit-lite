@@ -1,7 +1,10 @@
 import { Worker } from "node:worker_threads";
 import { bindTerminalResize, readTerminalSize } from "bit-lite-terminal";
 import type { TerminalOutputStream, TerminalSize } from "bit-lite-terminal";
-import { WORKER_RUNNER_START_RESULT_MESSAGE_TYPE } from "./worker-protocol.js";
+import {
+  WORKER_RUNNER_SHUTDOWN_MESSAGE_TYPE,
+  WORKER_RUNNER_START_RESULT_MESSAGE_TYPE,
+} from "./worker-protocol.js";
 
 export type RunnerMode = "worker" | "inline";
 
@@ -13,16 +16,12 @@ export type RunnerOutputStream = TerminalOutputStream;
 
 export type Unsubscribe = () => void;
 
-export type RunnerShutdownMessage = {
-  type: "shutdown";
-};
-
-export type RunnerParentMessage<Message = never> = Message | RunnerShutdownMessage;
+export type RunnerParentMessage<Message = never> = Message;
 
 export type RunnerMessageListener<Message> = (message: Message) => void;
 
 export type RunnerParentMessageListener<Message = never> = (
-  message: RunnerParentMessage<Message>
+  message: Message
 ) => void | Promise<void>;
 
 export type RunnerOutputListener = (stream: RunnerOutputStream, chunk: Buffer) => void;
@@ -89,8 +88,6 @@ export type Runner<Data = unknown, ChildMessage = unknown, ParentMessage = never
   onOutput(listener: RunnerOutputListener): Unsubscribe;
   /** Send an application-level message from the parent to the target. */
   postMessage(message: ParentMessage): void;
-  /** Send an application or built-in control message, such as `{ type: "shutdown" }`, to the target. */
-  send(message: RunnerParentMessage<ParentMessage>): void;
   /** Write raw input to the worker's stdin. This is a no-op for inline runners. */
   writeInput(chunk: Buffer | string): void;
   start(): ResultData | undefined | Promise<ResultData | undefined>;
@@ -113,8 +110,12 @@ export function createInlineRunner<Data, ChildMessage = unknown, ParentMessage =
   const parentMessageListeners = new Set<RunnerMessageListener<ChildMessage>>();
   const childMessageListeners = new Set<RunnerParentMessageListener<ParentMessage>>();
   let runnerStartResult: RunnerStartResult<ResultData> | void;
-  let stopped = false;
+  let startPromise: Promise<ResultData | undefined> | undefined;
+  let stopPromise: Promise<void> | undefined;
+  let stopHookPromise: Promise<void> | undefined;
+  let terminatePromise: Promise<void> | undefined;
   let resolveExit!: (code: RunnerExitCode) => void;
+  let exitSettled = false;
 
   const exitPromise = new Promise<RunnerExitCode>((resolve) => {
     resolveExit = resolve;
@@ -132,9 +133,21 @@ export function createInlineRunner<Data, ChildMessage = unknown, ParentMessage =
     },
   };
 
-  function sendToChild(message: RunnerParentMessage<ParentMessage>) {
-    const clonedMessage = structuredClone(message) as RunnerParentMessage<ParentMessage>;
+  function sendToChild(message: ParentMessage) {
+    const clonedMessage = structuredClone(message) as ParentMessage;
     for (const listener of childMessageListeners) listener(clonedMessage);
+  }
+
+  function settleExit(code: RunnerExitCode) {
+    if (exitSettled) return;
+    exitSettled = true;
+    resolveExit(code);
+  }
+
+  function stopTarget() {
+    if (stopHookPromise) return stopHookPromise;
+    stopHookPromise = Promise.resolve(runnerStartResult?.stop?.()).then(() => undefined);
+    return stopHookPromise;
   }
 
   return {
@@ -150,43 +163,55 @@ export function createInlineRunner<Data, ChildMessage = unknown, ParentMessage =
     postMessage(message) {
       sendToChild(message);
     },
-    send(message) {
-      sendToChild(message);
-    },
     writeInput(_chunk) {},
-    async start() {
-      try {
-        const runnerModule = (await import(toModuleUrl(target.moduleUrl))) as RunnerTargetModule<
-          Data,
-          ChildMessage,
-          ParentMessage,
-          ResultData
-        >;
-        const startRunnerTarget = runnerModule.default;
+    start() {
+      if (startPromise) return startPromise;
+      startPromise = (async () => {
+        try {
+          const runnerModule = (await import(toModuleUrl(target.moduleUrl))) as RunnerTargetModule<
+            Data,
+            ChildMessage,
+            ParentMessage,
+            ResultData
+          >;
+          const startRunnerTarget = runnerModule.default;
 
-        if (typeof startRunnerTarget !== "function") {
-          throw new Error("Runner target module must default export a StartRunnerTarget function.");
+          if (typeof startRunnerTarget !== "function") {
+            throw new Error("Runner target module must default export a StartRunnerTarget function.");
+          }
+
+          runnerStartResult = await startRunnerTarget(runtime);
+          if (stopPromise) await stopTarget();
+          return runnerStartResult?.data;
+        } catch (error) {
+          runtime.postMessage({ type: "error", message: formatError(error) } as ChildMessage);
+          console.error(error);
+          settleExit(1);
+          return undefined;
         }
-
-        runnerStartResult = await startRunnerTarget(runtime);
-        return runnerStartResult?.data;
-      } catch (error) {
-        runtime.postMessage({ type: "error", message: formatError(error) } as ChildMessage);
-        console.error(error);
-        resolveExit(1);
-        return undefined;
-      }
+      })();
+      return startPromise;
     },
-    async stop() {
-      if (stopped) return;
-      stopped = true;
-
-      sendToChild({ type: "shutdown" });
-      await runnerStartResult?.stop?.();
-      resolveExit(0);
+    stop() {
+      if (stopPromise) return stopPromise;
+      stopPromise = (async () => {
+        if (startPromise) await startPromise;
+        try {
+          await stopTarget();
+          settleExit(0);
+        } catch (error) {
+          settleExit(1);
+          throw error;
+        }
+      })();
+      return stopPromise;
     },
-    async terminate() {
-      await this.stop();
+    terminate() {
+      if (terminatePromise) return terminatePromise;
+      terminatePromise = Promise.resolve().then(() => {
+        settleExit(null);
+      });
+      return terminatePromise;
     },
   };
 }
@@ -200,6 +225,8 @@ export function createWorkerRunner<Data, ChildMessage = unknown, ParentMessage =
   const messageListeners = new Set<RunnerMessageListener<ChildMessage>>();
   let worker: Worker | undefined;
   let unbindTerminalResize: Unsubscribe | undefined;
+  let stopRequested = false;
+  let terminatePromise: Promise<void> | undefined;
   let resolveExit!: (code: RunnerExitCode) => void;
 
   const exitPromise = new Promise<RunnerExitCode>((resolve) => {
@@ -218,9 +245,6 @@ export function createWorkerRunner<Data, ChildMessage = unknown, ParentMessage =
       return () => outputListeners.delete(listener);
     },
     postMessage(message) {
-      worker?.postMessage(message);
-    },
-    send(message) {
       worker?.postMessage(message);
     },
     writeInput(chunk) {
@@ -286,13 +310,19 @@ export function createWorkerRunner<Data, ChildMessage = unknown, ParentMessage =
 
       return startPromise;
     },
-    async stop() {
-      this.send({ type: "shutdown" });
+    stop() {
+      if (stopRequested) return;
+      stopRequested = true;
+      worker?.postMessage({ type: WORKER_RUNNER_SHUTDOWN_MESSAGE_TYPE });
     },
-    async terminate() {
-      unbindTerminalResize?.();
-      unbindTerminalResize = undefined;
-      if (worker) await worker.terminate();
+    terminate() {
+      if (terminatePromise) return terminatePromise;
+      terminatePromise = (async () => {
+        unbindTerminalResize?.();
+        unbindTerminalResize = undefined;
+        if (worker) await worker.terminate();
+      })();
+      return terminatePromise;
     },
   };
 

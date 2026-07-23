@@ -45,8 +45,6 @@ export type ManagedTerminalItem = {
 
 export type ManagedTerminalScreen = "menu" | "terminal";
 
-export type ManagedTerminalQuitReason = "quit" | "ctrl-c";
-
 export type ManagedTerminalOptions<Item extends ManagedTerminalItem = ManagedTerminalItem> = {
   title: string | (() => string);
   items: Item[];
@@ -57,7 +55,7 @@ export type ManagedTerminalOptions<Item extends ManagedTerminalItem = ManagedTer
   stdout?: NodeJS.WriteStream | undefined;
   stderr?: NodeJS.WriteStream | undefined;
   canAttach?(item: Item): boolean;
-  onQuit?(reason: ManagedTerminalQuitReason): void | Promise<void>;
+  onInterrupt?(): void | Promise<void>;
 };
 
 type MutableWriteStream = NodeJS.WriteStream & {
@@ -294,17 +292,12 @@ export class ManagedTerminal<Item extends ManagedTerminalItem = ManagedTerminalI
 
   #handleKeypress(input: string | undefined, key: readline.Key) {
     if (key.ctrl && key.name === "c") {
-      void this.#options.onQuit?.("ctrl-c");
+      void this.#options.onInterrupt?.();
       return;
     }
 
     if (this.#screen === "terminal") {
       this.#handleTerminalKey(input, key);
-      return;
-    }
-
-    if (key.name === "q") {
-      void this.#options.onQuit?.("quit");
       return;
     }
 
@@ -359,7 +352,7 @@ export class ManagedTerminal<Item extends ManagedTerminalItem = ManagedTerminalI
   #renderMenu(columns: number, rows: number) {
     const title = typeof this.#options.title === "function" ? this.#options.title() : this.#options.title;
     const instructions =
-      this.#options.instructions ?? "Use Up/Down and Enter for raw terminal. Press q or Ctrl+C to stop.";
+      this.#options.instructions ?? "Use Up/Down and Enter for raw terminal. Press Ctrl+C to stop.";
     const labelWidth = this.#options.labelWidth ?? defaultLabelWidth;
     const statusWidth = this.#options.statusWidth ?? defaultStatusWidth;
     const lines = [title, "", instructions, ""];

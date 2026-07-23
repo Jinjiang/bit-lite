@@ -4,7 +4,6 @@ export {
   runVendorTasks,
   stopVendorTasks,
   superviseVendorTasks,
-  watchVendorTasks,
 } from "./vendor-task.js";
 export type {
   CreateRunnerOptions,
@@ -18,7 +17,6 @@ export type {
   RunnerParentMessage,
   RunnerParentMessageListener,
   RunnerRuntime,
-  RunnerShutdownMessage,
   RunnerStartResult,
   RunnerTargetDefinition,
   RunnerTargetModule,
@@ -30,13 +28,11 @@ export type {
 export type {
   CreateWatchVendorTasksOptions,
   RunVendorTasksOptions,
-  StopVendorTasksOptions,
   SuperviseVendorTasksOptions,
   VendorTask,
   VendorTaskRunResult,
   VendorTaskStartOptions,
   VendorWatchTask,
-  WatchVendorTasksOptions,
 } from "./vendor-task.js";
 export type {
   JsonObject,
@@ -55,7 +51,6 @@ export type {
   VendorResultMessage,
   VendorRunner,
   VendorRuntime,
-  VendorRuntimeState,
   VendorStatusMessage,
 } from "./types/index.js";
 export { createVendorContext } from "./vendor-context.js";

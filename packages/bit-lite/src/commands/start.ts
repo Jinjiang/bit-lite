@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { getSelectedEnvKey } from "bit-lite-context";
 import { ProxyServer, sendHtml, sendJson, sendText } from "bit-lite-proxy";
-import { stopVendorTasks, superviseVendorTasks } from "bit-lite-vendors";
+import { superviseVendorTasks } from "bit-lite-vendors";
 import type { CliOptionValue, ParsedCliArgs, SelectedEnvIdentity } from "bit-lite-context";
 import type { ProxyEndpoint, ProxyRoute } from "bit-lite-proxy";
 import type { PreviewProxyComponent, PreviewProxyManifest } from "bit-lite-preview/node";
@@ -68,17 +68,33 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
   const sourceCatalog = createStartSourceCatalog(selection.components);
   let preview: PreviewCommandContribution | undefined;
   let test: TestWatchContribution | undefined;
-  let resourcesDisposed = false;
-  let supervisionHandedOff = false;
+  let disposePromise: Promise<void> | undefined;
 
-  const disposeResources = async () => {
-    if (resourcesDisposed) return;
-    resourcesDisposed = true;
-    await test?.dispose();
-    await preview?.dispose();
-    await proxyServer.close();
+  const disposeResources = () => {
+    if (disposePromise) return disposePromise;
+    disposePromise = (async () => {
+      const failures: unknown[] = [];
+      try {
+        await test?.dispose();
+      } catch (error) {
+        failures.push(error);
+      }
+      try {
+        await preview?.dispose();
+      } catch (error) {
+        failures.push(error);
+      }
+      try {
+        await proxyServer.close();
+      } catch (error) {
+        failures.push(error);
+      }
+      throwCombinedErrors(failures, "Failed to dispose start command resources");
+    })();
+    return disposePromise;
   };
 
+  const failures: unknown[] = [];
   try {
     const endpoint = await proxyServer.start(host, port);
     preview = await createPreviewCommandContribution(selection, { proxy: endpoint, host, activationMode });
@@ -91,25 +107,29 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
     const tasks = [...preview.tasks, ...test.tasks] as VendorTask[];
     if (tasks.length === 0) {
       printNoStartTasks(selection, preview);
-      return;
+    } else {
+      console.log(`Start: ${endpoint.origin}`);
+      await superviseVendorTasks(tasks, {
+        title: () => `Start: ${endpoint.origin}`,
+        dispose: disposeResources,
+      });
     }
-
-    console.log(`Start: ${endpoint.origin}`);
-    await superviseVendorTasks(tasks, {
-      title: () => `Start: ${endpoint.origin}`,
-      formatStoppingMessage: (reason) => `Stopping bit-lite start (${reason})...\n`,
-      onTasksStarted() {
-        supervisionHandedOff = true;
-        return disposeResources;
-      },
-    });
-  } finally {
-    if (!supervisionHandedOff) {
-      const tasks = [...(preview?.tasks ?? []), ...(test?.tasks ?? [])] as VendorTask[];
-      await stopVendorTasks(tasks);
-    }
-    await disposeResources();
+  } catch (error) {
+    failures.push(error);
   }
+  try {
+    await disposeResources();
+  } catch (error) {
+    if (!failures.includes(error)) failures.push(error);
+  }
+  throwCombinedErrors(failures, "Start command failed");
+}
+
+function throwCombinedErrors(errors: unknown[], message: string): void {
+  const uniqueErrors = [...new Set(errors)];
+  if (uniqueErrors.length === 0) return;
+  if (uniqueErrors.length === 1) throw uniqueErrors[0];
+  throw new AggregateError(uniqueErrors, message);
 }
 
 export function createStartManifest(

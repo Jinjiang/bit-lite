@@ -506,10 +506,23 @@ export async function createVendorWatchExecution<
       if (disposePromise) return disposePromise;
       disposed = true;
       disposePromise = (async () => {
-        await stopVendorTasks(tasks);
-        for (const { unit, prepared } of [...preparedForCleanup].reverse()) {
-          await definition.cleanupPrepared?.(prepared, unit);
+        const failures: unknown[] = [];
+        try {
+          await stopVendorTasks(tasks);
+        } catch (error) {
+          failures.push(error);
         }
+        for (const { unit, prepared } of [...preparedForCleanup].reverse()) {
+          try {
+            await definition.cleanupPrepared?.(prepared, unit);
+          } catch (error) {
+            failures.push(error);
+          }
+        }
+        throwCombinedErrors(
+          failures,
+          `Failed to dispose vendor watch execution "${definition.serviceId}"`
+        );
       })();
       return disposePromise;
     },
@@ -612,7 +625,14 @@ export async function createVendorWatchExecution<
 
     return execution;
   } catch (error) {
-    await execution.dispose();
+    try {
+      await execution.dispose();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `Failed to create vendor watch execution "${definition.serviceId}"`
+      );
+    }
     throw error;
   }
 }
@@ -625,4 +645,10 @@ function assertServiceId(serviceId: string) {
 
 function asError(error: unknown) {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function throwCombinedErrors(errors: unknown[], message: string): void {
+  if (errors.length === 0) return;
+  if (errors.length === 1) throw errors[0];
+  throw new AggregateError(errors, message);
 }

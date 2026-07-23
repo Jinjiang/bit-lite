@@ -65,37 +65,30 @@ describe("demo vendors", () => {
 
     const handle = startBarZVendor(harness.runtime);
     await handle.stop?.();
+    await handle.stop?.();
 
     await expect(waitForResult(harness.messages)).resolves.toMatchObject({
       statusText: "stopped:1",
     });
+    expect(harness.messages.filter((message) => message.type === "result")).toHaveLength(1);
   });
 });
 
 function createHarness<Config extends Record<string, unknown>>(data: VendorData<Config>) {
   type Runtime = VendorRuntime<Config>;
-  type ControlListener = Parameters<Runtime["onMessage"]>[0];
 
   const messages: VendorMessage[] = [];
-  const controlListeners = new Set<ControlListener>();
   const runtime: Runtime = {
     data,
     postMessage(message) {
       messages.push(message);
     },
-    onMessage(listener) {
-      controlListeners.add(listener);
-      return () => controlListeners.delete(listener);
+    onMessage() {
+      return () => undefined;
     },
   };
 
-  return {
-    runtime,
-    messages,
-    shutdown() {
-      for (const listener of Array.from(controlListeners)) void listener({ type: "shutdown" });
-    },
-  };
+  return { runtime, messages };
 }
 
 function selectedEnv(packageName: string) {

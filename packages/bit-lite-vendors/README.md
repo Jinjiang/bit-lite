@@ -12,15 +12,16 @@ The public API has three layers:
   `VendorMessage`, and `VendorStartResult`.
 - the runner implementation used by Bit-lite to execute vendor modules inline or
   inside a Worker.
-- vendor task helpers such as `runVendorTasks()` and `watchVendorTasks()` for
-  command code that needs common vendor lifecycle handling.
+- vendor task helpers such as `runVendorTasks()`, `createWatchVendorTasks()`,
+  and `superviseVendorTasks()` for command code that needs common vendor
+  lifecycle handling.
 
 Worker-backed watch tasks are eager by default. Callers that pass
 `activation: "deferred"` to `createWatchVendorTasks()` receive the same stable
 logical task in `idle`, including context, vendor metadata, output buffer,
 listeners, result lifecycle, `stop()`, and an idempotent `activate()`. Concurrent
 `activate()` calls share one worker start. Stopping an idle task settles its exit
-lifecycle without creating a worker; stopping during activation prevents the
+state without creating a worker; stopping during activation prevents the
 worker from surviving shutdown. A managed-terminal item remains the same object
 and becomes attachable only after its worker exists.
 
@@ -76,6 +77,24 @@ contributions and call `superviseVendorTasks()` separately. This lets a
 standalone command own signals and an optional managed terminal, or a composed
 command supervise several services without nested terminals.
 
+```ts
+const tasks = await createWatchVendorTasks(taskOptions, {
+  serviceId: "test",
+  label: "Test",
+  formatResult: formatTestResult,
+});
+
+await superviseVendorTasks(tasks, {
+  title: "test watch",
+  dispose: () => stopVendorTasks(tasks),
+});
+```
+
+For a command contribution, pass its complete cached `dispose(): Promise<void>`
+operation instead. The supervisor owns only SIGINT/SIGTERM and optional terminal
+lifecycle; it does not stop contributed tasks independently. Ctrl+C maps to
+SIGINT, while `q` in the parent menu does not terminate the session.
+
 `VendorData.runtime` is an optional JSON-only command-to-vendor channel. Preview
 uses it for `server` binding/routing hints plus `prepared.entryFile` and
 `prepared.htmlFile`. Preview adapters should not rediscover components, generate
@@ -115,6 +134,12 @@ export default function startExampleVendor(runtime: VendorRuntime): VendorStartR
   };
 }
 ```
+
+`runtime.onMessage()` receives only service-defined application messages.
+Built-in runner shutdown is private control traffic. The optional `stop()` hook
+returned by the vendor is the one graceful cleanup path and is invoked at most
+once; callers request the bounded graceful/forced sequence through the logical
+task's idempotent `stop()`.
 
 Build and type check with:
 

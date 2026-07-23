@@ -32,10 +32,6 @@ export function createPreviewServiceResult(port: number): PreviewServiceResult {
   return { mode: "serve", port };
 }
 
-export function isShutdownMessage(message: unknown) {
-  return typeof message === "object" && message !== null && (message as { type?: unknown }).type === "shutdown";
-}
-
 export function withPreviewVendorContext(error: unknown, env: { packageName: string }, vendor: string) {
   return new Error(`${vendor} failed for preview env "${env.packageName}": ${formatError(error)}`, { cause: error });
 }

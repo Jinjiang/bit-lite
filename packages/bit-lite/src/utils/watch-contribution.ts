@@ -9,5 +9,5 @@ export type WatchCommandContribution<Task extends VendorTask = VendorTask> = {
    * Idempotently stops every contributed task before releasing the
    * contribution's listeners and auxiliary resources.
    */
-  dispose(): void | Promise<void>;
+  dispose(): Promise<void>;
 };

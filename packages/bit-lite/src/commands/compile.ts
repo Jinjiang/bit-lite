@@ -128,10 +128,7 @@ export async function runCompileCommand(parsed: ParsedCliArgs) {
     try {
       await superviseVendorTasks(contribution.tasks, {
         title: "bit-lite compile --watch",
-        formatStoppingMessage: (reason) => `Stopping bit-lite compile (${reason})...\n`,
-        onTasksStarted() {
-          return contribution.dispose;
-        },
+        dispose: contribution.dispose,
       });
     } finally {
       await contribution.dispose();

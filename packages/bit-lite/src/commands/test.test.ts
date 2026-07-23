@@ -5,8 +5,8 @@ import type { SelectedEnvIdentity } from "bit-lite-context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCli } from "../cli.js";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
-import { createResultStore } from "../utils/result-store.js";
 import {
+  createTestWatchResultStore,
   createTestWatchContribution,
   isTestServiceResult,
   runTestCommand,
@@ -70,12 +70,13 @@ describe("test command", () => {
 
   it("records watch results into an injected store", async () => {
     const workspaceRoot = await createWorkspace();
-    const store = createResultStore<TestServiceResult>();
+    const store = createTestWatchResultStore();
     const parsed = createParsedTestArgs(workspaceRoot, { watch: true, coverage: true });
     const selection = await prepareResolvedCommandSelection(parsed);
     const sigintListeners = process.listenerCount("SIGINT");
     const sigtermListeners = process.listenerCount("SIGTERM");
     const contribution = await createTestWatchContribution(selection, { resultStore: store });
+    const taskStops = contribution.tasks.map((task) => vi.spyOn(task, "stop"));
 
     try {
       expect(contribution.tasks).toHaveLength(2);
@@ -91,8 +92,11 @@ describe("test command", () => {
       expect(process.listenerCount("SIGTERM")).toBe(sigtermListeners);
       await vi.waitFor(() => expect(store.entries()).toHaveLength(2));
     } finally {
-      await contribution.dispose();
-      await contribution.dispose();
+      const firstDispose = contribution.dispose();
+      const concurrentDispose = contribution.dispose();
+      expect(concurrentDispose).toBe(firstDispose);
+      await firstDispose;
+      expect(taskStops.every((stop) => stop.mock.calls.length === 1)).toBe(true);
     }
 
     const entries = store.entries().sort((left, right) => left.vendor.localeCompare(right.vendor));
@@ -135,7 +139,7 @@ describe("test command", () => {
 
   it("does not record run-once results into an injected store", async () => {
     const workspaceRoot = await createWorkspace();
-    const store = createResultStore<TestServiceResult>();
+    const store = createTestWatchResultStore();
 
     await runTestCommand(createParsedTestArgs(workspaceRoot), {
       resultStore: store,

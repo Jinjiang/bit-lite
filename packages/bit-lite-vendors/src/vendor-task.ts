@@ -7,7 +7,6 @@ import type {
 import type {
   ManagedTerminalItem,
   ManagedTerminalOptions,
-  ManagedTerminalQuitReason,
   TerminalOutputStream,
 } from "bit-lite-terminal";
 import type { RunnerExitCode, RunnerMode } from "./runner/index.js";
@@ -47,11 +46,9 @@ export type VendorTask<
   context: VendorContext;
   vendor: VendorDefinition;
   result: Promise<VendorTaskRunResult<RunResult>>;
-  exitPromise?: Promise<RunnerExitCode> | undefined;
   activate(): Promise<void>;
   postMessage(message: InputMessage): void;
-  stop(): void | Promise<void>;
-  terminate?(): void | Promise<void>;
+  stop(): Promise<void>;
   onMessage?(listener: (message: VendorMessage<EventResult>) => void): () => void;
   onOutput?(listener: (stream: TerminalOutputStream, chunk: Buffer) => void): () => void;
 };
@@ -79,12 +76,6 @@ export type RunVendorTasksOptions<
   ): void | Promise<void>;
 };
 
-export type WatchVendorTasksOptions<
-  EventResult extends JsonValue = JsonValue,
-  InputMessage extends JsonValue = JsonValue,
-> = CreateWatchVendorTasksOptions<EventResult, InputMessage> &
-  SuperviseVendorTasksOptions<EventResult, InputMessage>;
-
 export type CreateWatchVendorTasksOptions<
   EventResult extends JsonValue = JsonValue,
   InputMessage extends JsonValue = JsonValue,
@@ -103,10 +94,7 @@ export type SuperviseVendorTasksOptions<
 > = {
   title: ManagedTerminalOptions<VendorTask<unknown, EventResult, InputMessage>>["title"];
   canAttach?: ManagedTerminalOptions<VendorTask<unknown, EventResult, InputMessage>>["canAttach"];
-  formatStoppingMessage?(reason: string): string | undefined;
-  onTasksStarted?(
-    tasks: VendorTask<unknown, EventResult, InputMessage>[]
-  ): void | (() => void | Promise<void>) | Promise<void | (() => void | Promise<void>)>;
+  dispose(): Promise<void>;
   interactive?: boolean | undefined;
   terminal?: Pick<
     ManagedTerminalOptions<VendorTask<unknown, EventResult, InputMessage>>,
@@ -114,12 +102,7 @@ export type SuperviseVendorTasksOptions<
   > | undefined;
 };
 
-type WatchVendorTasksShutdownReason = ManagedTerminalQuitReason | "sigint" | "sigterm" | "completed";
-
-export type StopVendorTasksOptions = {
-  exitTimeoutMs?: number | undefined;
-  terminateTimeoutMs?: number | undefined;
-};
+type WatchSessionSignal = "sigint" | "sigterm";
 
 type CreateVendorTaskOptions = VendorTaskStartOptions & {
   mode: RunnerMode;
@@ -197,18 +180,6 @@ export async function runVendorTasks<
   }
 }
 
-export async function watchVendorTasks<
-  EventResult extends JsonValue = JsonValue,
-  InputMessage extends JsonValue = JsonValue,
->(
-  taskOptions: VendorTaskStartOptions[],
-  options: WatchVendorTasksOptions<EventResult, InputMessage>
-) {
-  const tasks = await createWatchVendorTasks(taskOptions, options);
-  await superviseVendorTasks(tasks, options);
-  return tasks;
-}
-
 export function createWatchVendorTasks<
   EventResult extends JsonValue = JsonValue,
   InputMessage extends JsonValue = JsonValue,
@@ -245,13 +216,11 @@ export async function superviseVendorTasks<
 
   if (tasks.length === 0) return tasks;
 
-  let shuttingDown = false;
   let cleanedUp = false;
-  let tasksStartedCleanedUp = false;
-  let cleanupTasksStarted: (() => void | Promise<void>) | undefined;
+  let disposalPromise: Promise<void> | undefined;
   let resolveShutdown!: () => void;
   let rejectShutdown!: (error: unknown) => void;
-  const shutdownPromise = new Promise<void>((resolve, reject) => {
+  const shutdownRequestedPromise = new Promise<void>((resolve, reject) => {
     resolveShutdown = resolve;
     rejectShutdown = reject;
   });
@@ -260,8 +229,8 @@ export async function superviseVendorTasks<
         title: options.title,
         items: tasks,
         canAttach: options.canAttach ?? ((item) => item.canAttach === true),
-        onQuit(reason) {
-          requestShutdown(reason);
+        onInterrupt() {
+          requestShutdown("sigint");
         },
         ...(options.terminal ?? {}),
       })
@@ -291,39 +260,32 @@ export async function superviseVendorTasks<
   process.once("SIGTERM", handleSigterm);
 
   try {
-    const cleanup = await options.onTasksStarted?.(tasks);
-    if (typeof cleanup === "function") cleanupTasksStarted = cleanup;
-
     terminal?.start();
-    await shutdownPromise;
-  } finally {
-    if (!shuttingDown) await shutdown("completed");
+    await shutdownRequestedPromise;
+  } catch (error) {
+    cleanupWatchListeners();
+    terminal?.stop({ clearScreen: true });
+    throw error;
   }
 
   return tasks;
 
-  function requestShutdown(reason: Exclude<WatchVendorTasksShutdownReason, "completed">) {
-    void shutdown(reason).catch(rejectShutdown);
+  function requestShutdown(reason: WatchSessionSignal) {
+    void shutdown(reason).then(resolveShutdown, rejectShutdown);
   }
 
-  async function shutdown(reason: WatchVendorTasksShutdownReason) {
-    if (shuttingDown) return;
-    shuttingDown = true;
-
+  function shutdown(reason: WatchSessionSignal) {
+    if (disposalPromise) return disposalPromise;
     terminal?.stop({ clearScreen: true });
-    if (interactive && reason !== "completed") {
-      const message = options.formatStoppingMessage?.(formatWatchShutdownReason(reason));
-      if (message) process.stdout.write(message);
-    }
-
-    try {
-      await stopVendorTasks(tasks);
-    } finally {
-      cleanupWatchListeners();
-      await cleanupTasksStartedHook();
-    }
-    resolveShutdown();
-    killProcessForShutdownReason(reason);
+    cleanupWatchListeners();
+    disposalPromise = (async () => {
+      try {
+        await options.dispose();
+      } finally {
+        killProcessForShutdownReason(reason);
+      }
+    })();
+    return disposalPromise;
   }
 
   function cleanupWatchListeners() {
@@ -333,58 +295,22 @@ export async function superviseVendorTasks<
     process.off("SIGTERM", handleSigterm);
     for (const unsubscribe of unsubscribers) unsubscribe?.();
   }
-
-  async function cleanupTasksStartedHook() {
-    if (tasksStartedCleanedUp) return;
-    tasksStartedCleanedUp = true;
-    await cleanupTasksStarted?.();
-  }
 }
 
 export async function stopVendorTasks<
   RunResult = unknown,
   EventResult extends JsonValue = JsonValue,
   InputMessage extends JsonValue = JsonValue,
->(tasks: VendorTask<RunResult, EventResult, InputMessage>[], options: StopVendorTasksOptions = {}) {
-  for (const task of tasks) {
-    await task.stop();
-  }
-
-  const pendingTasks = new Set(tasks);
-  const exitPromises = tasks
-    .map((task) => task.exitPromise?.finally(() => pendingTasks.delete(task)))
-    .filter((exitPromise): exitPromise is NonNullable<VendorTask["exitPromise"]> => exitPromise !== undefined);
-
-  await Promise.race([
-    Promise.allSettled(exitPromises),
-    new Promise((resolve) => setTimeout(resolve, options.exitTimeoutMs ?? 300)),
-  ]);
-
-  if (pendingTasks.size === 0) return;
-
-  const terminatePromises = Array.from(pendingTasks).map((task) => task.terminate?.());
-  await Promise.race([
-    Promise.allSettled(terminatePromises),
-    new Promise((resolve) => setTimeout(resolve, options.terminateTimeoutMs ?? 300)),
-  ]);
+>(tasks: VendorTask<RunResult, EventResult, InputMessage>[]) {
+  const outcomes = await Promise.allSettled(tasks.map((task) => task.stop()));
+  const failures = outcomes.flatMap((outcome) =>
+    outcome.status === "rejected" ? [outcome.reason] : []
+  );
+  throwCombinedErrors(failures, "Failed to stop vendor tasks");
 }
 
-function formatWatchShutdownReason(reason: Exclude<WatchVendorTasksShutdownReason, "completed">) {
+function killProcessForShutdownReason(reason: WatchSessionSignal) {
   switch (reason) {
-    case "ctrl-c":
-      return "received Ctrl+C";
-    case "quit":
-      return "quit requested";
-    case "sigint":
-      return "received SIGINT";
-    case "sigterm":
-      return "received SIGTERM";
-  }
-}
-
-function killProcessForShutdownReason(reason: WatchVendorTasksShutdownReason) {
-  switch (reason) {
-    case "ctrl-c":
     case "sigint":
       process.kill(process.pid, "SIGINT");
       return;
@@ -481,13 +407,9 @@ function createManagedVendorTask<
   let runner: VendorRunner<VendorConfig, RunResult, EventResult, InputMessage> | undefined;
   let activationPromise: Promise<void> | undefined;
   let activationError: Error | undefined;
+  let runnerExited = false;
   let stopPromise: Promise<void> | undefined;
   let stopRequested = false;
-  let exitSettled = false;
-  let resolveExit!: (code: RunnerExitCode) => void;
-  const exitPromise = new Promise<RunnerExitCode>((resolve) => {
-    resolveExit = resolve;
-  });
   let resolveResult!: (result: VendorTaskRunResult<RunResult>) => void;
   let rejectResult!: (error: unknown) => void;
   const result = new Promise<VendorTaskRunResult<RunResult>>((resolve, reject) => {
@@ -519,7 +441,6 @@ function createManagedVendorTask<
     completed: false,
     runResult: resultOptions.runResult,
     eventResult: resultOptions.eventResult,
-    exitPromise,
     resolveResult,
     rejectResult,
     firstResult,
@@ -546,24 +467,47 @@ function createManagedVendorTask<
       stopRequested = true;
       closeEventResults(task, new Error(`${task.label} stopped before its first valid result`));
       stopPromise = (async () => {
-        if (runner) {
-          await runner.stop();
+        const activeRunner = runner;
+        if (!activeRunner) {
+          task.status = "stopped";
           return;
         }
+        const runnerHadExited = runnerExited;
+
+        const failures: unknown[] = [];
+        void Promise.resolve(activeRunner.stop()).catch((error) => {
+          failures.push(error);
+        });
+        const gracefulExit = await waitForRunnerExit(
+          activeRunner.exitPromise,
+          gracefulExitTimeoutMs
+        );
+        if (!gracefulExit.timedOut) {
+          task.status = "stopped";
+          if (
+            gracefulExit.code !== 0 &&
+            !runnerHadExited &&
+            activationError === undefined
+          ) {
+            failures.push(
+              new Error(`${task.label} failed to stop with exit code ${formatExitCode(gracefulExit.code)}`)
+            );
+          }
+          throwCombinedErrors(failures, `Failed to stop ${task.label}`);
+          return;
+        }
+
+        const forcedTermination = await waitForPromise(
+          Promise.resolve(activeRunner.terminate()),
+          forcedTerminationTimeoutMs
+        );
+        if (forcedTermination.status === "rejected") {
+          failures.push(forcedTermination.reason);
+        }
         task.status = "stopped";
-        settleExit(0);
+        throwCombinedErrors(failures, `Failed to stop ${task.label}`);
       })();
       return stopPromise;
-    },
-    async terminate() {
-      stopRequested = true;
-      closeEventResults(task, new Error(`${task.label} stopped before its first valid result`));
-      if (runner) {
-        await runner.terminate();
-        return;
-      }
-      task.status = "stopped";
-      settleExit(0);
     },
     writeInput(chunk) {
       runner?.writeInput(chunk);
@@ -606,8 +550,9 @@ function createManagedVendorTask<
     task.canAttach = options.mode === "worker";
 
     createdRunner.exitPromise.then((code) => {
-      handleVendorExit(task, code);
-      settleExit(code);
+      runnerExited = true;
+      if (stopRequested) task.status = "stopped";
+      else handleVendorExit(task, code);
     });
     createdRunner.onMessage((message) => {
       if (message.type === "error") activationError = new Error(message.message);
@@ -642,11 +587,46 @@ function createManagedVendorTask<
     }
   }
 
-  function settleExit(code: RunnerExitCode) {
-    if (exitSettled) return;
-    exitSettled = true;
-    resolveExit(code);
-  }
+}
+
+const gracefulExitTimeoutMs = 300;
+const forcedTerminationTimeoutMs = 300;
+
+type TimedPromiseOutcome<Result> =
+  | { status: "fulfilled"; value: Result }
+  | { status: "rejected"; reason: unknown }
+  | { status: "timed-out" };
+
+function waitForPromise<Result>(
+  promise: Promise<Result>,
+  timeoutMs: number
+): Promise<TimedPromiseOutcome<Result>> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve({ status: "timed-out" }), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve({ status: "fulfilled", value });
+      },
+      (reason) => {
+        clearTimeout(timer);
+        resolve({ status: "rejected", reason });
+      }
+    );
+  });
+}
+
+async function waitForRunnerExit(exitPromise: Promise<RunnerExitCode>, timeoutMs: number) {
+  const outcome = await waitForPromise(exitPromise, timeoutMs);
+  return outcome.status === "fulfilled"
+    ? { timedOut: false as const, code: outcome.value }
+    : { timedOut: true as const };
+}
+
+function throwCombinedErrors(errors: unknown[], message: string): void {
+  if (errors.length === 0) return;
+  if (errors.length === 1) throw errors[0];
+  throw new AggregateError(errors, message);
 }
 
 function handleVendorMessage<

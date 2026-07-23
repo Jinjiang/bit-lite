@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
   proxyAddRoutes: vi.fn(),
   proxyClose: vi.fn(),
   supervise: vi.fn(),
-  stopTasks: vi.fn(),
 }));
 
 vi.mock("../utils/command-selection.js", () => ({
@@ -34,7 +33,6 @@ vi.mock("bit-lite-vendors", async (importOriginal) => {
   const actual = await importOriginal<typeof import("bit-lite-vendors")>();
   return {
     ...actual,
-    stopVendorTasks: mocks.stopTasks,
     superviseVendorTasks: mocks.supervise,
   };
 });
@@ -60,10 +58,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.proxyStart.mockResolvedValue(endpoint);
   mocks.proxyClose.mockResolvedValue(undefined);
-  mocks.stopTasks.mockResolvedValue(undefined);
   mocks.supervise.mockImplementation(async (_tasks, options) => {
-    const cleanup = await options.onTasksStarted?.(_tasks);
-    await cleanup?.();
+    await options.dispose();
     return _tasks;
   });
   vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -133,7 +129,11 @@ describe("runStartCommand", () => {
     expect(preview.dispose).toHaveBeenCalledOnce();
     expect(test.dispose).toHaveBeenCalledOnce();
     expect(mocks.proxyClose).toHaveBeenCalledOnce();
-    expect(mocks.stopTasks).not.toHaveBeenCalled();
+    const rootDispose = mocks.supervise.mock.calls[0]?.[1].dispose;
+    expect(rootDispose()).toBe(rootDispose());
+    expect(preview.dispose).toHaveBeenCalledOnce();
+    expect(test.dispose).toHaveBeenCalledOnce();
+    expect(mocks.proxyClose).toHaveBeenCalledOnce();
   });
 
   it("passes lazy mode only to preview while preserving the shared selection for eager tests", async () => {
@@ -194,7 +194,7 @@ describe("runStartCommand", () => {
     expect(mocks.supervise.mock.calls[0]?.[0]).toEqual([testTask]);
   });
 
-  it("stops earlier tasks before disposing resources when the second contribution fails", async () => {
+  it("disposes an earlier contribution before closing the proxy when the second contribution fails", async () => {
     const parsed = createParsed(["start"]);
     const resolved = createSelection(parsed, [{ preview: {}, test: {} }]);
     const previewTask = { id: "preview:child:vite" };
@@ -205,12 +205,10 @@ describe("runStartCommand", () => {
 
     await expect(runStartCommand(parsed)).rejects.toThrow("test startup failed");
 
-    expect(mocks.stopTasks).toHaveBeenCalledWith([previewTask]);
-    expect(mocks.stopTasks.mock.invocationCallOrder[0]).toBeLessThan(preview.dispose.mock.invocationCallOrder[0]!);
     expect(preview.dispose.mock.invocationCallOrder[0]).toBeLessThan(mocks.proxyClose.mock.invocationCallOrder[0]!);
   });
 
-  it("stops both contributions before disposal when route registration fails", async () => {
+  it("disposes both contributions before closing the proxy when route registration fails", async () => {
     const parsed = createParsed(["start"]);
     const resolved = createSelection(parsed, [{ preview: {}, test: {} }]);
     const previewTask = { id: "preview:child:vite" };
@@ -226,11 +224,56 @@ describe("runStartCommand", () => {
 
     await expect(runStartCommand(parsed)).rejects.toThrow("duplicate route");
 
-    expect(mocks.stopTasks).toHaveBeenCalledWith([previewTask, testTask]);
-    const stopped = mocks.stopTasks.mock.invocationCallOrder[0]!;
-    expect(stopped).toBeLessThan(test.dispose.mock.invocationCallOrder[0]!);
-    expect(stopped).toBeLessThan(preview.dispose.mock.invocationCallOrder[0]!);
+    expect(test.dispose.mock.invocationCallOrder[0]).toBeLessThan(preview.dispose.mock.invocationCallOrder[0]!);
     expect(preview.dispose.mock.invocationCallOrder[0]).toBeLessThan(mocks.proxyClose.mock.invocationCallOrder[0]!);
+  });
+
+  it("attempts every child and proxy cleanup after an earlier disposer rejects", async () => {
+    const parsed = createParsed(["start"]);
+    const resolved = createSelection(parsed, [{ preview: {}, test: {} }]);
+    const preview = createPreviewContribution(resolved, [{ id: "preview:child:vite" }]);
+    const test = createTestContribution(resolved, [{ id: "test:child:vitest" }]);
+    const testFailure = new Error("test cleanup failed");
+    test.dispose.mockRejectedValue(testFailure);
+    mocks.prepare.mockResolvedValue(resolved);
+    mocks.createPreview.mockResolvedValue(preview);
+    mocks.createTest.mockResolvedValue(test);
+
+    const failure = await runStartCommand(parsed).catch((error) => error);
+
+    expect(failure).toBe(testFailure);
+    expect(test.dispose).toHaveBeenCalledOnce();
+    expect(preview.dispose).toHaveBeenCalledOnce();
+    expect(mocks.proxyClose).toHaveBeenCalledOnce();
+    expect(test.dispose.mock.invocationCallOrder[0]).toBeLessThan(preview.dispose.mock.invocationCallOrder[0]!);
+    expect(preview.dispose.mock.invocationCallOrder[0]).toBeLessThan(mocks.proxyClose.mock.invocationCallOrder[0]!);
+  });
+
+  it("reports startup and cleanup failures together after every cleanup settles", async () => {
+    const parsed = createParsed(["start"]);
+    const resolved = createSelection(parsed, [{ preview: {}, test: {} }]);
+    const preview = createPreviewContribution(resolved, [{ id: "preview:child:vite" }]);
+    const test = createTestContribution(resolved, [{ id: "test:child:vitest" }]);
+    test.dispose.mockRejectedValue(new Error("test cleanup failed"));
+    preview.dispose.mockRejectedValue(new Error("preview cleanup failed"));
+    mocks.proxyClose.mockRejectedValue(new Error("proxy cleanup failed"));
+    mocks.prepare.mockResolvedValue(resolved);
+    mocks.createPreview.mockResolvedValue(preview);
+    mocks.createTest.mockResolvedValue(test);
+    mocks.proxyAddRoutes.mockImplementationOnce(() => {
+      throw new Error("route registration failed");
+    });
+
+    const failure = await runStartCommand(parsed).catch((error) => error);
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors[0]).toMatchObject({
+      message: "route registration failed",
+    });
+    expect((failure as AggregateError).errors[1]).toBeInstanceOf(AggregateError);
+    expect(test.dispose).toHaveBeenCalledOnce();
+    expect(preview.dispose).toHaveBeenCalledOnce();
+    expect(mocks.proxyClose).toHaveBeenCalledOnce();
   });
 });
 
@@ -282,7 +325,7 @@ function createPreviewContribution(
     configuredTaskCount: tasks.length,
     preparationFailures: [],
     manifest: vi.fn(),
-    dispose: vi.fn(),
+    dispose: vi.fn(async () => undefined),
   } as unknown as PreviewCommandContribution;
 }
 
@@ -297,6 +340,6 @@ function createTestContribution(
     groups: selection.groups,
     bindings: [],
     effectiveArgs: {},
-    dispose: vi.fn(),
+    dispose: vi.fn(async () => undefined),
   } as unknown as TestWatchContribution;
 }

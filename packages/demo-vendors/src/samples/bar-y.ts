@@ -1,5 +1,4 @@
 import type { JsonObject, VendorDefinition, VendorStartResult, VendorRuntime } from "bit-lite-vendors";
-import { isShutdownMessage } from "./vendor-utils.js";
 
 export type BarYResult = {
   service: "bar";
@@ -17,8 +16,6 @@ export const meta: VendorDefinition = {
 export default function startBarYVendor(runtime: VendorRuntime<JsonObject>): VendorStartResult {
   let completed = false;
   let timer: NodeJS.Timeout | undefined;
-  let unsubscribe: (() => void) | undefined;
-
   const finish = (status: string) => {
     if (completed) return;
     completed = true;
@@ -32,12 +29,7 @@ export default function startBarYVendor(runtime: VendorRuntime<JsonObject>): Ven
 
     runtime.postMessage({ type: "status", status });
     runtime.postMessage({ type: "result", data });
-    unsubscribe?.();
   };
-
-  unsubscribe = runtime.onMessage((message) => {
-    if (isShutdownMessage(message)) finish("stopped");
-  });
 
   runtime.postMessage({ type: "ready" });
 

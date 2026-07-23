@@ -64,7 +64,6 @@ class FakeWatcher extends EventEmitter {
 }
 
 function createRuntime(messages: VendorMessage<CompileWatchResult>[]) {
-  const listeners = new Set<(message: { type: "shutdown" }) => void | Promise<void>>();
   return {
     data: {
       context: {
@@ -81,9 +80,8 @@ function createRuntime(messages: VendorMessage<CompileWatchResult>[]) {
     postMessage(message: VendorMessage<CompileWatchResult>) {
       messages.push(message);
     },
-    onMessage(listener: (message: { type: "shutdown" }) => void | Promise<void>) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
+    onMessage() {
+      return () => undefined;
     },
   } as unknown as CompilerVendorRuntime;
 }

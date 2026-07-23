@@ -5,10 +5,8 @@ import type {
   Workspace,
   WorkspaceComponent,
 } from "bit-lite-context";
-import type { ManagedTerminalItem, RawOutputBuffer } from "bit-lite-terminal";
 import type {
   Runner,
-  RunnerExitCode,
   RunnerParentMessage,
   RunnerStartResult,
   RunnerMode,
@@ -17,7 +15,7 @@ import type {
   RunnerTargetDefinition,
 } from "../runner/index.js";
 
-export type { RunnerExitCode, RunnerMode };
+export type { RunnerMode };
 
 export type OutputStream = RunnerOutputStream;
 
@@ -107,16 +105,3 @@ export type VendorRunner<
   InputMessage,
   RunResult
 >;
-
-export type VendorRuntimeState<
-  Config extends VendorConfig = VendorConfig,
-  ResultData extends JsonValue = JsonValue,
-> = VendorDefinition &
-  ManagedTerminalItem & {
-    status: string;
-    details: string[];
-    result: ResultData | undefined;
-    rawOutput: RawOutputBuffer;
-    runner: VendorRunner<Config, ResultData, ResultData> | undefined;
-    exitPromise: Promise<RunnerExitCode> | undefined;
-  };

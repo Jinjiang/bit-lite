@@ -26,9 +26,9 @@ async function main() {
   const terminal = new ManagedTerminal({
     title: () => `demo-tester-watch-api  ${serverUrl}`,
     instructions:
-      "Use Up/Down + Enter for native worker output. Press q or Ctrl+C to stop. Results: /jest/results.json, /jest/results.txt, /vitest/results.json, /vitest/results.txt",
+      "Use Up/Down + Enter for native worker output. Press Ctrl+C to stop. Results: /jest/results.json, /jest/results.txt, /vitest/results.json, /vitest/results.txt",
     items,
-    onQuit: () => {
+    onInterrupt: () => {
       process.kill(process.pid, "SIGINT");
     },
   });

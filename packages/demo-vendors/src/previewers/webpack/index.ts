@@ -11,7 +11,6 @@ import type { JsonObject, VendorDefinition, VendorRuntime, VendorStartResult } f
 import type { Configuration, Stats } from "webpack";
 import {
   createPreviewServiceResult,
-  isShutdownMessage,
   readPreviewConfigFile,
   readPreviewRuntime,
   withPreviewVendorContext,
@@ -53,10 +52,6 @@ export default async function startWebpackPreviewVendor(
   let hotMiddleware: WebpackHotMiddleware | undefined;
   let stopped = false;
   let stopping: Promise<void> | undefined;
-
-  const unsubscribe = runtime.onMessage(async (message) => {
-    if (isShutdownMessage(message)) await stop();
-  });
 
   runtime.postMessage({ type: "ready" });
   runtime.postMessage({ type: "status", status: "building" });
@@ -131,7 +126,6 @@ export default async function startWebpackPreviewVendor(
       await closeMiddleware(activeMiddleware);
       await closeServer(activeServer);
       runtime.postMessage({ type: "status", status: "stopped" });
-      unsubscribe();
     })();
     return stopping;
   }

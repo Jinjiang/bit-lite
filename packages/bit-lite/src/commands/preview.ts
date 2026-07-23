@@ -113,26 +113,34 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
   const activationMode = readPreviewLazy(parsed.args.options.lazy) ? "lazy" : "eager";
   const proxyServer = new ProxyServer();
   let contribution: PreviewCommandContribution | undefined;
-  let disposed = false;
+  let disposePromise: Promise<void> | undefined;
 
-  const disposeResources = async () => {
-    if (disposed) return;
-    disposed = true;
-    await contribution?.dispose();
-    await proxyServer.close();
+  const disposeResources = () => {
+    if (disposePromise) return disposePromise;
+    disposePromise = (async () => {
+      const failures: unknown[] = [];
+      try {
+        await contribution?.dispose();
+      } catch (error) {
+        failures.push(error);
+      }
+      try {
+        await proxyServer.close();
+      } catch (error) {
+        failures.push(error);
+      }
+      throwCombinedErrors(failures, "Failed to dispose preview command resources");
+    })();
+    return disposePromise;
   };
 
+  const failures: unknown[] = [];
   try {
     const proxy = await proxyServer.start(host, proxyPort);
     contribution = await createPreviewCommandContribution(selection, { proxy, host, activationMode });
 
-    try {
-      proxyServer.addRoutes(createPreviewPresentationRoutes(contribution.state));
-      proxyServer.addRoutes(contribution.routes);
-    } catch (error) {
-      await contribution.dispose();
-      throw error;
-    }
+    proxyServer.addRoutes(createPreviewPresentationRoutes(contribution.state));
+    proxyServer.addRoutes(contribution.routes);
 
     if (contribution.tasks.length === 0) {
       const failures = contribution.preparationFailures
@@ -144,14 +152,17 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
     console.log(`Preview: ${proxyServer.origin}`);
     await superviseVendorTasks(contribution.tasks, {
       title: () => `Preview: ${proxyServer.origin}`,
-      formatStoppingMessage: (reason) => `Stopping bit-lite preview (${reason})...\n`,
-      onTasksStarted() {
-        return disposeResources;
-      },
+      dispose: disposeResources,
     });
-  } finally {
-    await disposeResources();
+  } catch (error) {
+    failures.push(error);
   }
+  try {
+    await disposeResources();
+  } catch (error) {
+    if (!failures.includes(error)) failures.push(error);
+  }
+  throwCombinedErrors(failures, "Preview command failed");
 }
 
 export async function createPreviewCommandContribution(
@@ -188,6 +199,7 @@ export async function createPreviewCommandContribution(
   const tasks = execution.tasks;
   let cleanupListeners: (() => void) | undefined;
   let disposed = false;
+  let disposePromise: Promise<void> | undefined;
 
   try {
     cleanupListeners = attachPreviewTaskListeners(state, tasks);
@@ -220,12 +232,31 @@ export async function createPreviewCommandContribution(
     for (const task of tasks) void ensureStarted(task.context.env).catch(() => undefined);
   }
 
-  const dispose = async () => {
-    if (disposed) return;
+  const dispose = () => {
+    if (disposePromise) return disposePromise;
     disposed = true;
-    await execution.dispose();
-    for (const task of tasks) state.updateTask(task.context.env, { status: "stopped" });
-    cleanupListeners?.();
+    disposePromise = (async () => {
+      const failures: unknown[] = [];
+      try {
+        await execution.dispose();
+      } catch (error) {
+        failures.push(error);
+      }
+      for (const task of tasks) {
+        try {
+          state.updateTask(task.context.env, { status: "stopped" });
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      try {
+        cleanupListeners?.();
+      } catch (error) {
+        failures.push(error);
+      }
+      throwCombinedErrors(failures, "Failed to dispose preview contribution");
+    })();
+    return disposePromise;
   };
 
   return {
@@ -242,6 +273,13 @@ export async function createPreviewCommandContribution(
     manifest: () => state.manifest(options.proxy),
     dispose,
   };
+}
+
+function throwCombinedErrors(errors: unknown[], message: string): void {
+  const uniqueErrors = [...new Set(errors)];
+  if (uniqueErrors.length === 0) return;
+  if (uniqueErrors.length === 1) throw uniqueErrors[0];
+  throw new AggregateError(uniqueErrors, message);
 }
 
 async function preparePreviewUnit(options: {

@@ -227,7 +227,7 @@ const item = {
 const terminal = new ManagedTerminal({
   title: "integrations",
   items: [item],
-  onQuit() {
+  onInterrupt() {
     void shutdown();
   },
 });
@@ -246,8 +246,9 @@ item.status = "ready";
 terminal.scheduleRender();
 ```
 
-Press Enter from the menu to attach to a child terminal, Escape to return to the
-menu, and `q` or Ctrl+C to call `onQuit()`.
+Press Enter from the menu to attach to a child terminal and Escape to return to
+the menu. Ctrl+C calls `onInterrupt()`. Menu keys such as `q` do not terminate
+the parent session; while attached, ordinary input is forwarded to the child.
 
 #### Item shape
 
@@ -287,7 +288,7 @@ constructor-level `canAttach(item)` option.
 const terminal = new ManagedTerminal({
   title: () => "integrations",
   items,
-  instructions: "Use Up/Down and Enter. Press q to quit.",
+  instructions: "Use Up/Down and Enter. Press Ctrl+C to stop.",
   labelWidth: 24,
   statusWidth: 12,
   stdin: process.stdin,
@@ -296,8 +297,8 @@ const terminal = new ManagedTerminal({
   canAttach(item) {
     return item.status !== "starting";
   },
-  onQuit(reason) {
-    void shutdown(reason);
+  onInterrupt() {
+    void shutdown();
   },
 });
 ```
@@ -311,7 +312,8 @@ const terminal = new ManagedTerminal({
 - `stdin`, `stdout`, and `stderr` default to the current process streams. Pass
   custom streams for tests or embedding.
 - `canAttach(item)` overrides per-item attach behavior.
-- `onQuit(reason)` receives `"quit"` for `q` and `"ctrl-c"` for Ctrl+C.
+- `onInterrupt()` is invoked only for Ctrl+C received while the managed
+  terminal owns raw input.
 
 #### Lifecycle
 
@@ -364,8 +366,8 @@ const item = {
 const terminal = new ManagedTerminal({
   title: () => `integrations (${runnerMode})`,
   items: [item],
-  onQuit(reason) {
-    void shutdown(reason);
+  onInterrupt() {
+    void shutdown();
   },
 });
 

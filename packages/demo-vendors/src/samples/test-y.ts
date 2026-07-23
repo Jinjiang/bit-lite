@@ -5,7 +5,7 @@ import type {
   VendorRuntime,
 } from "bit-lite-vendors";
 import type { TestServiceResult } from "./test-result.js";
-import { isShutdownMessage, wait } from "./vendor-utils.js";
+import { wait } from "./vendor-utils.js";
 
 export const meta: VendorDefinition = {
   id: "test-y",
@@ -23,14 +23,11 @@ export default async function startTestYVendor(
   let finished = false;
   let run = 0;
   let timer: NodeJS.Timeout | undefined;
-  let unsubscribe: (() => void) | undefined;
-
   const finish = (status: string) => {
     if (finished) return;
     finished = true;
     if (timer) clearInterval(timer);
     runtime.postMessage({ type: "status", status });
-    unsubscribe?.();
   };
 
   const createResult = () => {
@@ -75,10 +72,6 @@ export default async function startTestYVendor(
     stream(`[test-y] ${mode} #${run}: ${data.stats.summary}`);
     runtime.postMessage({ type: "result", data });
   };
-
-  unsubscribe = runtime.onMessage((message) => {
-    if (isShutdownMessage(message)) finish("stopped");
-  });
 
   runtime.postMessage({ type: "ready" });
 

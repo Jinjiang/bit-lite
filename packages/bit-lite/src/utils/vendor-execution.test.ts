@@ -261,6 +261,39 @@ describe("vendor execution kernel", () => {
     }
   });
 
+  it("shares aggregate disposal and continues prepared cleanup after a rejection", async () => {
+    const fixture = createKernelFixture(createWatchVendorUrl());
+    const cleanupEvents: string[] = [];
+    const execution = await createVendorWatchExecution({
+      plan: {
+        layers: [[
+          kernelPlannedUnit(fixture, "first", [], {}),
+          kernelPlannedUnit(fixture, "second", [], {}),
+        ]],
+      },
+      definition: createKernelDefinition({
+        cleanupEvents,
+        cleanupFailureId: "second",
+        watch: {
+          activation: "deferred",
+          formatResult: formatKernelWatchResult,
+        },
+      }),
+      context: { workspace: fixture.selection.context.workspace, preparationEvents: [] },
+      args: fixture.selection.parsed.args,
+    });
+    const taskStops = execution.tasks.map((task) => vi.spyOn(task, "stop"));
+
+    const firstDispose = execution.dispose();
+    const concurrentDispose = execution.dispose();
+
+    expect(concurrentDispose).toBe(firstDispose);
+    await expect(firstDispose).rejects.toThrow("cleanup failed for second");
+    expect(cleanupEvents).toEqual(["second", "first"]);
+    expect(taskStops.every((stop) => stop.mock.calls.length === 1)).toBe(true);
+    expect(execution.dispose()).toBe(firstDispose);
+  });
+
   it("caches deferred readiness failures and stops the failed unit", async () => {
     const fixture = createKernelFixture(createFailingWatchVendorUrl());
     const plan = {
@@ -527,6 +560,8 @@ function kernelPlannedUnit(
 
 function createKernelDefinition(options: {
   prepareFailureId?: string;
+  cleanupEvents?: string[];
+  cleanupFailureId?: string;
   run?: NonNullable<
     VendorExecutionDefinition<KernelUnit, KernelContext, { mode: string }, KernelResult>["run"]
   >;
@@ -565,6 +600,16 @@ function createKernelDefinition(options: {
         metadata: { mode },
       };
     },
+    ...(options.cleanupEvents
+      ? {
+          cleanupPrepared(_prepared, unit) {
+            options.cleanupEvents?.push(unit.id);
+            if (unit.id === options.cleanupFailureId) {
+              throw new Error(`cleanup failed for ${unit.id}`);
+            }
+          },
+        }
+      : {}),
     ...(options.run ? { run: options.run } : {}),
     ...(options.watch ? { watch: options.watch } : {}),
   });

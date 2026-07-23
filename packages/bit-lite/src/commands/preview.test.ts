@@ -172,8 +172,12 @@ describe("preview command preparation isolation", () => {
       }));
       expect(contribution.manifest().envs[0]).not.toHaveProperty("envName");
     } finally {
-      await contribution.dispose();
-      await contribution.dispose();
+      const taskStops = contribution.tasks.map((task) => vi.spyOn(task, "stop"));
+      const firstDispose = contribution.dispose();
+      const concurrentDispose = contribution.dispose();
+      expect(concurrentDispose).toBe(firstDispose);
+      await firstDispose;
+      expect(taskStops.every((stop) => stop.mock.calls.length === 1)).toBe(true);
     }
   });
 
@@ -337,6 +341,25 @@ describe("preview command preparation isolation", () => {
       await proxyServer.close();
     }
   }, 20_000);
+
+  it("continues preview state cleanup after task disposal rejects", async () => {
+    const fixture = await createContributionSelection(previewVendorUrl());
+    const contribution = await createPreviewCommandContribution(fixture.selection, {
+      proxy: { origin: "http://127.0.0.1:4000", host: "127.0.0.1", port: 4000 },
+      activationMode: "lazy",
+    });
+    const task = contribution.tasks[0]!;
+    const failure = new Error("task cleanup failed");
+    const stop = vi.spyOn(task, "stop").mockRejectedValue(failure);
+
+    const firstDispose = contribution.dispose();
+    expect(contribution.dispose()).toBe(firstDispose);
+    await expect(firstDispose).rejects.toBe(failure);
+
+    expect(stop).toHaveBeenCalledOnce();
+    expect(contribution.manifest().envs[0]).toMatchObject({ status: "stopped" });
+    expect(contribution.manifest().envs[0]).not.toHaveProperty("server");
+  });
 });
 
 function createGroup(

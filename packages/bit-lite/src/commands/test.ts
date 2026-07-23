@@ -1,6 +1,7 @@
 import { superviseVendorTasks } from "bit-lite-vendors";
 import type {
   ParsedCliArgs,
+  SelectedEnvIdentity,
   Workspace,
   WorkspaceEnvGroup,
 } from "bit-lite-context";
@@ -9,8 +10,6 @@ import type {
   JsonValue,
   VendorTask,
 } from "bit-lite-vendors";
-import { createResultStore } from "../utils/result-store.js";
-import type { ResultStore, ResultStoreEntry } from "../utils/result-store.js";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
 import type { ResolvedCommandSelection } from "../utils/command-selection.js";
 import {
@@ -51,11 +50,28 @@ export type TestComponentResult = JsonObject & {
   errors: string[];
 };
 
-export type TestWatchResultEntry = ResultStoreEntry<TestServiceResult>;
-export type TestWatchResultStore = ResultStore<TestServiceResult>;
+export type TestWatchResultEntry = {
+  observedAt: string;
+  taskId: string;
+  env: SelectedEnvIdentity;
+  vendor: string;
+  json: TestServiceResult;
+  text: string;
+};
+
+export type TestWatchResultStore = {
+  add(
+    entry: Omit<TestWatchResultEntry, "observedAt"> & {
+      observedAt?: string | Date;
+    }
+  ): TestWatchResultEntry;
+  entries(vendor?: string): TestWatchResultEntry[];
+  json(vendor?: string): TestServiceResult[];
+  text(vendor?: string): string;
+};
 
 export type RunTestCommandOptions = {
-  resultStore?: ResultStore<TestServiceResult>;
+  resultStore?: TestWatchResultStore;
 };
 
 export type TestWatchTaskBinding = {
@@ -65,13 +81,13 @@ export type TestWatchTaskBinding = {
 
 export type TestWatchContribution = WatchCommandContribution<VendorTask<unknown, TestServiceResult>> & {
   groups: readonly WorkspaceEnvGroup[];
-  resultStore: ResultStore<TestServiceResult>;
+  resultStore: TestWatchResultStore;
   bindings: TestWatchTaskBinding[];
   effectiveArgs: ImmutableCliArguments;
 };
 
 export type CreateTestWatchContributionOptions = {
-  resultStore?: ResultStore<TestServiceResult> | undefined;
+  resultStore?: TestWatchResultStore | undefined;
 };
 
 const serviceId = "test";
@@ -79,7 +95,7 @@ const label = "Test";
 
 type TestExecutionContext = {
   workspace: Workspace;
-  resultStore?: ResultStore<TestServiceResult> | undefined;
+  resultStore?: TestWatchResultStore | undefined;
 };
 
 const testVendorExecution = defineVendorExecution<
@@ -127,10 +143,7 @@ export async function runTestCommand(parsed: ParsedCliArgs, options: RunTestComm
     try {
       await superviseVendorTasks(contribution.tasks, {
         title: "bit-lite test --watch",
-        formatStoppingMessage: (reason) => `Stopping bit-lite test (${reason})...\n`,
-        onTasksStarted() {
-          return contribution.dispose;
-        },
+        dispose: contribution.dispose,
       });
     } finally {
       await contribution.dispose();
@@ -162,7 +175,7 @@ export async function createTestWatchContribution(
   selection: ResolvedCommandSelection,
   options: CreateTestWatchContributionOptions = {}
 ): Promise<TestWatchContribution> {
-  const resultStore = options.resultStore ?? createResultStore<TestServiceResult>();
+  const resultStore = options.resultStore ?? createTestWatchResultStore();
   const plan = createEnvServiceExecutionPlan(selection, serviceId);
   const execution = await createVendorWatchExecution({
     plan,
@@ -227,7 +240,7 @@ function printTestResults(
 }
 
 function addTestWatchResult(
-  resultStore: ResultStore<TestServiceResult>,
+  resultStore: TestWatchResultStore,
   task: VendorTask<unknown, TestServiceResult>,
   result: TestServiceResult
 ) {
@@ -240,6 +253,46 @@ function addTestWatchResult(
     json: result,
     text: `# ${task.vendor.id} run ${result.run} @ ${observedAt}\n${formatTestResultText(task.vendor.id, result)}`,
   });
+}
+
+export function createTestWatchResultStore(): TestWatchResultStore {
+  const entries: TestWatchResultEntry[] = [];
+
+  const filterEntries = (vendor: string | undefined) =>
+    vendor === undefined
+      ? [...entries]
+      : entries.filter((entry) => entry.vendor === vendor);
+
+  return {
+    add(entry) {
+      const storedEntry: TestWatchResultEntry = {
+        observedAt:
+          entry.observedAt === undefined
+            ? new Date().toISOString()
+            : typeof entry.observedAt === "string"
+              ? entry.observedAt
+              : entry.observedAt.toISOString(),
+        taskId: entry.taskId,
+        env: entry.env,
+        vendor: entry.vendor,
+        json: entry.json,
+        text: entry.text,
+      };
+      entries.push(storedEntry);
+      return storedEntry;
+    },
+    entries(vendor) {
+      return filterEntries(vendor);
+    },
+    json(vendor) {
+      return filterEntries(vendor).map((entry) => entry.json);
+    },
+    text(vendor) {
+      return filterEntries(vendor)
+        .map((entry) => entry.text)
+        .join("\n---\n");
+    },
+  };
 }
 
 function formatTestRunResult(result: unknown) {

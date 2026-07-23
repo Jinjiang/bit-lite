@@ -145,8 +145,12 @@ describe("configured per-component compile services", () => {
     expect(process.listenerCount("SIGTERM")).toBe(sigtermListeners);
     expect(await marker(root, "@scope/lib.a")).toMatchObject({ label: "A" });
 
-    await contribution.dispose();
-    await contribution.dispose();
+    const taskStops = contribution.tasks.map((task) => vi.spyOn(task, "stop"));
+    const firstDispose = contribution.dispose();
+    const concurrentDispose = contribution.dispose();
+    expect(concurrentDispose).toBe(firstDispose);
+    await firstDispose;
+    expect(taskStops.every((stop) => stop.mock.calls.length === 1)).toBe(true);
   }, 10_000);
 
   it("retains worker-backed compile stdout and stderr for late terminal replay", async () => {

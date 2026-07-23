@@ -2,12 +2,15 @@ import { readFile } from "node:fs/promises";
 import { ProxyServer } from "bit-lite-proxy";
 import { RawOutputBuffer } from "bit-lite-terminal";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createResultStore } from "../utils/result-store.js";
 import { createStartSourceCatalog } from "./start-source.js";
 import { createStartManifest, createStartRoutes } from "./start.js";
 import { createTestResultRoutes, readComponentTestSnapshot, serializeTerminalOutput } from "./test-routes.js";
 import type { PreviewCommandContribution } from "./preview.js";
-import type { TestServiceResult, TestWatchContribution } from "./test.js";
+import {
+  createTestWatchResultStore,
+  type TestServiceResult,
+  type TestWatchContribution,
+} from "./test.js";
 import type {
   EnvContext,
   SelectedEnvIdentity,
@@ -182,10 +185,10 @@ function createTestContribution(componentIds: string[], rawOutput = new RawOutpu
     tasks: [task],
     routes: [],
     groups: [fixture.group],
-    resultStore: createResultStore<TestServiceResult>(),
+    resultStore: createTestWatchResultStore(),
     bindings: [{ task, componentIds }],
     effectiveArgs: { raw: ["start"], options: { watch: true }, passthrough: [] },
-    dispose: vi.fn(),
+    dispose: vi.fn(async () => undefined),
   };
 }
 
@@ -218,7 +221,7 @@ function createPreviewContribution(endpoint: ProxyEndpoint): PreviewCommandContr
     configuredTaskCount: 1,
     preparationFailures: [],
     manifest: () => manifest,
-    dispose: vi.fn(),
+    dispose: vi.fn(async () => undefined),
   };
 }
 
@@ -232,7 +235,7 @@ function createTask(workspace: Workspace, rawOutput: RawOutputBuffer): VendorTas
     rawOutput,
     result: new Promise(() => undefined),
     postMessage() {},
-    stop() {},
+    async stop() {},
   };
 }
 

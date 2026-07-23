@@ -4,7 +4,6 @@ import { createServer, type Plugin, type ViteDevServer } from "vite";
 import type { JsonObject, VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
 import {
   createPreviewServiceResult,
-  isShutdownMessage,
   readPreviewConfigFile,
   readPreviewRuntime,
   withPreviewVendorContext,
@@ -28,10 +27,6 @@ export default async function startVitePreviewVendor(
   let server: ViteDevServer | undefined;
   let stopped = false;
   let stopping: Promise<void> | undefined;
-
-  const unsubscribe = runtime.onMessage(async (message) => {
-    if (isShutdownMessage(message)) await stop();
-  });
 
   runtime.postMessage({ type: "ready" });
   runtime.postMessage({ type: "status", status: "building" });
@@ -59,7 +54,6 @@ export default async function startVitePreviewVendor(
       server = undefined;
       await activeServer?.close();
       runtime.postMessage({ type: "status", status: "stopped" });
-      unsubscribe();
     })();
     return stopping;
   }

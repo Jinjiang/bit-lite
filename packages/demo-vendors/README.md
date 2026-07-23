@@ -31,7 +31,10 @@ entry. The default entry reads the common watch flag and either returns a
 one-shot compile result or starts the vendor-owned watch lifecycle. Their shared
 watch helper lives inside `demo-vendors`, not Bit-lite core: it watches component
 source, serializes rebuilds, keeps watching after compilation errors, and closes
-the watcher on task shutdown. The env compiler additionally resolves source
+the watcher through the returned vendor stop hook. Preview and tester vendors
+likewise return their native server, watcher, middleware, or test-pool cleanup;
+built-in shutdown is not delivered through the application message channel. The
+env compiler additionally resolves source
 `extends`, writes flattened versioned `dist/index.json`, records inherited
 service provenance, and emits support modules beside it.
 

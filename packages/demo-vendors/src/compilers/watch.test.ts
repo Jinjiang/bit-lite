@@ -267,15 +267,13 @@ function createRuntime(
   input: CompileVendorInput,
   messages: VendorMessage<CompileWatchResult>[]
 ) {
-  const listeners = new Set<(message: { type: "shutdown" }) => void | Promise<void>>();
   return {
     data: input,
     postMessage(message) {
       messages.push(message);
     },
-    onMessage(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
+    onMessage() {
+      return () => undefined;
     },
   } as VendorRuntime<CompileVendorInput["config"], CompileWatchResult, never, NonNullable<CompileVendorInput["runtime"]>>;
 }

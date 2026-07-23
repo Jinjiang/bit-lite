@@ -1,5 +1,5 @@
 import type { JsonObject, VendorDefinition, VendorStartResult, VendorRuntime } from "bit-lite-vendors";
-import { isShutdownMessage, wait } from "./vendor-utils.js";
+import { wait } from "./vendor-utils.js";
 
 export type FooXResult = {
   service: "foo";
@@ -25,19 +25,12 @@ export default function startFooXVendor(runtime: VendorRuntime<JsonObject>): Ven
   };
 
   let finished = false;
-  let unsubscribe: (() => void) | undefined;
-
   const finish = (status: string) => {
     if (finished) return;
     finished = true;
     runtime.postMessage({ type: "status", status });
     runtime.postMessage({ type: "result", data });
-    unsubscribe?.();
   };
-
-  unsubscribe = runtime.onMessage((message) => {
-    if (isShutdownMessage(message)) finish("stopped");
-  });
 
   runtime.postMessage({ type: "ready" });
 

@@ -7,7 +7,6 @@ import {
   runVendorTasks,
   stopVendorTasks,
   superviseVendorTasks,
-  watchVendorTasks,
 } from "bit-lite-vendors";
 import type {
   SelectedEnvIdentity,
@@ -92,23 +91,29 @@ describe("vendor task helpers", () => {
     });
   });
 
-  it("crosses the worker boundary with the same serializable context", async () => {
+  it("crosses the worker boundary through explicit creation and supervision", async () => {
     const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
     let receivedResult: MixedEventResult | undefined;
     let receivedTask: VendorTask<unknown, MixedEventResult> | undefined;
 
     try {
       const options = createTaskOptions(mixedResultsVendorUrl, ["--watch", "--coverage", "--", "fixture.ts"]);
-      const tasks = await watchVendorTasks<MixedEventResult>([options], {
+      const tasks = await createWatchVendorTasks<MixedEventResult>([options], {
         serviceId: "test",
         label: "Mixed",
-        title: "mixed watch",
+        activation: "deferred",
         formatResult: formatMixedWatchResult,
         onResult(result, task) {
           receivedResult = result;
           receivedTask = task;
           process.emit("SIGTERM");
         },
+      });
+      setImmediate(() => void tasks[0]?.activate().catch(() => undefined));
+      await superviseVendorTasks(tasks, {
+        title: "mixed watch",
+        interactive: false,
+        dispose: () => stopVendorTasks(tasks),
       });
 
       expect(tasks).toHaveLength(1);
@@ -325,7 +330,6 @@ describe("vendor task helpers", () => {
 
     await task.stop();
 
-    expect(await task.exitPromise).toBe(0);
     expect(task.status).toBe("stopped");
     expect(task.canAttach).toBe(false);
     await expect(task.activate()).rejects.toThrow("cannot activate after it was stopped");
@@ -348,7 +352,6 @@ describe("vendor task helpers", () => {
     await task.stop();
 
     await expect(activation).rejects.toThrow();
-    expect(await task.exitPromise).toBe(0);
     expect(task.status).toBe("stopped");
   });
 
@@ -394,99 +397,163 @@ describe("vendor task helpers", () => {
     const second = createFakeTask("preview:second", "Second", secondInput);
     first.rawOutput.append("stdout", "first buffered\n");
     second.rawOutput.append("stdout", "second buffered\n");
-
-    await superviseVendorTasks([first, second], {
-      title: "Combined",
-      interactive: true,
-      terminal: {
-        stdin: input as unknown as ManagedTerminalInputStream,
-        stdout: output as unknown as NodeJS.WriteStream,
-        stderr: output as unknown as NodeJS.WriteStream,
-      },
-      onTasksStarted() {
-        setImmediate(() => {
-          input.emit("keypress", undefined, { name: "down" });
-          input.emit("keypress", "\r", { name: "return" });
-          input.emit("keypress", "x", { name: "x" });
-          input.emit("keypress", undefined, { name: "escape" });
-          input.emit("keypress", "q", { name: "q" });
-        });
-      },
+    const dispose = vi.fn(() => {
+      expect(input.isRaw).toBe(false);
+      expect(input.isPaused()).toBe(true);
+      expect(output.text()).toContain("\x1b[?25h");
+      return stopVendorTasks([first, second]);
     });
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
+
+    try {
+      setImmediate(() => {
+        input.emit("keypress", undefined, { name: "down" });
+        input.emit("keypress", "\r", { name: "return" });
+        input.emit("keypress", "x", { name: "x" });
+        input.emit("keypress", undefined, { name: "escape" });
+        input.emit("keypress", "q", { name: "q" });
+        expect(dispose).not.toHaveBeenCalled();
+        input.emit("keypress", undefined, { ctrl: true, name: "c" });
+      });
+      await superviseVendorTasks([first, second], {
+        title: "Combined",
+        interactive: true,
+        dispose,
+        terminal: {
+          stdin: input as unknown as ManagedTerminalInputStream,
+          stdout: output as unknown as NodeJS.WriteStream,
+          stderr: output as unknown as NodeJS.WriteStream,
+        },
+      });
+    } finally {
+      kill.mockRestore();
+    }
 
     expect(firstInput).not.toHaveBeenCalled();
     expect(secondInput).toHaveBeenCalledWith("x");
     expect(output.text()).toContain("second buffered");
+    expect(dispose).toHaveBeenCalledOnce();
     expect(first.stop).toHaveBeenCalledOnce();
     expect(second.stop).toHaveBeenCalledOnce();
   });
 
-  it("stops tasks and detaches listeners before contribution cleanup", async () => {
+  it.each(["SIGINT", "SIGTERM"] as const)(
+    "detaches presentation listeners before delegating %s cleanup",
+    async (signal) => {
     const events: string[] = [];
     const task = createFakeTask("test:signal", "Signal", vi.fn(), events);
+    const dispose = vi.fn(async () => {
+      events.push("dispose");
+    });
     const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
 
     try {
+      setImmediate(() => {
+        process.emit(signal);
+        process.emit(signal);
+      });
       await superviseVendorTasks([task], {
         title: "Signal",
         interactive: false,
-        onTasksStarted() {
-          setImmediate(() => {
-            process.emit("SIGTERM");
-            process.emit("SIGTERM");
-          });
-          return () => {
-            events.push("cleanup");
-          };
-        },
+        dispose,
       });
 
-      expect(events).toEqual(["stop", "unsubscribe-message", "unsubscribe-output", "cleanup"]);
-      expect(kill).toHaveBeenCalledWith(process.pid, "SIGTERM");
+      expect(events).toEqual(["unsubscribe-message", "unsubscribe-output", "dispose"]);
+      expect(task.stop).not.toHaveBeenCalled();
+      expect(dispose).toHaveBeenCalledOnce();
+      expect(kill).toHaveBeenCalledTimes(1);
+      expect(kill).toHaveBeenCalledWith(process.pid, signal);
+    } finally {
+      kill.mockRestore();
+    }
+    }
+  );
+
+  it("restores root state and preserves the signal after aggregate disposal rejects", async () => {
+    const task = createFakeTask("test:cleanup-failure", "Cleanup failure", vi.fn());
+    const failure = new Error("aggregate cleanup failed");
+    const dispose = vi.fn(async () => {
+      throw failure;
+    });
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const sigintListeners = process.listenerCount("SIGINT");
+    const sigtermListeners = process.listenerCount("SIGTERM");
+
+    try {
+      setImmediate(() => process.emit("SIGINT"));
+      await expect(superviseVendorTasks([task], {
+        title: "Cleanup failure",
+        interactive: false,
+        dispose,
+      })).rejects.toBe(failure);
+
+      expect(dispose).toHaveBeenCalledOnce();
+      expect(task.stop).not.toHaveBeenCalled();
+      expect(kill).toHaveBeenCalledWith(process.pid, "SIGINT");
+      expect(process.listenerCount("SIGINT")).toBe(sigintListeners);
+      expect(process.listenerCount("SIGTERM")).toBe(sigtermListeners);
     } finally {
       kill.mockRestore();
     }
   });
 
-  it("stops tasks when supervision setup fails", async () => {
-    const task = createFakeTask("test:setup", "Setup", vi.fn());
+  it("forces a worker whose returned cleanup hook does not settle", async () => {
+    const tasks = await createWatchVendorTasks(
+      [createTaskOptions(createHungStopVendorUrl(), ["--watch"])],
+      {
+        serviceId: "test",
+        label: "Hung",
+        formatResult: () => [],
+      }
+    );
+    const task = tasks[0]!;
+    await task.firstResult;
+    const startedAt = Date.now();
 
-    await expect(superviseVendorTasks([task], {
-      title: "Setup",
-      interactive: false,
-      onTasksStarted() {
-        throw new Error("setup failed");
-      },
-    })).rejects.toThrow("setup failed");
-    expect(task.stop).toHaveBeenCalledOnce();
+    await task.stop();
+
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(task.status).toBe("stopped");
   });
 
-  it("does not wait forever for hung task termination", async () => {
-    const stop = vi.fn();
-    const terminate = vi.fn(() => new Promise<void>(() => undefined));
-    const task = {
-      id: "hung:test",
-      label: "Hung Test",
-      status: "running",
-      rawOutput: new RawOutputBuffer(),
-      context: createVendorContext(createWorkspace(1), []),
-      vendor: {
-        id: "hung",
-        label: "Hung",
-        hint: "Hung fixture",
-        moduleUrl: "data:text/javascript,export default function start() {}",
-      },
-      result: new Promise(() => undefined),
-      exitPromise: new Promise(() => undefined),
-      postMessage() {},
-      stop,
-      terminate,
-    } as VendorTask;
+  it("shares repeated task stop and keeps private shutdown out of application messages", async () => {
+    const tasks = await createWatchVendorTasks<JsonObject, { kind: string }>(
+      [createTaskOptions(createObservedStopVendorUrl(), ["--watch"])],
+      {
+        serviceId: "test",
+        label: "Observed",
+        formatResult: () => [],
+      }
+    );
+    const task = tasks[0]!;
+    const statuses: string[] = [];
+    task.onMessage?.((message) => {
+      if (message.type === "status") statuses.push(message.status);
+    });
+    await task.firstResult;
+    task.postMessage({ kind: "ping" });
+    await vi.waitFor(() => expect(statuses).toContain("application:ping"));
 
-    await stopVendorTasks([task], { exitTimeoutMs: 1, terminateTimeoutMs: 1 });
+    const firstStop = task.stop();
+    const secondStop = task.stop();
+    expect(secondStop).toBe(firstStop);
+    await firstStop;
 
-    expect(stop).toHaveBeenCalledOnce();
-    expect(terminate).toHaveBeenCalledOnce();
+    expect(statuses).toContain("stop:1:applications:1");
+  });
+
+  it("continues collection cleanup and combines task stop failures", async () => {
+    const first = createFakeTask("test:first-failure", "First failure", vi.fn());
+    const second = createFakeTask("test:second-failure", "Second failure", vi.fn());
+    first.stop.mockRejectedValue(new Error("first stop failed"));
+    second.stop.mockRejectedValue(new Error("second stop failed"));
+
+    const failure = await stopVendorTasks([first, second]).catch((error) => error);
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors).toHaveLength(2);
+    expect(first.stop).toHaveBeenCalledOnce();
+    expect(second.stop).toHaveBeenCalledOnce();
   });
 
   it("rejects a resolved vendor module without valid metadata", async () => {
@@ -536,15 +603,13 @@ function createFakeTask(
     status: "watching",
     rawOutput: new RawOutputBuffer(),
     result: new Promise(() => undefined),
-    exitPromise: Promise.resolve(0 as const),
     activate: vi.fn(async () => undefined),
     postMessage() {},
     writeInput,
     canAttach: true,
-    stop: vi.fn(() => {
+    stop: vi.fn(async () => {
       events.push("stop");
     }),
-    terminate: vi.fn(),
     onMessage() {
       return () => events.push("unsubscribe-message");
     },
@@ -557,12 +622,19 @@ function createFakeTask(
 class FakeInput extends EventEmitter {
   isRaw = false;
   isTTY = true;
+  #paused = true;
+
+  isPaused() {
+    return this.#paused;
+  }
 
   pause() {
+    this.#paused = true;
     return this;
   }
 
   resume() {
+    this.#paused = false;
     return this;
   }
 
@@ -813,6 +885,57 @@ function createSlowDeferredVendorUrl() {
       id: "slow-deferred-fixture",
       label: "Slow Deferred Fixture",
       hint: "Slow deferred fixture",
+      moduleUrl: ${JSON.stringify(targetModule)}
+    };
+  `);
+}
+
+function createHungStopVendorUrl() {
+  const targetModule = toDataModule(`
+    export default function start(runtime) {
+      runtime.postMessage({ type: "ready" });
+      runtime.postMessage({ type: "result", data: { ok: true } });
+      return { stop() { return new Promise(() => undefined); } };
+    }
+  `);
+  return toDataModule(`
+    export const meta = {
+      id: "hung-stop-fixture",
+      label: "Hung Stop Fixture",
+      hint: "Hung stop fixture",
+      moduleUrl: ${JSON.stringify(targetModule)}
+    };
+  `);
+}
+
+function createObservedStopVendorUrl() {
+  const targetModule = toDataModule(`
+    export default function start(runtime) {
+      let applications = 0;
+      let stops = 0;
+      runtime.onMessage((message) => {
+        applications += 1;
+        runtime.postMessage({ type: "status", status: "application:" + message.kind });
+      });
+      runtime.postMessage({ type: "ready" });
+      runtime.postMessage({ type: "result", data: { ok: true } });
+      return {
+        async stop() {
+          stops += 1;
+          runtime.postMessage({
+            type: "status",
+            status: "stop:" + stops + ":applications:" + applications,
+          });
+          await new Promise((resolve) => setImmediate(resolve));
+        }
+      };
+    }
+  `);
+  return toDataModule(`
+    export const meta = {
+      id: "observed-stop-fixture",
+      label: "Observed Stop Fixture",
+      hint: "Observed stop fixture",
       moduleUrl: ${JSON.stringify(targetModule)}
     };
   `);

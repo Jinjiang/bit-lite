@@ -45,6 +45,6 @@ Use Up/Down and Enter in the parent menu to attach to a worker terminal. In the
 attached terminal, key input is forwarded to that worker's stdin. Press Escape to
 return to the parent menu.
 
-Press `q` or `Ctrl+C` in the parent menu to send `SIGINT` to the parent process.
-This demo intentionally treats quit as immediate process shutdown instead of a
-graceful watch close.
+Press Ctrl+C in the parent menu to send `SIGINT` to the parent process. Pressing
+`q` in the parent menu leaves the session active. While attached, ordinary keys
+are forwarded to the selected native Jest or Vitest terminal.
