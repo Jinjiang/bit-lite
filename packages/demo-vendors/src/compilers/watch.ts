@@ -23,6 +23,7 @@ export async function startCompilerWatch(
   if (!component || runtime.data.components.length !== 1 || !runtime.data.runtime) {
     throw new Error("Compiler watch requires exactly one component and compile runtime");
   }
+  const componentId = component.id;
 
   let stopped = false;
   let stopping: Promise<void> | undefined;
@@ -39,7 +40,9 @@ export async function startCompilerWatch(
   });
   watcher.on("all", () => queueCompile());
   watcher.on("error", (error) => {
-    runtime.postMessage({ type: "error", message: formatError(error) });
+    const diagnostic = formatError(error);
+    console.error(`[compile:${componentId}] Watcher error\n${diagnostic}`);
+    runtime.postMessage({ type: "error", message: diagnostic });
   });
   await new Promise<void>((resolve, reject) => {
     watcher.once("ready", resolve);
@@ -68,6 +71,7 @@ export async function startCompilerWatch(
     while (queued && !stopped) {
       queued = false;
       runtime.postMessage({ type: "status", status: "compiling" });
+      console.log(`[compile:${componentId}] Compiling...`);
       try {
         const output = await compileOnce(runtime.data as CompileVendorInput);
         run += 1;
@@ -75,10 +79,13 @@ export async function startCompilerWatch(
           run,
           output: output === undefined ? null : output,
         };
+        console.log(`[compile:${componentId}] Compiled successfully`);
         runtime.postMessage({ type: "result", data });
         runtime.postMessage({ type: "status", status: "watching" });
       } catch (error) {
-        runtime.postMessage({ type: "error", message: formatError(error) });
+        const diagnostic = formatError(error);
+        console.error(`[compile:${componentId}] Compilation failed\n${diagnostic}`);
+        runtime.postMessage({ type: "error", message: diagnostic });
       }
     }
   }

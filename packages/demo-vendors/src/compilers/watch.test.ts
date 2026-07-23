@@ -31,19 +31,41 @@ describe("maintained compiler vendor lifecycle", () => {
     const fixture = await createFixture("component", "index.ts", "export const value = 1;\n");
     const messages: VendorMessage<CompileWatchResult>[] = [];
     const runtime = createRuntime(fixture.input, messages);
-    const started = await startTypeScriptCompiler(runtime);
+    const output = captureConsole();
+    let stop: (() => void | Promise<void>) | undefined;
 
-    expect(resultMessages(messages)).toHaveLength(1);
-    expect(await readFile(path.join(fixture.distDir, "index.js"), "utf8")).toContain("value = 1");
+    try {
+      const started = await startTypeScriptCompiler(runtime);
+      stop = started?.stop;
 
-    await writeFile(path.join(fixture.rootDir, "index.ts"), "export const value = 2;\n");
-    await vi.waitFor(() => expect(resultMessages(messages)).toHaveLength(2), { timeout: 5_000 });
-    expect(await readFile(path.join(fixture.distDir, "index.js"), "utf8")).toContain("value = 2");
+      expect(resultMessages(messages).map((message) => message.data.run)).toEqual([1]);
+      expect(output.stdout).toEqual([
+        "[compile:component/fixture] Compiling...",
+        "[compile:component/fixture] Compiled successfully",
+      ]);
+      expect(output.stderr).toEqual([]);
+      expect(await readFile(path.join(fixture.distDir, "index.js"), "utf8")).toContain("value = 1");
 
-    await started?.stop?.();
-    await writeFile(path.join(fixture.rootDir, "index.ts"), "export const value = 3;\n");
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(resultMessages(messages)).toHaveLength(2);
+      await writeFile(path.join(fixture.rootDir, "index.ts"), "export const value = 2;\n");
+      await vi.waitFor(() => expect(resultMessages(messages)).toHaveLength(2), { timeout: 5_000 });
+      expect(resultMessages(messages).map((message) => message.data.run)).toEqual([1, 2]);
+      expect(output.stdout).toEqual([
+        "[compile:component/fixture] Compiling...",
+        "[compile:component/fixture] Compiled successfully",
+        "[compile:component/fixture] Compiling...",
+        "[compile:component/fixture] Compiled successfully",
+      ]);
+      expect(output.stderr).toEqual([]);
+      expect(await readFile(path.join(fixture.distDir, "index.js"), "utf8")).toContain("value = 2");
+
+      await stop?.();
+      await writeFile(path.join(fixture.rootDir, "index.ts"), "export const value = 3;\n");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(resultMessages(messages)).toHaveLength(2);
+    } finally {
+      await stop?.();
+      output.restore();
+    }
   }, 10_000);
 
   it("lets the env vendor rebuild flattened dist/index.json", async () => {
@@ -54,24 +76,82 @@ describe("maintained compiler vendor lifecycle", () => {
     );
     const messages: VendorMessage<CompileWatchResult>[] = [];
     const runtime = createRuntime(fixture.input, messages);
-    const started = await startEnvCompiler(runtime);
+    const output = captureConsole();
+    let stop: (() => void | Promise<void>) | undefined;
 
-    expect(JSON.parse(await readFile(path.join(fixture.distDir, "index.json"), "utf8"))).toMatchObject({
-      formatVersion: 1,
-      name: "@scope/env.fixture",
-      config: { value: 1 },
-      inheritance: ["@scope/env.fixture"],
-    });
+    try {
+      const started = await startEnvCompiler(runtime);
+      stop = started?.stop;
 
-    await writeFile(path.join(fixture.rootDir, "index.json"), JSON.stringify({
-      name: "@scope/env.fixture",
-      services: {},
-      config: { value: 2 },
-    }));
-    await vi.waitFor(() => expect(resultMessages(messages)).toHaveLength(2), { timeout: 5_000 });
-    expect(JSON.parse(await readFile(path.join(fixture.distDir, "index.json"), "utf8")))
-      .toMatchObject({ config: { value: 2 } });
-    await started?.stop?.();
+      expect(output.stdout).toEqual([
+        "[compile:envs/fixture] Compiling...",
+        "[compile:envs/fixture] Compiled successfully",
+      ]);
+      expect(JSON.parse(await readFile(path.join(fixture.distDir, "index.json"), "utf8"))).toMatchObject({
+        formatVersion: 1,
+        name: "@scope/env.fixture",
+        config: { value: 1 },
+        inheritance: ["@scope/env.fixture"],
+      });
+
+      await writeFile(path.join(fixture.rootDir, "index.json"), JSON.stringify({
+        name: "@scope/env.fixture",
+        services: {},
+        config: { value: 2 },
+      }));
+      await vi.waitFor(() => expect(resultMessages(messages)).toHaveLength(2), { timeout: 5_000 });
+      expect(output.stdout).toEqual([
+        "[compile:envs/fixture] Compiling...",
+        "[compile:envs/fixture] Compiled successfully",
+        "[compile:envs/fixture] Compiling...",
+        "[compile:envs/fixture] Compiled successfully",
+      ]);
+      expect(output.stderr).toEqual([]);
+      expect(JSON.parse(await readFile(path.join(fixture.distDir, "index.json"), "utf8")))
+        .toMatchObject({ config: { value: 2 } });
+    } finally {
+      await stop?.();
+      output.restore();
+    }
+  }, 10_000);
+
+  it("keeps watching after a failed TypeScript rebuild and reports a later correction", async () => {
+    const fixture = await createFixture("component", "index.ts", "export const value = 1;\n");
+    const messages: VendorMessage<CompileWatchResult>[] = [];
+    const runtime = createRuntime(fixture.input, messages);
+    const output = captureConsole();
+    let stop: (() => void | Promise<void>) | undefined;
+
+    try {
+      const started = await startTypeScriptCompiler(runtime);
+      stop = started?.stop;
+      expect(resultMessages(messages).map((message) => message.data.run)).toEqual([1]);
+
+      await writeFile(path.join(fixture.rootDir, "index.ts"), "export const value: = 2;\n");
+      await vi.waitFor(() => expect(errorMessages(messages).length).toBeGreaterThan(0), {
+        timeout: 5_000,
+      });
+
+      const diagnostic = errorMessages(messages)[0]?.message;
+      expect(diagnostic).toContain("index.ts");
+      expect(output.stderr.join("\n")).toContain(
+        `[compile:component/fixture] Compilation failed\n${diagnostic}`
+      );
+      expect(output.stdout.filter((line) => line.includes("Compiled successfully"))).toHaveLength(1);
+      expect(resultMessages(messages).map((message) => message.data.run)).toEqual([1]);
+
+      await writeFile(path.join(fixture.rootDir, "index.ts"), "export const value = 2;\n");
+      await vi.waitFor(() => expect(resultMessages(messages)).toHaveLength(2), { timeout: 5_000 });
+
+      expect(resultMessages(messages).map((message) => message.data.run)).toEqual([1, 2]);
+      expect(output.stdout.filter((line) => line.includes("Compiled successfully"))).toHaveLength(2);
+      expect(output.stdout.at(-2)).toBe("[compile:component/fixture] Compiling...");
+      expect(output.stdout.at(-1)).toBe("[compile:component/fixture] Compiled successfully");
+      expect(await readFile(path.join(fixture.distDir, "index.js"), "utf8")).toContain("value = 2");
+    } finally {
+      await stop?.();
+      output.restore();
+    }
   }, 10_000);
 
   it("uses the same default entry for one-shot env compilation", async () => {
@@ -99,20 +179,28 @@ describe("maintained compiler vendor lifecycle", () => {
     }));
 
     const messages: VendorMessage<CompileWatchResult>[] = [];
-    const started = await startEnvCompiler(createRuntime(fixture.input, messages));
-    expect(started?.data?.output).toMatchObject({ artifactCount: 1, formatVersion: 1 });
-    expect(messages).toEqual([]);
-    expect(JSON.parse(await readFile(path.join(fixture.distDir, "index.json"), "utf8"))).toMatchObject({
-      services: {
-        test: { vendor: "child-test" },
-        compile: { vendor: "parent-compiler" },
-      },
-      inheritance: ["@scope/env.parent", "@scope/env.fixture"],
-      serviceOrigins: {
-        test: { dependencyPath: [] },
-        compile: { dependencyPath: ["@scope/env.parent"] },
-      },
-    });
+    const output = captureConsole();
+
+    try {
+      const started = await startEnvCompiler(createRuntime(fixture.input, messages));
+      expect(started?.data?.output).toMatchObject({ artifactCount: 1, formatVersion: 1 });
+      expect(messages).toEqual([]);
+      expect(output.stdout).toEqual([]);
+      expect(output.stderr).toEqual([]);
+      expect(JSON.parse(await readFile(path.join(fixture.distDir, "index.json"), "utf8"))).toMatchObject({
+        services: {
+          test: { vendor: "child-test" },
+          compile: { vendor: "parent-compiler" },
+        },
+        inheritance: ["@scope/env.parent", "@scope/env.fixture"],
+        serviceOrigins: {
+          test: { dependencyPath: [] },
+          compile: { dependencyPath: ["@scope/env.parent"] },
+        },
+      });
+    } finally {
+      output.restore();
+    }
   });
 });
 
@@ -194,4 +282,28 @@ function createRuntime(
 
 function resultMessages(messages: VendorMessage<CompileWatchResult>[]) {
   return messages.filter((message): message is { type: "result"; data: CompileWatchResult } => message.type === "result");
+}
+
+function errorMessages(messages: VendorMessage<CompileWatchResult>[]) {
+  return messages.filter((message): message is { type: "error"; message: string } => message.type === "error");
+}
+
+function captureConsole() {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const log = vi.spyOn(console, "log").mockImplementation((...values) => {
+    stdout.push(values.map(String).join(" "));
+  });
+  const error = vi.spyOn(console, "error").mockImplementation((...values) => {
+    stderr.push(values.map(String).join(" "));
+  });
+
+  return {
+    stdout,
+    stderr,
+    restore() {
+      log.mockRestore();
+      error.mockRestore();
+    },
+  };
 }

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { readWorkspace } from "bit-lite-context";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   compileComponentPackages,
   createCompileWatchContribution,
@@ -147,6 +147,46 @@ describe("configured per-component compile services", () => {
 
     await contribution.dispose();
     await contribution.dispose();
+  }, 10_000);
+
+  it("retains worker-backed compile stdout and stderr for late terminal replay", async () => {
+    const root = await createCompileWorkspace([
+      env("envs/a", "@scope/env.a", compilerVendor("compiler-output", true), { label: "A" }),
+      ordinary("lib/a", "@scope/lib.a", "@scope/env.a"),
+    ]);
+    const workspace = await readWorkspace(root);
+    await linkComponentPackages(workspace);
+    const contribution = await createCompileWatchContribution(
+      workspace,
+      ["lib/a"],
+      { raw: ["compile", "--watch"], options: { watch: true }, passthrough: [] }
+    );
+
+    try {
+      const task = contribution.bindings.find(({ component }) => component.id === "lib/a")?.task;
+      expect(task).toBeDefined();
+
+      await vi.waitFor(() => {
+        const retained = task?.rawOutput.entries() ?? [];
+        expect(retained.some(({ stream }) => stream === "stdout")).toBe(true);
+        expect(retained.some(({ stream }) => stream === "stderr")).toBe(true);
+      });
+
+      const stdout = task?.rawOutput.entries()
+        .filter(({ stream }) => stream === "stdout")
+        .map(({ chunk }) => chunk.toString("utf8"))
+        .join("");
+      const stderr = task?.rawOutput.entries()
+        .filter(({ stream }) => stream === "stderr")
+        .map(({ chunk }) => chunk.toString("utf8"))
+        .join("");
+      expect(stdout).toContain("[compile:lib/a] Compiling...");
+      expect(stdout).toContain("[compile:lib/a] Compiled successfully");
+      expect(stderr).toContain("[compile:lib/a] Watcher error");
+      expect(stderr).toContain("fixture watcher diagnostic");
+    } finally {
+      await contribution.dispose();
+    }
   }, 10_000);
 
   it("cleans up staged prerequisite tasks when a consumer vendor lacks the watch lifecycle", async () => {
@@ -313,7 +353,7 @@ function envCompilerVendor() {
   return `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
 }
 
-function compilerVendor(id: string) {
+function compilerVendor(id: string, emitsWatchOutput = false) {
   const source = `
     import { mkdir, writeFile } from "node:fs/promises";
     import path from "node:path";
@@ -329,9 +369,17 @@ function compilerVendor(id: string) {
     }
     export default async function start(runtime) {
       if (runtime.data.context.args.options.watch === true) {
+        const component = runtime.data.components[0];
         runtime.postMessage({ type: "ready" });
+        if (${JSON.stringify(emitsWatchOutput)}) {
+          console.log("[compile:" + component.id + "] Compiling...");
+          console.error("[compile:" + component.id + "] Watcher error\\nfixture watcher diagnostic");
+        }
         try {
           const output = await compileOnce(runtime.data);
+          if (${JSON.stringify(emitsWatchOutput)}) {
+            console.log("[compile:" + component.id + "] Compiled successfully");
+          }
           runtime.postMessage({ type: "result", data: { run: 1, output } });
           runtime.postMessage({ type: "status", status: "watching" });
         } catch (error) {
