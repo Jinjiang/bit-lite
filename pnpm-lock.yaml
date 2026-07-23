@@ -347,8 +347,6 @@ importers:
         specifier: workspace:*
         version: link:../demo-vendors
 
-  packages/demo-tester-watch-api: {}
-
   packages/demo-utils:
     dependencies:
       '@mdx-js/mdx':
