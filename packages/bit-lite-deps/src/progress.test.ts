@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createDependencyProgressAdapter,
-  createDependencyProgressReader,
+  createDependencyLogListener,
   type DependencyInstallProgressEvent,
 } from "./progress.js";
 
@@ -151,18 +151,15 @@ describe("dependency progress adapter", () => {
   });
 });
 
-describe("dependency progress reader", () => {
-  const stage = (name: string) =>
-    JSON.stringify({ name: "pnpm:stage", prefix: "/workspace", stage: name });
+describe("dependency log listener", () => {
+  const stage = (name: string) => ({ name: "pnpm:stage", prefix: "/workspace", stage: name });
 
-  it("reassembles records split across chunk boundaries", () => {
+  it("converts engine log records into progress events", () => {
     const events: DependencyInstallProgressEvent[] = [];
-    const reader = createDependencyProgressReader("/workspace", (event) => events.push(event));
-    const line = stage("resolution_started");
+    const listener = createDependencyLogListener("/workspace", (event) => events.push(event));
 
-    reader.write(line.slice(0, 10));
-    expect(events).toEqual([]);
-    reader.write(`${line.slice(10)}\n${stage("resolution_done")}\n`);
+    listener(stage("resolution_started"));
+    listener(stage("resolution_done"));
 
     expect(events).toEqual([
       { type: "stage", stage: "resolution", status: "started" },
@@ -170,23 +167,13 @@ describe("dependency progress reader", () => {
     ]);
   });
 
-  it("flushes an unterminated trailing record on end", () => {
+  it("ignores records the adapter does not recognize", () => {
     const events: DependencyInstallProgressEvent[] = [];
-    const reader = createDependencyProgressReader("/workspace", (event) => events.push(event));
+    const listener = createDependencyLogListener("/workspace", (event) => events.push(event));
 
-    reader.write(stage("importing_started"));
-    expect(events).toEqual([]);
-    reader.end();
-    reader.end();
-
-    expect(events).toEqual([{ type: "stage", stage: "importing", status: "started" }]);
-  });
-
-  it("ignores blank and non-JSON output", () => {
-    const events: DependencyInstallProgressEvent[] = [];
-    const reader = createDependencyProgressReader("/workspace", (event) => events.push(event));
-
-    reader.write(`\n  \nProgress: resolved 3\n{"broken":\n${stage("importing_done")}\n`);
+    listener({ name: "pnpm:package-import-method", method: "clone" });
+    listener(undefined);
+    listener(stage("importing_done"));
 
     expect(events).toEqual([{ type: "stage", stage: "importing", status: "completed" }]);
   });
@@ -195,10 +182,10 @@ describe("dependency progress reader", () => {
     const onProgress = vi.fn(() => {
       throw new Error("renderer failed");
     });
-    const reader = createDependencyProgressReader("/workspace", onProgress);
+    const listener = createDependencyLogListener("/workspace", onProgress);
 
-    expect(() => reader.write(`${stage("resolution_started")}\n`)).not.toThrow();
-    reader.write(`${stage("resolution_done")}\n`);
+    expect(() => listener(stage("resolution_started"))).not.toThrow();
+    listener(stage("resolution_done"));
 
     expect(onProgress).toHaveBeenCalledOnce();
   });

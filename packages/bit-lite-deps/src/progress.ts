@@ -42,22 +42,14 @@ export type DependencyInstallProgressEvent =
       errorCode?: string | number;
     };
 
-export type DependencyProgressReader = {
-  /** Feeds a raw chunk of the CLI's ndjson stream; partial lines are buffered. */
-  write(chunk: string): void;
-  /** Flushes a trailing line that was not terminated by a newline. */
-  end(): void;
-};
-
 /**
- * Parses `pnpm install --reporter=ndjson` output into progress events.
- * The CLI emits the same log records the programmatic logger used to publish,
- * so only the transport differs: newline-delimited JSON on stdout.
+ * Adapts the engine's log callback into progress events. The Rust engine emits
+ * wire-compatible pnpm log records, so the adapter below reads them unchanged.
  */
-export function createDependencyProgressReader(
+export function createDependencyLogListener(
   rootDir: string,
   onProgress: (event: DependencyInstallProgressEvent) => void
-): DependencyProgressReader {
+) {
   let active = true;
   const adapter = createDependencyProgressAdapter(rootDir, (event) => {
     try {
@@ -67,35 +59,8 @@ export function createDependencyProgressReader(
       active = false;
     }
   });
-  let buffer = "";
-
-  const consume = (line: string) => {
-    if (!active || line.trim() === "") return;
-    let record: unknown;
-    try {
-      record = JSON.parse(line) as unknown;
-    } catch {
-      // pnpm interleaves occasional non-JSON output; ignore what does not parse.
-      return;
-    }
-    adapter(record);
-  };
-
-  return {
-    write(chunk: string) {
-      buffer += chunk;
-      let index = buffer.indexOf("\n");
-      while (index !== -1) {
-        consume(buffer.slice(0, index));
-        buffer = buffer.slice(index + 1);
-        index = buffer.indexOf("\n");
-      }
-    },
-    end() {
-      const trailing = buffer;
-      buffer = "";
-      consume(trailing);
-    },
+  return (record: unknown) => {
+    if (active) adapter(record);
   };
 }
 

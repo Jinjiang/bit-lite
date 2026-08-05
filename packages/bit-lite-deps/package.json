@@ -17,9 +17,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@pnpm/napi": "12.0.0-beta.4",
     "bit-lite-utils": "workspace:*",
     "fast-glob": "^3.3.3",
-    "pnpm": "11.20.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
