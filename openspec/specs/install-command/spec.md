@@ -68,17 +68,24 @@ Warnings and dependency request retries observed during installation SHALL be em
 - **WHEN** `install --compile` reaches compilation and a configured compiler fails
 - **THEN** Bit-lite marks compilation as failed and preserves the existing compilation failure details and command exit behavior
 
-### Requirement: Dependency reporting is scoped and disposable
-The dependency layer SHALL expose a Bit-lite-owned progress event contract rather than pnpm log object types. Any listener attached to pnpm's process-global logger for one dependency installation SHALL filter scoped records to that installation root where scope data is available and MUST be removed after worker cleanup is attempted on every success or failure path. Unknown pnpm records SHALL be ignored without failing installation.
+### Requirement: Dependency reporting is scoped and complete
+The dependency layer SHALL expose a Bit-lite-owned progress event contract rather than pnpm log object types. Records read from the pnpm CLI's ndjson reporter SHALL be filtered to the installation root where scope data is available, and buffered output SHALL be flushed on every success or failure path. Unknown or unparsable pnpm output SHALL be ignored without failing installation.
 
 #### Scenario: Dependency installation succeeds
 - **WHEN** `installDependencyProjects` completes normally
-- **THEN** its pnpm logger listener is removed and a later in-process operation does not receive duplicate progress through that listener
+- **THEN** every complete record observed on the reporter stream has been converted to progress events, and a later installation starts from fresh counters
 
 #### Scenario: Dependency installation throws
-- **WHEN** pnpm setup, mutation, or worker cleanup throws
-- **THEN** the logger listener is still removed and the underlying error remains observable
+- **WHEN** the pnpm CLI cannot be started or exits with a non-zero status
+- **THEN** buffered reporter output is still flushed and an error carrying the exit status and captured stderr remains observable
 
 #### Scenario: pnpm emits an unknown record
-- **WHEN** the pinned pnpm stack or a later compatible version emits an unrecognized logger record
-- **THEN** the adapter ignores that record without exposing it through the public progress contract or aborting installation
+- **WHEN** the pinned pnpm CLI or a later compatible version emits an unrecognized or non-JSON reporter line
+- **THEN** the adapter ignores that line without exposing it through the public progress contract or aborting installation
+
+### Requirement: Dependency installation is confined to Bit-lite's own projects
+Local packages discovered in an enclosing repository SHALL be made linkable without becoming installation targets. Bit-lite MUST NOT write to `node_modules` directories outside its generated install root.
+
+#### Scenario: Bit workspace is nested in another repository
+- **WHEN** dependency installation runs with local packages discovered from an enclosing pnpm workspace
+- **THEN** those packages are linked into component dependency directories while their own `node_modules` directories remain untouched

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createDependencyProgressAdapter,
-  observeDependencyInstallProgress,
+  createDependencyProgressReader,
   type DependencyInstallProgressEvent,
 } from "./progress.js";
 
@@ -151,60 +151,55 @@ describe("dependency progress adapter", () => {
   });
 });
 
-describe("dependency progress observation", () => {
-  it("removes its listener when disposed", () => {
-    const stream = new FakeProgressStream();
-    const dispose = observeDependencyInstallProgress("/workspace", vi.fn(), stream);
+describe("dependency progress reader", () => {
+  const stage = (name: string) =>
+    JSON.stringify({ name: "pnpm:stage", prefix: "/workspace", stage: name });
 
-    expect(stream.listenerCount).toBe(1);
-    dispose();
-    dispose();
+  it("reassembles records split across chunk boundaries", () => {
+    const events: DependencyInstallProgressEvent[] = [];
+    const reader = createDependencyProgressReader("/workspace", (event) => events.push(event));
+    const line = stage("resolution_started");
 
-    expect(stream.listenerCount).toBe(0);
-    expect(stream.removeCalls).toBe(1);
+    reader.write(line.slice(0, 10));
+    expect(events).toEqual([]);
+    reader.write(`${line.slice(10)}\n${stage("resolution_done")}\n`);
+
+    expect(events).toEqual([
+      { type: "stage", stage: "resolution", status: "started" },
+      { type: "stage", stage: "resolution", status: "completed" },
+    ]);
   });
 
-  it("removes its listener and suppresses callback failures", () => {
-    const stream = new FakeProgressStream();
-    const callback = vi.fn(() => {
+  it("flushes an unterminated trailing record on end", () => {
+    const events: DependencyInstallProgressEvent[] = [];
+    const reader = createDependencyProgressReader("/workspace", (event) => events.push(event));
+
+    reader.write(stage("importing_started"));
+    expect(events).toEqual([]);
+    reader.end();
+    reader.end();
+
+    expect(events).toEqual([{ type: "stage", stage: "importing", status: "started" }]);
+  });
+
+  it("ignores blank and non-JSON output", () => {
+    const events: DependencyInstallProgressEvent[] = [];
+    const reader = createDependencyProgressReader("/workspace", (event) => events.push(event));
+
+    reader.write(`\n  \nProgress: resolved 3\n{"broken":\n${stage("importing_done")}\n`);
+
+    expect(events).toEqual([{ type: "stage", stage: "importing", status: "completed" }]);
+  });
+
+  it("stops reporting after a reporter failure instead of aborting the install", () => {
+    const onProgress = vi.fn(() => {
       throw new Error("renderer failed");
     });
-    observeDependencyInstallProgress("/workspace", callback, stream);
+    const reader = createDependencyProgressReader("/workspace", onProgress);
 
-    expect(() => stream.emit({
-      name: "pnpm:stage",
-      prefix: "/workspace",
-      stage: "resolution_started",
-    })).not.toThrow();
-    stream.emit({
-      name: "pnpm:stage",
-      prefix: "/workspace",
-      stage: "resolution_done",
-    });
+    expect(() => reader.write(`${stage("resolution_started")}\n`)).not.toThrow();
+    reader.write(`${stage("resolution_done")}\n`);
 
-    expect(callback).toHaveBeenCalledOnce();
-    expect(stream.listenerCount).toBe(0);
+    expect(onProgress).toHaveBeenCalledOnce();
   });
 });
-
-class FakeProgressStream {
-  #listeners = new Set<(record: unknown) => void>();
-  removeCalls = 0;
-
-  get listenerCount() {
-    return this.#listeners.size;
-  }
-
-  on(_event: "data", listener: (record: unknown) => void) {
-    this.#listeners.add(listener);
-  }
-
-  removeListener(_event: "data", listener: (record: unknown) => void) {
-    this.removeCalls += 1;
-    this.#listeners.delete(listener);
-  }
-
-  emit(record: unknown) {
-    for (const listener of [...this.#listeners]) listener(record);
-  }
-}

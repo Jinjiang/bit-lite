@@ -1,5 +1,4 @@
 import path from "node:path";
-import { streamParser } from "@pnpm/logger";
 import { isRecord } from "bit-lite-utils";
 
 export type DependencyInstallProgressCounts = {
@@ -43,34 +42,61 @@ export type DependencyInstallProgressEvent =
       errorCode?: string | number;
     };
 
-type ProgressStream = {
-  on(event: "data", listener: (record: unknown) => void): void;
-  removeListener(event: "data", listener: (record: unknown) => void): void;
+export type DependencyProgressReader = {
+  /** Feeds a raw chunk of the CLI's ndjson stream; partial lines are buffered. */
+  write(chunk: string): void;
+  /** Flushes a trailing line that was not terminated by a newline. */
+  end(): void;
 };
 
-export function observeDependencyInstallProgress(
+/**
+ * Parses `pnpm install --reporter=ndjson` output into progress events.
+ * The CLI emits the same log records the programmatic logger used to publish,
+ * so only the transport differs: newline-delimited JSON on stdout.
+ */
+export function createDependencyProgressReader(
   rootDir: string,
-  onProgress: (event: DependencyInstallProgressEvent) => void,
-  progressStream: ProgressStream = streamParser as unknown as ProgressStream
-) {
+  onProgress: (event: DependencyInstallProgressEvent) => void
+): DependencyProgressReader {
   let active = true;
-  const dispose = () => {
-    if (!active) return;
-    active = false;
-    progressStream.removeListener("data", listener);
-  };
   const adapter = createDependencyProgressAdapter(rootDir, (event) => {
     try {
       onProgress(event);
     } catch {
-      dispose();
+      // A failing reporter must not abort the install; stop reporting instead.
+      active = false;
     }
   });
-  const listener = (record: unknown) => {
-    if (active) adapter(record);
+  let buffer = "";
+
+  const consume = (line: string) => {
+    if (!active || line.trim() === "") return;
+    let record: unknown;
+    try {
+      record = JSON.parse(line) as unknown;
+    } catch {
+      // pnpm interleaves occasional non-JSON output; ignore what does not parse.
+      return;
+    }
+    adapter(record);
   };
-  progressStream.on("data", listener);
-  return dispose;
+
+  return {
+    write(chunk: string) {
+      buffer += chunk;
+      let index = buffer.indexOf("\n");
+      while (index !== -1) {
+        consume(buffer.slice(0, index));
+        buffer = buffer.slice(index + 1);
+        index = buffer.indexOf("\n");
+      }
+    },
+    end() {
+      const trailing = buffer;
+      buffer = "";
+      consume(trailing);
+    },
+  };
 }
 
 export function createDependencyProgressAdapter(
