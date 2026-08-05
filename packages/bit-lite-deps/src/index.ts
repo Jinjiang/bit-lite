@@ -1,16 +1,12 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { getConfig } from "@pnpm/config";
-import { mutateModules, type InstallOptions, type MutatedProject, type ProjectOptions } from "@pnpm/core";
-import { createOrConnectStoreController } from "@pnpm/store-connection-manager";
-import type { ProjectManifest, ProjectRootDir } from "@pnpm/types";
-import { finishWorkers, restartWorkerPool } from "@pnpm/worker";
-import { isRecord, throwCombinedErrors } from "bit-lite-utils";
+import { isRecord } from "bit-lite-utils";
 import { isNodeErrorCode } from "bit-lite-utils/node";
 import fg from "fast-glob";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { runPnpmInstall } from "./pnpm-cli.js";
 import {
-  observeDependencyInstallProgress,
+  createDependencyProgressReader,
   type DependencyInstallProgressEvent,
 } from "./progress.js";
 
@@ -19,9 +15,15 @@ export type {
   DependencyInstallProgressEvent,
 } from "./progress.js";
 
+export type DependencyProjectManifest = {
+  name?: string;
+  version?: string;
+  [key: string]: unknown;
+};
+
 export type DependencyProject = {
   rootDir: string;
-  manifest: ProjectManifest;
+  manifest: DependencyProjectManifest;
 };
 
 export type InstallDependencyProjectsOptions = {
@@ -37,85 +39,92 @@ export type InstallDependencyProjectsOptions = {
 };
 
 export async function installDependencyProjects(options: InstallDependencyProjectsOptions) {
-  const disposeProgress = options.onProgress
-    ? observeDependencyInstallProgress(options.rootDir, options.onProgress)
-    : undefined;
-  const failures: unknown[] = [];
-  try {
-    const { config } = await getConfig({
-      cliOptions: {
-        dir: options.rootDir,
-        ignoreScripts: true,
-      },
-      packageManager: {
-        name: "pnpm",
-        version: "11.7.0",
-      },
-    });
-    const store = await createOrConnectStoreController({
-      ...config,
-      dir: options.rootDir,
-      workspaceDir: options.rootDir,
-    });
-    const allProjects: ProjectOptions[] = options.projects.map((project) => ({
-      buildIndex: 0,
-      manifest: project.manifest,
-      rootDir: project.rootDir as ProjectRootDir,
-    }));
-    const workspacePackages = createWorkspacePackageMap(options.workspacePackages ?? []);
-    const mutations: MutatedProject[] = options.projects.map((project) => ({
-      rootDir: project.rootDir as ProjectRootDir,
-      mutation: "install",
-    }));
-    const installOptions: InstallOptions = {
-      allProjects,
-      autoInstallPeers: false,
-      autoInstallPeersFromHighestMatch: false,
-      confirmModulesPurge: false,
-      dedupeDirectDeps: true,
-      dedupePeerDependents: true,
-      depth: 0,
-      dir: options.rootDir,
-      enableModulesDir: true,
-      excludeLinksFromLockfile: true,
-      hoistPattern: [],
-      ignoreScripts: true,
-      include: {
-        dependencies: true,
-        devDependencies: true,
-        optionalDependencies: true,
-      },
-      injectWorkspacePackages: false,
-      linkWorkspacePackagesDepth: workspacePackages.size > 0 ? 0 : -1,
-      lockfileOnly: false,
-      modulesCacheMaxAge: Infinity,
-      nodeLinker: "isolated",
-      preferFrozenLockfile: true,
-      preferWorkspacePackages: workspacePackages.size > 0,
-      pruneLockfileImporters: true,
-      rawConfig: config.rawConfig,
-      registries: config.registries,
-      resolutionMode: "highest",
-      resolvePeersFromWorkspaceRoot: false,
-      storeController: store.ctrl,
-      storeDir: store.dir,
-      strictPeerDependencies: false,
-      workspacePackages,
-    };
+  const workspacePackages = options.workspacePackages ?? [];
+  await writeInstallWorkspaceFile(options.rootDir, options.projects, workspacePackages);
 
-    await restartWorkerPool();
-    await mutateModules(mutations, installOptions);
-  } catch (error) {
-    failures.push(error);
-  }
+  const reader = options.onProgress
+    ? createDependencyProgressReader(options.rootDir, options.onProgress)
+    : undefined;
   try {
-    await finishWorkers();
-  } catch (error) {
-    failures.push(error);
+    await runPnpmInstall({
+      cwd: options.rootDir,
+      filters: createInstallFilters(options.rootDir, options.projects),
+      ...(reader === undefined ? {} : { onOutput: (chunk: string) => reader.write(chunk) }),
+    });
   } finally {
-    disposeProgress?.();
+    reader?.end();
   }
-  throwCombinedErrors(failures, "Dependency installation and worker cleanup failed");
+}
+
+/**
+ * Writes the generated workspace file that drives the install. Every project and
+ * every linkable local package is listed here, and the settings reproduce the
+ * install behaviour bit-lite previously configured through the programmatic API.
+ */
+async function writeInstallWorkspaceFile(
+  rootDir: string,
+  projects: DependencyProject[],
+  workspacePackages: DependencyProject[]
+) {
+  const linkWorkspacePackages = workspacePackages.length > 0;
+  const settings = {
+    packages: collectWorkspacePatterns(rootDir, [...projects, ...workspacePackages]),
+    autoInstallPeers: false,
+    confirmModulesPurge: false,
+    dedupeDirectDeps: true,
+    dedupePeerDependents: true,
+    excludeLinksFromLockfile: true,
+    hoist: false,
+    ignoreScripts: true,
+    injectWorkspacePackages: false,
+    linkWorkspacePackages,
+    // Approximates the unbounded cache age bit-lite used before: keep orphaned
+    // packages around instead of re-fetching them on the next install.
+    modulesCacheMaxAge: 525_600,
+    nodeLinker: "isolated",
+    preferWorkspacePackages: linkWorkspacePackages,
+    resolutionMode: "highest",
+    resolvePeersFromWorkspaceRoot: false,
+    strictPeerDependencies: false,
+  };
+  await writeFile(path.join(rootDir, "pnpm-workspace.yaml"), stringifyYaml(settings), "utf8");
+}
+
+/**
+ * Turns project directories into workspace patterns relative to the install root.
+ * The root is always a project itself, and local packages resolved from an
+ * enclosing repository are referenced through `..` segments.
+ */
+function collectWorkspacePatterns(rootDir: string, projects: DependencyProject[]) {
+  const patterns = new Set<string>();
+  for (const project of projects) {
+    const relative = toWorkspaceRelativePath(rootDir, project.rootDir);
+    if (relative === "") continue;
+    patterns.add(relative);
+  }
+  return [...patterns].sort();
+}
+
+/**
+ * Restricts the install to bit-lite's own projects. Local packages discovered in
+ * an enclosing repository have to be workspace members to stay linkable, but
+ * installing them would repoint that repository's own `node_modules` at the
+ * store generated here.
+ */
+function createInstallFilters(rootDir: string, projects: DependencyProject[]) {
+  const filters = new Set<string>();
+  for (const project of projects) {
+    const relative = toWorkspaceRelativePath(rootDir, project.rootDir);
+    // A leading `./` is what makes pnpm read the filter as a path instead of a
+    // package name pattern.
+    filters.add(relative === "" ? "." : `./${relative}`);
+  }
+  return [...filters].sort();
+}
+
+function toWorkspaceRelativePath(rootDir: string, dir: string) {
+  const relative = path.relative(path.resolve(rootDir), path.resolve(dir));
+  return relative.split(path.sep).join("/");
 }
 
 /**
@@ -144,25 +153,12 @@ export async function discoverPnpmWorkspacePackages(startDir: string): Promise<D
     try {
       const manifest = JSON.parse(await readFile(path.join(rootDir, "package.json"), "utf8")) as unknown;
       if (!isRecord(manifest) || typeof manifest.name !== "string" || typeof manifest.version !== "string") continue;
-      projects.push({ rootDir, manifest: manifest as ProjectManifest });
+      projects.push({ rootDir, manifest });
     } catch (error) {
       if (!isNodeErrorCode(error, "ENOENT")) throw error;
     }
   }
   return projects;
-}
-
-function createWorkspacePackageMap(projects: DependencyProject[]) {
-  const result = new Map<string, Map<string, { rootDir: ProjectRootDir; manifest: ProjectManifest }>>();
-  for (const project of projects) {
-    const name = typeof project.manifest.name === "string" ? project.manifest.name : undefined;
-    const version = typeof project.manifest.version === "string" ? project.manifest.version : undefined;
-    if (!name || !version) continue;
-    const versions = result.get(name) ?? new Map();
-    versions.set(version, { rootDir: project.rootDir as ProjectRootDir, manifest: project.manifest });
-    result.set(name, versions);
-  }
-  return result as NonNullable<InstallOptions["workspacePackages"]>;
 }
 
 async function findWorkspaceRoot(startDir: string) {
