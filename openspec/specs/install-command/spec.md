@@ -69,23 +69,31 @@ Warnings and dependency request retries observed during installation SHALL be em
 - **THEN** Bit-lite marks compilation as failed and preserves the existing compilation failure details and command exit behavior
 
 ### Requirement: Dependency reporting is scoped and complete
-The dependency layer SHALL expose a Bit-lite-owned progress event contract rather than pnpm log object types. Records read from the pnpm CLI's ndjson reporter SHALL be filtered to the installation root where scope data is available, and buffered output SHALL be flushed on every success or failure path. Unknown or unparsable pnpm output SHALL be ignored without failing installation.
+The dependency layer SHALL expose a Bit-lite-owned progress event contract rather than pnpm log object types. Records received from the install engine's log callback SHALL be filtered to the installation root where scope data is available. Unknown records SHALL be ignored without failing installation.
 
 #### Scenario: Dependency installation succeeds
 - **WHEN** `installDependencyProjects` completes normally
-- **THEN** every complete record observed on the reporter stream has been converted to progress events, and a later installation starts from fresh counters
+- **THEN** every record observed on the log callback has been converted to progress events, and a later installation starts from fresh counters
 
 #### Scenario: Dependency installation throws
-- **WHEN** the pnpm CLI cannot be started or exits with a non-zero status
-- **THEN** buffered reporter output is still flushed and an error carrying the exit status and captured stderr remains observable
+- **WHEN** the install engine rejects the installation
+- **THEN** the underlying error remains observable to the CLI error path
 
 #### Scenario: pnpm emits an unknown record
-- **WHEN** the pinned pnpm CLI or a later compatible version emits an unrecognized or non-JSON reporter line
-- **THEN** the adapter ignores that line without exposing it through the public progress contract or aborting installation
+- **WHEN** the pinned engine or a later compatible version emits an unrecognized log record
+- **THEN** the adapter ignores that record without exposing it through the public progress contract or aborting installation
 
 ### Requirement: Dependency installation is confined to Bit-lite's own projects
-Local packages discovered in an enclosing repository SHALL be made linkable without becoming installation targets. Bit-lite MUST NOT write to `node_modules` directories outside its generated install root.
+Only Bit-lite's own generated projects SHALL be installation targets. Local packages discovered in an enclosing repository SHALL be made linkable without becoming installation targets, and the installation root SHALL be marked as a workspace root so the engine cannot adopt an enclosing workspace. Bit-lite MUST NOT write to `node_modules` directories outside its generated install root.
 
 #### Scenario: Bit workspace is nested in another repository
 - **WHEN** dependency installation runs with local packages discovered from an enclosing pnpm workspace
 - **THEN** those packages are linked into component dependency directories while their own `node_modules` directories remain untouched
+
+#### Scenario: Install root is nested inside another workspace
+- **WHEN** the generated install root lies inside a directory tree that is itself a pnpm workspace
+- **THEN** the installation resolves its lockfile and virtual store inside the generated install root, leaving the enclosing workspace's `node_modules` unchanged
+
+#### Scenario: A generated lockfile is moved between machines
+- **WHEN** local packages are linked into the generated lockfile
+- **THEN** their paths are recorded relative to the install root rather than as absolute host paths

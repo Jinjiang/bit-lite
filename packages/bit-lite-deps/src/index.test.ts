@@ -2,192 +2,176 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parse as parseYaml } from "yaml";
 
-const mocks = vi.hoisted(() => ({
-  runPnpmInstall: vi.fn(),
+const mocks = vi.hoisted(() => ({ install: vi.fn() }));
+
+vi.mock("./pnpm-engine.js", () => ({
+  installWithPnpmEngine: mocks.install,
+  getPnpmEngineVersion: () => "12.0.0-beta.4",
 }));
-
-vi.mock("./pnpm-cli.js", () => ({ runPnpmInstall: mocks.runPnpmInstall }));
 
 import { installDependencyProjects, type DependencyInstallProgressEvent } from "./index.js";
 
-let rootDir: string;
+let ROOT: string;
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  mocks.runPnpmInstall.mockResolvedValue(undefined);
-  rootDir = await mkdtemp(path.join(tmpdir(), "bit-lite-deps-"));
+  mocks.install.mockResolvedValue({ stats: { added: 0, removed: 0, linkedToRoot: 0 }, storeDir: "/store" });
+  ROOT = await mkdtemp(path.join(tmpdir(), "bit-lite-deps-"));
 });
 
 afterEach(async () => {
-  await rm(rootDir, { recursive: true, force: true });
+  await rm(ROOT, { recursive: true, force: true });
 });
 
-async function readGeneratedWorkspace() {
-  return parseYaml(await readFile(path.join(rootDir, "pnpm-workspace.yaml"), "utf8")) as Record<
-    string,
-    unknown
-  >;
+function project(rootDir: string, name: string, dependencies?: Record<string, string>) {
+  return {
+    rootDir,
+    manifest: { name, version: "0.0.0", ...(dependencies ? { dependencies } : {}) },
+  };
 }
 
-describe("generated install workspace", () => {
-  it("lists component projects and local packages relative to the install root", async () => {
+function installOptions() {
+  return mocks.install.mock.calls[0]![0];
+}
+
+describe("engine install options", () => {
+  it("anchors the install root so the engine cannot adopt an enclosing workspace", async () => {
+    await installDependencyProjects({ rootDir: ROOT, projects: [project(ROOT, "generated-root")] });
+
+    // Without this file the engine walks up and prunes the enclosing
+    // repository's node_modules.
+    expect(await readFile(path.join(ROOT, "pnpm-workspace.yaml"), "utf8")).toBe("packages: []\n");
+  });
+
+  it("installs only bit-lite's own projects", async () => {
     await installDependencyProjects({
-      rootDir,
+      rootDir: ROOT,
       projects: [
-        { rootDir, manifest: { name: "generated-root", version: "0.0.0" } },
-        {
-          rootDir: path.join(rootDir, "components", "@my-scope", "ui.button"),
-          manifest: { name: "@my-scope/ui.button", version: "0.0.0" },
-        },
+        project(ROOT, "generated-root"),
+        project(`${ROOT}/components/@my-scope/ui.button`, "@my-scope/ui.button", { "demo-utils": "1.0.0" }),
       ],
-      workspacePackages: [
-        {
-          rootDir: path.join(rootDir, "..", "..", "demo-utils"),
-          manifest: { name: "demo-utils", version: "1.0.0" },
-        },
-      ],
+      workspacePackages: [project("/workspace/../demo-utils", "demo-utils")],
     });
 
-    const workspace = await readGeneratedWorkspace();
-
-    // The install root is a project implicitly, so it is not listed again.
-    expect(workspace.packages).toEqual([
-      "../../demo-utils",
-      "components/@my-scope/ui.button",
+    const options = installOptions();
+    expect(options.dir).toBe(ROOT);
+    // The local package is linked, never installed.
+    expect(options.projects.map((p: { rootDir: string }) => p.rootDir)).toEqual([
+      ROOT,
+      `${ROOT}/components/@my-scope/ui.button`,
     ]);
   });
 
-  it("installs only its own projects so enclosing repositories stay untouched", async () => {
-    const componentDir = path.join(rootDir, "components", "@my-scope", "ui.button");
-    const localPackageDir = path.join(rootDir, "..", "..", "demo-utils");
-
+  it("links local packages that a project depends on, relative to the install root", async () => {
     await installDependencyProjects({
-      rootDir,
-      projects: [
-        { rootDir, manifest: { name: "generated-root", version: "0.0.0" } },
-        { rootDir: componentDir, manifest: { name: "@my-scope/ui.button", version: "0.0.0" } },
-      ],
+      rootDir: ROOT,
+      projects: [project(ROOT, "generated-root", { "demo-utils": "1.0.0" })],
       workspacePackages: [
-        { rootDir: localPackageDir, manifest: { name: "demo-utils", version: "1.0.0" } },
+        project(path.join(ROOT, "..", "..", "packages", "demo-utils"), "demo-utils"),
       ],
     });
 
-    const workspace = await readGeneratedWorkspace();
-    // The local package is a workspace member, so it can be linked...
-    expect(workspace.packages).toContain("../../demo-utils");
-    // ...but it is never an install target.
-    expect(mocks.runPnpmInstall).toHaveBeenCalledWith(
-      expect.objectContaining({
-        filters: [".", "./components/@my-scope/ui.button"],
-      })
-    );
+    expect(installOptions().overrides).toEqual({
+      "demo-utils": "link:../../packages/demo-utils",
+    });
+    expect(installOptions().linkWorkspacePackages).toBe(true);
   });
 
-  it("enables workspace linking only when local packages are available", async () => {
+  it("ignores local packages no project depends on", async () => {
     await installDependencyProjects({
-      rootDir,
-      projects: [{ rootDir, manifest: { name: "generated-root", version: "0.0.0" } }],
-    });
-
-    const withoutLocals = await readGeneratedWorkspace();
-    expect(withoutLocals).toMatchObject({
-      packages: [],
-      linkWorkspacePackages: false,
-      preferWorkspacePackages: false,
-    });
-
-    await installDependencyProjects({
-      rootDir,
-      projects: [{ rootDir, manifest: { name: "generated-root", version: "0.0.0" } }],
+      rootDir: ROOT,
+      projects: [project(ROOT, "generated-root", { react: "19.0.0" })],
       workspacePackages: [
-        { rootDir: path.join(rootDir, "local"), manifest: { name: "local", version: "1.0.0" } },
+        project("/workspace/packages/demo-utils", "demo-utils"),
+        project("/workspace/packages/demo-config", "demo-config"),
       ],
     });
 
-    const withLocals = await readGeneratedWorkspace();
-    expect(withLocals).toMatchObject({
-      linkWorkspacePackages: true,
-      preferWorkspacePackages: true,
+    const options = installOptions();
+    expect(options.overrides).toBeUndefined();
+    expect(options.linkWorkspacePackages).toBe(false);
+  });
+
+  it("collects dependency names from every manifest field", async () => {
+    await installDependencyProjects({
+      rootDir: ROOT,
+      projects: [
+        { rootDir: ROOT, manifest: { name: "generated-root", version: "0.0.0" } },
+        {
+          rootDir: `${ROOT}/components/a`,
+          manifest: { name: "a", version: "0.0.0", devDependencies: { "demo-config": "1.0.0" } },
+        },
+        {
+          rootDir: `${ROOT}/components/b`,
+          manifest: { name: "b", version: "0.0.0", peerDependencies: { "demo-vendors": "1.0.0" } },
+        },
+      ],
+      workspacePackages: [
+        project("/workspace/packages/demo-config", "demo-config"),
+        project("/workspace/packages/demo-vendors", "demo-vendors"),
+      ],
     });
+
+    expect(Object.keys(installOptions().overrides).sort()).toEqual(["demo-config", "demo-vendors"]);
   });
 
   it("preserves the install settings bit-lite depends on", async () => {
-    await installDependencyProjects({
-      rootDir,
-      projects: [{ rootDir, manifest: { name: "generated-root", version: "0.0.0" } }],
-    });
+    await installDependencyProjects({ rootDir: ROOT, projects: [project(ROOT, "generated-root")] });
 
-    expect(await readGeneratedWorkspace()).toMatchObject({
+    expect(installOptions()).toMatchObject({
       autoInstallPeers: false,
-      confirmModulesPurge: false,
       dedupeDirectDeps: true,
       dedupePeerDependents: true,
-      excludeLinksFromLockfile: true,
-      hoist: false,
+      depth: 0,
+      enableModulesDir: true,
+      hoistPattern: [],
       ignoreScripts: true,
+      includeOptionalDeps: true,
       injectWorkspacePackages: false,
       nodeLinker: "isolated",
-      resolutionMode: "highest",
+      frozenLockfile: false,
+      preferFrozenLockfile: true,
       resolvePeersFromWorkspaceRoot: false,
-      strictPeerDependencies: false,
     });
   });
 });
 
-describe("installDependencyProjects progress lifecycle", () => {
-  it("streams reporter output into progress events", async () => {
+describe("progress reporting", () => {
+  it("converts engine log records into progress events", async () => {
     const events: DependencyInstallProgressEvent[] = [];
-    mocks.runPnpmInstall.mockImplementation(
-      async (options: { onOutput?: (chunk: string) => void }) => {
-        options.onOutput?.(
-          `${JSON.stringify({ name: "pnpm:stage", prefix: rootDir, stage: "resolution_started" })}\n`
-        );
-        // A record split across chunks must still be parsed once complete.
-        options.onOutput?.(`${JSON.stringify({ name: "pnpm:stats", prefix: rootDir, added: 3 })}`);
-      }
-    );
+    mocks.install.mockImplementation(async (_options: unknown, onLog?: (record: unknown) => void) => {
+      onLog?.({ name: "pnpm:stage", prefix: ROOT, stage: "resolution_started" });
+      onLog?.({ name: "pnpm:progress", requester: ROOT, status: "fetched", packageId: "react@19.0.0" });
+      onLog?.({ name: "pnpm:stats", prefix: ROOT, added: 3 });
+      return { stats: { added: 3, removed: 0, linkedToRoot: 0 }, storeDir: "/store" };
+    });
 
     await installDependencyProjects({
-      rootDir,
-      projects: [{ rootDir, manifest: { name: "generated-root", version: "0.0.0" } }],
+      rootDir: ROOT,
+      projects: [project(ROOT, "generated-root")],
       onProgress: (event) => events.push(event),
     });
 
     expect(events).toEqual([
       { type: "stage", stage: "resolution", status: "started" },
+      { type: "progress", counts: { resolved: 0, reused: 0, downloaded: 1, added: 0 } },
       { type: "stats", added: 3, removed: 0 },
     ]);
   });
 
-  it("does not stream output when progress is not requested", async () => {
-    await installDependencyProjects({
-      rootDir,
-      projects: [{ rootDir, manifest: { name: "generated-root", version: "0.0.0" } }],
-    });
+  it("does not attach a listener when progress is not requested", async () => {
+    await installDependencyProjects({ rootDir: ROOT, projects: [project(ROOT, "generated-root")] });
 
-    expect(mocks.runPnpmInstall).toHaveBeenCalledWith({ cwd: rootDir, filters: ["."] });
+    expect(mocks.install.mock.calls[0]![1]).toBeUndefined();
   });
 
-  it("propagates install failures after flushing pending progress", async () => {
-    const events: DependencyInstallProgressEvent[] = [];
-    const failure = new Error("pnpm install failed with exit code 1");
-    mocks.runPnpmInstall.mockImplementation(
-      async (options: { onOutput?: (chunk: string) => void }) => {
-        options.onOutput?.(JSON.stringify({ name: "pnpm:stats", prefix: rootDir, added: 2 }));
-        throw failure;
-      }
-    );
+  it("propagates engine failures", async () => {
+    const failure = new Error("Failed to resolve dependency tree");
+    mocks.install.mockRejectedValue(failure);
 
     await expect(
-      installDependencyProjects({
-        rootDir,
-        projects: [{ rootDir, manifest: { name: "generated-root", version: "0.0.0" } }],
-        onProgress: (event) => events.push(event),
-      })
+      installDependencyProjects({ rootDir: ROOT, projects: [project(ROOT, "generated-root")] })
     ).rejects.toBe(failure);
-
-    expect(events).toEqual([{ type: "stats", added: 2, removed: 0 }]);
   });
 });

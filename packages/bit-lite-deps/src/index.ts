@@ -3,12 +3,14 @@ import path from "node:path";
 import { isRecord } from "bit-lite-utils";
 import { isNodeErrorCode } from "bit-lite-utils/node";
 import fg from "fast-glob";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { runPnpmInstall } from "./pnpm-cli.js";
+import { parse as parseYaml } from "yaml";
+import { installWithPnpmEngine, type InstallOptions } from "./pnpm-engine.js";
 import {
-  createDependencyProgressReader,
+  createDependencyLogListener,
   type DependencyInstallProgressEvent,
 } from "./progress.js";
+
+export { getPnpmEngineVersion } from "./pnpm-engine.js";
 
 export type {
   DependencyInstallProgressCounts,
@@ -39,92 +41,93 @@ export type InstallDependencyProjectsOptions = {
 };
 
 export async function installDependencyProjects(options: InstallDependencyProjectsOptions) {
-  const workspacePackages = options.workspacePackages ?? [];
-  await writeInstallWorkspaceFile(options.rootDir, options.projects, workspacePackages);
+  await writeWorkspaceAnchor(options.rootDir);
+  const overrides = createLocalPackageOverrides(
+    options.rootDir,
+    options.projects,
+    options.workspacePackages ?? []
+  );
+  const installOptions: InstallOptions = {
+    dir: options.rootDir,
+    // Only bit-lite's own projects are installed. Local packages from an
+    // enclosing repository are linked through `overrides` instead: listing them
+    // here would materialize `node_modules` inside that repository.
+    projects: options.projects.map((project) => ({
+      rootDir: project.rootDir,
+      manifest: project.manifest,
+    })),
+    autoInstallPeers: false,
+    dedupeDirectDeps: true,
+    dedupePeerDependents: true,
+    depth: 0,
+    enableModulesDir: true,
+    // `hoist: false` in config terms.
+    hoistPattern: [],
+    ignoreScripts: true,
+    includeOptionalDeps: true,
+    injectWorkspacePackages: false,
+    linkWorkspacePackages: Object.keys(overrides).length > 0,
+    nodeLinker: "isolated",
+    // The lockfile is derived from manifests bit-lite generates, so a stale one
+    // must re-resolve instead of failing the install.
+    frozenLockfile: false,
+    preferFrozenLockfile: true,
+    resolvePeersFromWorkspaceRoot: false,
+    ...(Object.keys(overrides).length > 0 ? { overrides } : {}),
+  };
 
-  const reader = options.onProgress
-    ? createDependencyProgressReader(options.rootDir, options.onProgress)
+  const onLog = options.onProgress
+    ? createDependencyLogListener(options.rootDir, options.onProgress)
     : undefined;
-  try {
-    await runPnpmInstall({
-      cwd: options.rootDir,
-      filters: createInstallFilters(options.rootDir, options.projects),
-      ...(reader === undefined ? {} : { onOutput: (chunk: string) => reader.write(chunk) }),
-    });
-  } finally {
-    reader?.end();
-  }
+  await installWithPnpmEngine(installOptions, onLog);
 }
 
 /**
- * Writes the generated workspace file that drives the install. Every project and
- * every linkable local package is listed here, and the settings reproduce the
- * install behaviour bit-lite previously configured through the programmatic API.
+ * Marks the install root as a workspace root.
+ *
+ * `InstallOptions.dir` is not authoritative: without this file the engine walks
+ * up, adopts an enclosing pnpm workspace as the lockfile root, and prunes that
+ * repository's `node_modules`. The projects themselves are passed through the
+ * API, so the file only has to exist.
  */
-async function writeInstallWorkspaceFile(
+async function writeWorkspaceAnchor(rootDir: string) {
+  await writeFile(path.join(rootDir, "pnpm-workspace.yaml"), "packages: []\n", "utf8");
+}
+
+/**
+ * Maps local packages discovered in an enclosing repository to `link:` overrides.
+ *
+ * The engine has no equivalent of the old `allProjects` / `mutations` split: a
+ * project is always an install target. Overriding by name links the package
+ * without installing it, which keeps the enclosing repository untouched.
+ *
+ * Only names some project actually depends on are overridden, so an unrelated
+ * package in that repository never enters the graph. Note this links by name
+ * regardless of the declared range, where the previous setup linked only when
+ * the range matched the local version.
+ */
+function createLocalPackageOverrides(
   rootDir: string,
   projects: DependencyProject[],
   workspacePackages: DependencyProject[]
 ) {
-  const linkWorkspacePackages = workspacePackages.length > 0;
-  const settings = {
-    packages: collectWorkspacePatterns(rootDir, [...projects, ...workspacePackages]),
-    autoInstallPeers: false,
-    confirmModulesPurge: false,
-    dedupeDirectDeps: true,
-    dedupePeerDependents: true,
-    excludeLinksFromLockfile: true,
-    hoist: false,
-    ignoreScripts: true,
-    injectWorkspacePackages: false,
-    linkWorkspacePackages,
-    // Approximates the unbounded cache age bit-lite used before: keep orphaned
-    // packages around instead of re-fetching them on the next install.
-    modulesCacheMaxAge: 525_600,
-    nodeLinker: "isolated",
-    preferWorkspacePackages: linkWorkspacePackages,
-    resolutionMode: "highest",
-    resolvePeersFromWorkspaceRoot: false,
-    strictPeerDependencies: false,
-  };
-  await writeFile(path.join(rootDir, "pnpm-workspace.yaml"), stringifyYaml(settings), "utf8");
-}
-
-/**
- * Turns project directories into workspace patterns relative to the install root.
- * The root is always a project itself, and local packages resolved from an
- * enclosing repository are referenced through `..` segments.
- */
-function collectWorkspacePatterns(rootDir: string, projects: DependencyProject[]) {
-  const patterns = new Set<string>();
+  const requested = new Set<string>();
   for (const project of projects) {
-    const relative = toWorkspaceRelativePath(rootDir, project.rootDir);
-    if (relative === "") continue;
-    patterns.add(relative);
+    for (const field of ["dependencies", "devDependencies", "peerDependencies"] as const) {
+      const dependencies = project.manifest[field];
+      if (isRecord(dependencies)) for (const name of Object.keys(dependencies)) requested.add(name);
+    }
   }
-  return [...patterns].sort();
-}
 
-/**
- * Restricts the install to bit-lite's own projects. Local packages discovered in
- * an enclosing repository have to be workspace members to stay linkable, but
- * installing them would repoint that repository's own `node_modules` at the
- * store generated here.
- */
-function createInstallFilters(rootDir: string, projects: DependencyProject[]) {
-  const filters = new Set<string>();
-  for (const project of projects) {
-    const relative = toWorkspaceRelativePath(rootDir, project.rootDir);
-    // A leading `./` is what makes pnpm read the filter as a path instead of a
-    // package name pattern.
-    filters.add(relative === "" ? "." : `./${relative}`);
+  const overrides: Record<string, string> = {};
+  for (const local of workspacePackages) {
+    const name = local.manifest.name;
+    if (typeof name !== "string" || !requested.has(name)) continue;
+    // Relative, so the generated lockfile stays portable across machines.
+    const relative = path.relative(path.resolve(rootDir), path.resolve(local.rootDir));
+    overrides[name] = `link:${relative.split(path.sep).join("/")}`;
   }
-  return [...filters].sort();
-}
-
-function toWorkspaceRelativePath(rootDir: string, dir: string) {
-  const relative = path.relative(path.resolve(rootDir), path.resolve(dir));
-  return relative.split(path.sep).join("/");
+  return overrides;
 }
 
 /**
