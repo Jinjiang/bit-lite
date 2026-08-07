@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({ install: vi.fn() }));
 
 vi.mock("./pnpm-engine.js", () => ({
   installWithPnpmEngine: mocks.install,
-  getPnpmEngineVersion: () => "12.0.0-beta.4",
+  getPnpmEngineVersion: () => "12.0.0-rc.0",
 }));
 
 import { installDependencyProjects, type DependencyInstallProgressEvent } from "./index.js";

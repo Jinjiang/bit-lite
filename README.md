@@ -161,7 +161,7 @@ The repository is a pnpm monorepo containing the CLI, its internal libraries, re
 
 ## Run the demo
 
-The expected package manager is `pnpm@11.7.0`.
+The expected package manager is `pnpm@12.0.0-rc.0`.
 
 ```bash
 pnpm i
