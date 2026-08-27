@@ -1,3 +1,7 @@
 .bit-lite/
+# Durable component history. Ignored by the source repository, but unlike
+# .bit-lite it is never safe to delete: it is the only local copy of component
+# snaps until "bit-lite sync" replicates them to a remote.
+.bit-lite-store.git/
 node_modules/
 components/**/node_modules

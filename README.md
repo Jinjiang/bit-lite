@@ -125,8 +125,8 @@ The installation boundary is especially important: npm package installation is r
 
 The following original Bit capabilities are outside the current codebase:
 
-- component snaps, semantic tags, changelogs, checkout, diff, and artifact history;
-- remote scopes, import/export, eject/fork, lanes, and multi-workspace collaboration;
+- changelogs, checkout, diff, and artifact history; `snap` and `tag` record component history, but nothing reproduces a component *from* a snap;
+- remote scopes, import/export, eject/fork, lanes, and multi-workspace collaboration beyond `sync`'s fast-forward exchange of component histories and tags;
 - component publishing, a dedicated component or env registry, authentication, and cloud services;
 - dependency inference, update policies, automatic peer handling, and production-grade lockfile conflict management;
 - an env-controlled package service comparable to Bit's [`package()` handler](https://bit.dev/reference/packages/managing-package-json/);
@@ -257,6 +257,11 @@ bit-lite <command> [--workspace <directory>] [--filter <pattern>] [-- ...vendor-
 | `test` | Groups selected components by environment and runs their test vendors |
 | `preview` | Starts the shared preview endpoint and each selected preview vendor |
 | `start` | Runs compile watch, test watch, source browsing, and preview routes in one session |
+| `snap` | Records selected components in the workspace's component history store |
+| `tag` | Assigns an immutable `--version <semver>` to one component's current snap |
+| `sync` | Exchanges component histories and tags with the store's `--remote <url>` |
+
+`snap`, `tag`, and `sync` require Git and use a durable store at `.bit-lite-store.git`; every other command works without Git and never opens that store.
 
 Common flags:
 
@@ -281,6 +286,7 @@ See the [`bit-lite` package documentation](./packages/bit-lite/README.md) for co
 | [`bit-lite-compiler`](./packages/bit-lite-compiler/README.md) | Compile-vendor contracts |
 | [`bit-lite-vendors`](./packages/bit-lite-vendors/README.md) | Vendor runners and task lifecycle |
 | [`bit-lite-deps`](./packages/bit-lite-deps/README.md) | Dependency installation through pnpm APIs |
+| [`bit-lite-history`](./packages/bit-lite-history/README.md) | Git-backed component snaps, immutable tags, and remote synchronization |
 | [`bit-lite-preview`](./packages/bit-lite-preview/README.md) | Preview preparation, routing, and browser runtime |
 | [`bit-lite-proxy`](./packages/bit-lite-proxy/README.md) | HTTP and WebSocket routing |
 | [`bit-lite-terminal`](./packages/bit-lite-terminal/README.md) | Interactive watch-task terminal |
@@ -334,6 +340,15 @@ In the current prototype, each listed component directory contains a `.comp.json
 The demo fixtures provide these records directly because the metadata-generation layer does not exist yet. Treat `.comp.json` as inspectable, read-only component state rather than as the intended long-term authoring API. Higher-level commands should eventually generate it, and its format or location may change to make that ownership explicit.
 
 Environment component records use `"kind": "env"`. Use `workspace:*` for dependencies on other components or environments in the same Bit Lite workspace.
+
+Two generated directories can appear beside `bit-lite.json`, and they are not interchangeable:
+
+| Directory | Lifetime |
+| --- | --- |
+| `.bit-lite/` | Disposable cache and generated state. Safe to delete; commands regenerate it. |
+| `.bit-lite-store.git/` | Durable component history, created by `snap`. **Never delete it during cleanup** — until `sync` replicates it to a remote, it is the only copy of your component snaps and tags. |
+
+Both belong in `.gitignore`. Cleanup scripts must target `.bit-lite` exactly rather than a `.bit-lite*` pattern.
 
 ## Development
 

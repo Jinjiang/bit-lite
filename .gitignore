@@ -5,4 +5,9 @@ coverage/
 *.log
 .pnpm-store
 
+# Durable component history store, created by "bit-lite snap" at a workspace
+# root. Never delete it as part of cleanup: it holds component snaps that exist
+# nowhere else until "bit-lite sync" replicates them to a remote.
+.bit-lite-store.git/
+
 TODOs.md

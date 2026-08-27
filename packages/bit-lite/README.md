@@ -111,6 +111,39 @@ Run `install` first when the component dependencies have not been installed.
 
 Regenerates package manifests and symlinks without installing external dependencies.
 
+### `snap`
+
+Records the selected components in the workspace's component history store at `.bit-lite-store.git`, creating it on first use. Without `--filter` it records every registered component.
+
+```bash
+bit-lite snap --workspace ./my-workspace --filter ui/**
+```
+
+A snap captures every regular file under each component root, including docs, demos, tests, assets, dotfiles, and `.comp.json`. A component whose captured files have not changed is reported as unchanged and creates no commit. Several components are published in one transaction, so a failure leaves every component ref where it was.
+
+Requires Git. See the [`bit-lite-history` documentation](../bit-lite-history/README.md) for the capture boundary, exclusions, and store lifecycle.
+
+### `tag`
+
+Assigns an immutable semantic version to one component's current snap. The filter must match exactly one component, and the component must already have a snap.
+
+```bash
+bit-lite tag --filter ui/button --version 1.2.3
+```
+
+Reapplying the same version to the same snap is a no-op. Pointing an existing version at a different snap is an error; there is no force, move, or delete.
+
+### `sync`
+
+Exchanges component histories and tags with a remote configured inside the history store. The first run needs `--remote`; later runs reuse the stored URL.
+
+```bash
+bit-lite sync --remote git@example.com:components.git
+bit-lite sync
+```
+
+Reconciliation is fast-forward only. Divergent histories and conflicting tag targets are reported together and fail the command without changing or publishing any ref.
+
 ## Global options
 
 | Option | Meaning |
