@@ -23,6 +23,7 @@
     "bit-lite-context": "workspace:*",
     "bit-lite-deps": "workspace:*",
     "bit-lite-env": "workspace:*",
+    "bit-lite-history": "workspace:*",
     "bit-lite-preview": "workspace:*",
     "bit-lite-proxy": "workspace:*",
     "bit-lite-utils": "workspace:*",
