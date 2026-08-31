@@ -12,25 +12,17 @@ import { runWatchCommand } from "./commands/watch.js";
 import type { ParsedCliArgs } from "bit-lite-context";
 import { BitLiteError } from "./utils/errors.js";
 
-type CommandHandler = (parsed: ParsedCliArgs) => void | Promise<void>;
+type CommandHandler = (parsed: ParsedCliArgs) => void | Promise<unknown>;
 
 const commands: Record<string, CommandHandler> = {
   compile: runCompileCommand,
   install: runInstallCommand,
   link: runLinkCommand,
   preview: runPreviewCommand,
-  // The snap runner returns a structured report for callers and tests; the CLI
-  // only needs the side effect and its own exit code.
-  snap: async (parsed) => {
-    await runSnapCommand(parsed);
-  },
+  snap: runSnapCommand,
   start: runStartCommand,
-  sync: async (parsed) => {
-    await runSyncCommand(parsed);
-  },
-  tag: async (parsed) => {
-    await runTagCommand(parsed);
-  },
+  sync: runSyncCommand,
+  tag: runTagCommand,
   test: runTestCommand,
   watch: runWatchCommand,
 };
