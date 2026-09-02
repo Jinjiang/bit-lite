@@ -4,11 +4,11 @@
 
 Bit Lite SHALL provide a `tag` command that selects components using the same conventions as other workspace commands, selecting every registered component when no filter is supplied, and processes the selection in the dependency order defined by the `component-version-resolution` capability. For each selected component it SHALL create an annotated Git tag at `refs/tags/components/<component-key>/<version>` pointing to the snap that carries that component's tagged content, using the same component-key encoding as component history refs.
 
-Before tagging each component, Bit Lite SHALL project its metadata as defined by the `component-version-resolution` capability, resolving workspace dependency and env versions to the versions those components carry at that point in the operation. When the projection leaves the component's tree unchanged, the tag SHALL point at the component's existing current snap and no commit SHALL be created. When the projection changes the component's tree, Bit Lite SHALL create a snap carrying the projected content and tag that snap. Tagging SHALL NOT create a snap in any other circumstance.
+Before tagging each component, Bit Lite SHALL project its metadata as defined by the `component-version-resolution` capability, resolving workspace dependency and env versions to the versions those components carry at that point in the operation. When the projection changes the component's tree, Bit Lite SHALL create a snap carrying the projected content and tag that snap. When the projection leaves the tree unchanged, any tag Bit Lite creates SHALL point at the component's existing current snap. Tagging SHALL NOT create a snap in any other circumstance.
 
-#### Scenario: Tag the current snap
+#### Scenario: Tag a component that has never been assigned a version
 
-- **WHEN** a user tags a component whose projected content matches its current snap
+- **WHEN** a user tags a component whose projected content matches its current snap and whose snap carries no assigned version
 - **THEN** Bit Lite creates an annotated component tag pointing directly to that snap commit
 - **AND** reports the component ID, version, and algorithm-qualified snap ID
 - **AND** creates no new commit
@@ -42,6 +42,46 @@ Before tagging each component, Bit Lite SHALL project its metadata as defined by
 
 ## ADDED Requirements
 
+### Requirement: A component with nothing new is skipped
+
+A recording command SHALL leave a component untouched when nothing about it is new. For `snap` that means its projected content matches its current snap. For `tag` it means both that its projected content matches its current snap **and** that the snap already carries an assigned version, since a component whose content is unchanged but has never been released still has something to release.
+
+A skipped component SHALL keep the version it already carries, and that version SHALL be what its dependents resolve to. Repeating a command therefore changes nothing: versions SHALL NOT advance for components in which nothing happened.
+
+An explicit version SHALL override the skip, because the user named that version deliberately.
+
+#### Scenario: Repeat a tag with nothing changed
+
+- **WHEN** a user tags a selection twice with no change to any component's content, dependency versions, or env in between
+- **THEN** the second operation assigns no version, creates no snap, and creates no tag
+- **AND** every component still carries the version the first operation assigned
+
+#### Scenario: Repeat a snap with nothing changed
+
+- **WHEN** a user snaps a selection twice with no change in between
+- **THEN** the second operation creates no commit and moves no ref
+
+#### Scenario: A skipped dependency does not disturb its dependents
+
+- **WHEN** a component is skipped because nothing about it is new
+- **THEN** its dependents resolve it to the version it already carries
+- **AND** those dependents are themselves skipped when nothing else about them changed
+
+#### Scenario: An unchanged component that has never been released
+
+- **WHEN** a component's content is unchanged but its snap carries no assigned version
+- **THEN** tagging assigns it a version rather than skipping it
+
+#### Scenario: Only the changed components advance
+
+- **WHEN** a selection contains both components with changes and components without
+- **THEN** only the changed components receive new versions
+
+#### Scenario: An explicit version overrides the skip
+
+- **WHEN** a user supplies an explicit version for a component whose content is unchanged and already carries a version
+- **THEN** that version is assigned rather than skipped
+
 ### Requirement: Derive a version for every tagged component
 
 Bit Lite SHALL derive each selected component's version independently, by incrementing the patch of the highest version already assigned to that component. A component with no assigned version SHALL receive `0.0.1`.
@@ -62,7 +102,7 @@ A user MAY override the derived version with an explicit version, and Bit Lite S
 
 #### Scenario: Derive versions independently across components
 
-- **WHEN** several components with different existing versions are tagged in one operation
+- **WHEN** several components with different existing versions and with changes are tagged in one operation
 - **THEN** each receives its own incremented version rather than a shared one
 
 #### Scenario: Override the derived version for one component

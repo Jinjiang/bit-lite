@@ -169,12 +169,83 @@ describe("tag command", () => {
       reporter: recorder().reporter,
     });
 
+    // Both components need something to release, or the unchanged one is skipped.
+    for (const component of fixtureComponents) {
+      await writeWorkspaceFile(root, `${component.directory}/index.ts`, "export const v = 2;\n");
+    }
+    await runSnapCommand(parsedSnap(root), { reporter: silentSnapReporter });
     const report = await runTagCommand(parsedTag(root, [], undefined), {
       reporter: recorder().reporter,
     });
 
     const versions = Object.fromEntries(report.tags.map((tag) => [tag.componentId, tag.version]));
     expect(versions).toEqual({ "lib/math": "2.0.1", "ui/button": "0.0.1" });
+  });
+
+  it("skips a component that has nothing new", async () => {
+    const root = await createWorkspace();
+    await runSnapCommand(parsedSnap(root), { reporter: silentSnapReporter });
+    const first = await runTagCommand(parsedTag(root, [], undefined), {
+      reporter: recorder().reporter,
+    });
+
+    const second = await runTagCommand(parsedTag(root, [], undefined), {
+      reporter: recorder().reporter,
+    });
+
+    expect(first.tags).toHaveLength(2);
+    expect(second.tags).toEqual([]);
+    expect(second.planned.every((entry) => entry.action === "skip")).toBe(true);
+    // Every component still carries what the first operation assigned.
+    expect(second.planned.map((entry) => entry.version)).toEqual(
+      first.tags.map((tag) => tag.version)
+    );
+  });
+
+  it("advances only the components that changed", async () => {
+    const root = await createWorkspace();
+    await runSnapCommand(parsedSnap(root), { reporter: silentSnapReporter });
+    await runTagCommand(parsedTag(root, [], undefined), { reporter: recorder().reporter });
+
+    await writeWorkspaceFile(root, "components/lib/math/index.ts", "export const v = 9;\n");
+    await runSnapCommand(parsedSnap(root), { reporter: silentSnapReporter });
+    const report = await runTagCommand(parsedTag(root, [], undefined), {
+      reporter: recorder().reporter,
+    });
+
+    expect(report.tags.map((tag) => [tag.componentId, tag.version])).toEqual([
+      ["lib/math", "0.0.2"],
+    ]);
+    expect(
+      report.planned.find((entry) => entry.componentId === "ui/button")
+    ).toMatchObject({ action: "skip", version: "0.0.1" });
+  });
+
+  it("still assigns a version to an unchanged component that was never released", async () => {
+    const root = await createWorkspace();
+    await runSnapCommand(parsedSnap(root), { reporter: silentSnapReporter });
+
+    // Content is unchanged relative to its snap, but nothing has been released.
+    const report = await runTagCommand(parsedTag(root, ["ui/button"], undefined), {
+      reporter: recorder().reporter,
+    });
+
+    expect(report.tags[0]).toMatchObject({ componentId: "ui/button", version: "0.0.1" });
+  });
+
+  it("lets an explicit version override the skip", async () => {
+    const root = await createWorkspace();
+    await runSnapCommand(parsedSnap(root), { reporter: silentSnapReporter });
+    await runTagCommand(parsedTag(root, ["ui/button"], "1.0.0"), {
+      reporter: recorder().reporter,
+    });
+
+    const report = await runTagCommand(parsedTag(root, ["ui/button"], "2.0.0"), {
+      reporter: recorder().reporter,
+    });
+
+    expect(report.planned[0]?.action).toBe("tag");
+    expect(report.tags[0]).toMatchObject({ version: "2.0.0", status: "created" });
   });
 
   it("rejects a repeated --version", async () => {
