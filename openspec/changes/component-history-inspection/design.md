@@ -107,12 +107,12 @@ A component can be in several of these at once, and they answer different questi
 | --- | --- |
 | never recorded | no canonical head ref exists |
 | modified | projected working tree differs from the head's tree |
-| behind | the working `version` anchor names an ancestor of the head |
+| behind | the component's version anchor names an ancestor of the head |
 | dependency updates | a dependency's current version differs from the version the head records |
 
 "Behind" exists because `sync` fast-forwards canonical heads without touching working files. A component in that state whose working content is then recorded produces a commit whose parent is the synced version but whose content is based on an ancestor, silently reverting what was synced. `status` must make it visible. Whether `snap` should refuse outright is deliberately left open below, because there is currently no `checkout` to recover with.
 
-"Dependency updates" is read from history rather than from disk: the working `.comp.json` says `workspace:*`, so the version a component was last recorded against lives only in its head commit's projected metadata.
+"Dependency updates" is read from history rather than from the workspace: the working `.comp.json` says `workspace:*`, so the version a component was last recorded against lives only in its head commit's projected metadata.
 
 ### 7. Selection and output follow existing conventions
 

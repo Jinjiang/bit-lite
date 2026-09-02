@@ -63,8 +63,13 @@ V1 component snaps SHALL derive versioned content from the captured component di
 
 #### Scenario: Workspace policy changes without component or dependency changes
 
-- **WHEN** `bit-lite.json` changes outside the component's own entry, or inferred dependencies or package-manager state change, without changing the component's files, its dependencies' versions, or its env's version
+- **WHEN** `bit-lite.json` changes in a way that does not alter the component's env reference or any of its dependencies' versions, or inferred dependencies or package-manager state change, without changing the component's files
 - **THEN** the next snap reports that component as unchanged
+
+#### Scenario: Version anchors are outside every captured tree
+
+- **WHEN** a component is snapped in a workspace whose configuration records version anchors
+- **THEN** no anchor appears in the snap tree, because the workspace configuration lies outside every component root
 
 #### Scenario: A dependency's version changes without component file changes
 
