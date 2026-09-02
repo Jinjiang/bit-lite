@@ -28,11 +28,10 @@ Human-facing output MAY abbreviate the object ID for readability, but every valu
 
 ### Requirement: Committed component metadata is a projection of workspace state
 
-The `.comp.json` recorded in a component commit SHALL be derived from workspace state rather than copied from the working file. Bit Lite SHALL produce it by applying exactly three transformations to the component's working `.comp.json`:
+The `.comp.json` recorded in a component commit SHALL be derived from workspace state rather than copied from the working file. Bit Lite SHALL produce it by applying exactly two transformations to the component's working `.comp.json`:
 
 1. resolving every dependency whose declared specifier is the workspace placeholder to the recorded version of the workspace component providing that package;
-2. injecting an `env` field carrying the component's env package name and version as declared in `bit-lite.json`, with a workspace placeholder resolved to the recorded version of the local env component and any other specifier recorded exactly as declared;
-3. removing the `version` field.
+2. injecting an `env` field carrying the component's env package name and version as declared in `bit-lite.json`, with a workspace placeholder resolved to the recorded version of the local env component and any other specifier recorded exactly as declared.
 
 Bit Lite SHALL NOT record the resolved installed version of an external env package, so that recording remains independent of installation state. All other component-owned files SHALL be captured byte for byte.
 
@@ -55,8 +54,8 @@ Bit Lite SHALL NOT record the resolved installed version of an external env pack
 
 #### Scenario: The version anchor never enters the commit
 
-- **WHEN** a component whose working `.comp.json` carries a `version` field is recorded
-- **THEN** the committed `.comp.json` has no `version` field
+- **WHEN** a component is recorded
+- **THEN** no version anchor appears anywhere in the committed tree, because anchors live outside every component root
 
 #### Scenario: Re-recording an unchanged component
 
@@ -65,29 +64,46 @@ Bit Lite SHALL NOT record the resolved installed version of an external env pack
 
 ### Requirement: The workspace component file retains its authored form
 
-Bit Lite SHALL NOT rewrite dependency specifiers in a working `.comp.json`. The workspace placeholder SHALL remain the declared form of a dependency on another workspace component, and SHALL remain the signal by which workspace commands distinguish a local component from an external package.
-
-Bit Lite SHALL maintain a `version` field in the working `.comp.json` recording the version the component is currently based on. A component that has never been recorded SHALL have no `version` field. This field SHALL be the only part of the working `.comp.json` that a recording command writes, and it SHALL be written only after the operation's ref updates have succeeded.
+Bit Lite SHALL NOT rewrite a working `.comp.json`. The workspace placeholder SHALL remain the declared form of a dependency on another workspace component, and SHALL remain the signal by which workspace commands distinguish a local component from an external package.
 
 #### Scenario: Placeholders survive recording
 
 - **WHEN** a component with workspace-placeholder dependencies is recorded
 - **THEN** its working `.comp.json` still declares those dependencies with the workspace placeholder
 
+#### Scenario: Recording leaves component files untouched
+
+- **WHEN** a recording operation completes successfully
+- **THEN** no component-owned file has been modified
+
+### Requirement: The version anchor lives in workspace configuration
+
+Each component entry in the workspace configuration SHALL carry an optional `version` field recording the version that component is currently based on, alongside that entry's env reference. A component that has never been recorded SHALL have no `version` field.
+
+The workspace configuration SHALL be the only workspace file a recording command writes back, and it SHALL be written only after the operation's ref updates have succeeded, as one file update that preserves the file's existing entry order and formatting. Because the workspace configuration lies outside every component root, no anchor SHALL ever be captured by a snap.
+
+Bit Lite SHALL reject registering a component whose root resolves to the workspace root, so the workspace configuration can never fall inside a captured component tree.
+
 #### Scenario: The version anchor is written after publication
 
 - **WHEN** a recording operation completes successfully
-- **THEN** each recorded component's working `.comp.json` carries the version just assigned to it
+- **THEN** each recorded component's configuration entry carries the version just assigned to it
+- **AND** every other component entry is unchanged
 
 #### Scenario: A failed operation writes nothing
 
 - **WHEN** a recording operation fails at any point before or during ref publication
-- **THEN** no component's working `.comp.json` is modified
+- **THEN** the workspace configuration is not modified
 
 #### Scenario: A component that has never been recorded
 
-- **WHEN** a component's working `.comp.json` has no `version` field
+- **WHEN** a component's configuration entry has no `version` field
 - **THEN** Bit Lite treats the component as having no recorded version
+
+#### Scenario: Reject a component registered at the workspace root
+
+- **WHEN** a component entry declares a path resolving to the workspace root
+- **THEN** loading the workspace fails naming that component
 
 ### Requirement: Recording commands process components in dependency order
 
@@ -142,7 +158,7 @@ Bit Lite SHALL fail when the prerequisite component has never been recorded, and
 
 ### Requirement: Generated package manifests carry component versions
 
-The generated package manifest Bit Lite writes for a linked component SHALL declare a version for every workspace dependency instead of a workspace placeholder, and SHALL declare the component's own version rather than a fixed placeholder value. Both values SHALL come from the `version` field of the relevant component's working `.comp.json`, and SHALL be `0.0.0` when that component has no recorded version.
+The generated package manifest Bit Lite writes for a linked component SHALL declare a version for every workspace dependency instead of a workspace placeholder, and SHALL declare the component's own version rather than a fixed placeholder value. Both values SHALL come from the relevant component's version anchor in the workspace configuration, and SHALL be `0.0.0` when that component has no recorded version.
 
 Linking SHALL NOT read the component history store.
 

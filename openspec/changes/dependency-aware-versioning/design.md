@@ -14,7 +14,7 @@ The recording commands must also stay independent of install state. `runSnapComm
 **Goals:**
 
 - Record, for every snap, which version of each workspace dependency and which env the component was built against.
-- Keep the workspace `.comp.json` stable and authored: `workspace:*` stays, and only a single `version` anchor is ever written back.
+- Keep the working `.comp.json` stable and authored: `workspace:*` stays, and no recording command writes to it at all.
 - Guarantee that a dependency's version is settled before any dependent is recorded.
 - Refuse to record a component/dependency combination that was never actually assembled on disk.
 - Preserve the existing all-or-nothing guarantee: a failed operation moves no ref and writes no workspace file.
@@ -36,15 +36,14 @@ The recording commands must also stay independent of install state. `runSnapComm
 
 `workspace:*` is a placeholder that states a fact about the present workspace: this dependency is a sibling component, develop against whatever it is right now. That fact does not expire, so the file should keep saying it. What expires is the *recording* of it, and a recording is exactly what a snap is.
 
-Committed content is therefore a **projection** of workspace state rather than a copy of the working tree. `project()` is a pure function of the component's on-disk `.comp.json`, its `bit-lite.json` entry, and the versions already settled in this operation. It performs three operations on `.comp.json` and nothing else:
+Committed content is therefore a **projection** of workspace state rather than a copy of the working tree. `project()` is a pure function of the component's on-disk `.comp.json`, its `bit-lite.json` entry, and the versions already settled in this operation. It performs two operations on `.comp.json` and nothing else:
 
 ```text
 resolve   dependencies[<workspace component>] : "workspace:*" -> "0.0.0-g<oid>" or "<semver>"
 inject    env : { packageName, version }        from bit-lite.json, workspace:* resolved
-strip     version                               the on-disk anchor never enters the tree
 ```
 
-Every other captured file is still recorded byte for byte.
+Every other captured file is still recorded byte for byte, and the working `.comp.json` itself is never modified.
 
 Alternatives considered:
 
@@ -52,21 +51,23 @@ Alternatives considered:
 - **Move the env reference into `.comp.json` so the file can be captured verbatim.** Rejected: `.comp.json` is intended to become generated state, and pushing authored env configuration into it moves in the wrong direction. It is also a breaking `bit-lite.json` schema change.
 - **Record the resolved installed version of an external env.** Rejected: it makes `snap` depend on `install` having run and on env packages being resolvable, invalidating the independence boundary. The declared specifier from `bit-lite.json` is recorded instead. For a local env the two coincide, because a local env's version *is* its snap version.
 
-### 2. The `version` anchor must be excluded from the tree
+### 2. The `version` anchor lives in workspace configuration, beside the env reference
 
-`.comp.json` gains a `version` field recording which version the working component is based on. It cannot be part of the committed tree, and this is derived rather than chosen:
+Each `bit-lite.json` component entry gains an optional `version` recording which version the working component is based on. It sits next to that entry's `env` reference because the two are the same kind of fact: both describe the component rather than declaring its dependencies, and both are rewritten by a recording command rather than authored. Splitting them across two files would make one of them the odd one out for no reason.
 
-```text
-if version entered the tree:
-  snap creates commit H, then writes version = 0.0.0-gH back to disk
-  the next snap captures a .comp.json that differs from the previous one
-  the tree differs, so a commit is created even though nothing changed
-  => unchanged detection is permanently broken
-```
+`bit-lite.json` follows Bit's `.bitmap`, which is exactly where Bit records the version each component is currently at. It is generated state presented readably, not a file whose every line is hand-maintained, so machine-written values belong in it.
 
-Recording the *parent* version instead fails the same way. Keeping the anchor outside the tree is the only option that preserves content-aware snapping, and it is also what lets tagging a leaf component avoid creating a redundant snap (decision 6).
+Placing the anchor here also means it lies outside every component root and is therefore never captured by any snap. The self-reference problem simply cannot arise, and the projection needs no removal step.
 
-The anchor is not decorative. It is the only place that records what the working tree is based on, which matters because `sync` can fast-forward a component's canonical head (`SyncOutcome` includes `imported` and `fast-forwarded`) without touching working files.
+Alternatives considered:
+
+- **A `version` field in the component's own `.comp.json`.** Rejected. It would have to be excluded from the committed tree, and that exclusion is forced rather than chosen: if the anchor entered the tree, snapping would create commit `H`, write `version = 0.0.0-gH` back, and make the next snap capture a different `.comp.json` — producing a commit even though nothing changed, and permanently breaking unchanged detection. Recording the *parent* version instead fails the same way. Keeping the field but hiding it from the tree works, but it buys a subtle rule for no benefit once `env` injection has already made the committed file differ from the working one.
+- **A ref inside the store, such as `refs/bit-lite/base/<component-key>`.** Rejected: it would make recording fully read-only against the workspace, but the anchor becomes invisible to anyone reading the workspace, which is the opposite of what it is for.
+- **A file under `.bit-lite`.** Rejected: that directory is disposable cache, so cleaning it would make every component look as if it had never been recorded.
+
+The anchor is not decorative. It is the only place recording what the working tree is based on, which matters because `sync` can fast-forward a component's canonical head (`SyncOutcome` includes `imported` and `fast-forwarded`) without touching working files.
+
+One registration hole must be closed alongside this. A component entry may currently declare `path: "."`, which passes the inside-the-workspace check and makes the component root the workspace root — putting `bit-lite.json` inside a captured tree and recreating exactly the self-reference this placement avoids. Registering a component at the workspace root is rejected.
 
 ### 3. Snap versions are `0.0.0-g<full object id>` and are identifiers, not ordered versions
 
@@ -112,7 +113,7 @@ The current rule is that `tag` never creates a snap. The new rule is a superset:
 
 > `tag` = project, create a snap if the projection changed the component's content, then annotate.
 
-For a component with no workspace dependencies, the projection changes only fields that are already excluded from or absent in the tree, so the tree is unchanged and the tag names the existing snap — exactly today's behavior. For a component whose dependencies move from snap identifiers to semantic versions, the projection genuinely changes the tree, so a commit must exist to carry that content before it can be annotated. Ordering (decision 4) is what makes the dependency's semantic version available in time.
+For a component with no workspace dependencies and no local env, the projection produces the same content it produced for the current snap, so the tree is unchanged and the tag names the existing snap — exactly today's behavior. For a component whose dependencies move from snap identifiers to semantic versions, the projection genuinely changes the tree, so a commit must exist to carry that content before it can be annotated. Ordering (decision 4) is what makes the dependency's semantic version available in time.
 
 ### 7. Materialize in memory, publish refs, then write back
 
@@ -125,12 +126,14 @@ for each layer in dependency order:
     resolved[packageName] = "0.0.0-g" + prepared.commitId
 
 publishSnaps(store, prepared)          # one ref transaction, unchanged
-writeBack(version anchors)             # only after publication succeeds
+writeBack(bit-lite.json)               # one file, only after publication succeeds
 ```
 
-Committed bytes never equal disk bytes, so the history layer needs a way to substitute one captured file's content regardless. Given that entry point, materializing in memory costs nothing extra and preserves the existing guarantee that a failure leaves every ref and every workspace file untouched. Writing each component's file before capturing it would leave a half-rewritten workspace behind a mid-operation failure.
+Committed bytes never equal disk bytes, so the history layer needs a way to substitute one captured file's content regardless. Given that entry point, materializing in memory costs nothing extra and preserves the existing guarantee that a failure leaves every ref and every workspace file untouched.
 
-Dependency versions are resolved from the versions settled earlier in this same run, falling back to the store's canonical head refs. They are **not** read from the dependency's on-disk `version` anchor, which is a mirror that goes stale after a `sync` fast-forward.
+Because every anchor lives in one file, write-back is a single update that can be written to a temporary file and renamed into place, so a crash cannot leave some components' anchors updated and others' stale. The anchors are in any case a repairable mirror of the canonical refs rather than a source of truth, so a failed write-back costs a rerun and nothing else.
+
+Dependency versions are resolved from the versions settled earlier in this same run, falling back to the store's canonical head refs. They are **not** read from the anchors, which go stale after a `sync` fast-forward.
 
 ### 8. The history layer stays workspace-agnostic
 
@@ -140,13 +143,14 @@ Dependency versions are resolved from the versions settled earlier in this same 
 
 `createGeneratedPackageManifest` writes a real version for a local dependency instead of `workspace:*`, and sets the manifest's own `version` from the component's anchor rather than the current hard-coded `"0.0.0"`. A component that has never been snapped contributes `0.0.0`.
 
-Both values come from `.comp.json` on disk, so `link` still never opens the history store. The manifest describes what is actually linked right now, which is the dependency's current version rather than anything recorded in history. After a `sync` fast-forward the on-disk anchors are briefly stale and so are these manifests; nothing consumes these versions today because resolution happens through symlinks.
+Both values come from the anchors in `bit-lite.json`, which `readWorkspace` already loads before anything else, so `link` still never opens the history store. The manifest describes what is actually linked right now, which is the dependency's current version rather than anything recorded in history. After a `sync` fast-forward the anchors are briefly stale and so are these manifests; nothing consumes these versions today because resolution happens through symlinks.
 
 ## Risks / Trade-offs
 
 - **[A component gets a new version with no visible change on disk]** — an env or dependency version moving produces a new snap for every dependent even when their source is untouched. This is correct and matches Bit, but until the companion inspection change lands, the only way to see why is to read the committed `.comp.json` out of the store. Mitigation: ship `component-history-inspection` next, and require it to attribute each snap to `source`, `deps`, or `env`.
 - **[Recording cascades through the graph]** — one change to a low-level component produces new versions for everything above it. Mitigation: report changed and unchanged components as today, and make the change source visible in the inspection change.
-- **[`snap` becomes a command that writes to the workspace]** — it now rewrites the `version` anchor. Mitigation: write back only after the ref transaction succeeds, and write only that one field. No vendor, compiler, or watch path reads `.comp.json`, so no running task is disturbed.
+- **[`snap` becomes a command that writes to the workspace]** — it now rewrites `bit-lite.json` to update version anchors. Mitigation: write back only after the ref transaction succeeds, touch only the anchors, and preserve the file's existing entry order and formatting so the diff shows nothing else.
+- **[Every recording touches one shared workspace file]** — two people recording different components on different branches both modify `bit-lite.json`, so concurrent work conflicts there. This is the same property Bit's `.bitmap` has and is accepted rather than designed around; the conflicts are mechanical because the file is generated state, and the anchors can always be rebuilt from the store.
 - **[The version anchor can disagree with the canonical head]** — `sync` can fast-forward a head while working files stay behind, after which snapping would record working content on top of a parent it was never based on, silently reverting the synced change. This change makes the disagreement *detectable* but does not yet act on it. See Open Questions.
 - **[Snap versions look orderable but are not]** — `0.0.0-g…` parses as a valid semantic version, so a naive sort or "latest" computation will silently produce a wrong answer. Mitigation: state it in the spec, and never expose an ordering helper over these values.
 - **[The version string drops the object-format qualifier]** — existing diagnostics report IDs as `sha1:<hex>` or `sha256:<hex>`, while `0.0.0-g<hex>` carries only the hex. A store has exactly one object format and `sync` requires matching formats, so the value is unambiguous where it is used. Mitigation: keep algorithm-qualified spellings in human-facing diagnostics.
@@ -156,13 +160,13 @@ Both values come from `.comp.json` on disk, so `link` still never opens the hist
 ## Migration Plan
 
 1. Add the shared prerequisite/ordering definition to `bit-lite-context`, move `compile.ts` onto it, and correct or remove `orderWorkspaceComponents`. No behavior changes.
-2. Teach `bit-lite-context` to read an optional `version` field from `.comp.json`. Absent means "never snapped"; existing workspaces stay valid.
+2. Teach `bit-lite-context` to read an optional `version` field on each `bit-lite.json` component entry, and to write those anchors back as one file update. Absent means "never snapped"; existing workspaces stay valid. Reject registering a component at the workspace root in the same step.
 3. Add per-file content substitution to the history layer's snapshot and object creation, and expose the prepare/publish phases. Existing `snapComponents` behavior is preserved as a caller of them.
 4. Add `project()` and the version formatter with unit tests, before wiring them into any command.
 5. Move `snap` onto the topological loop with strictness checks and write-back.
 6. Move `tag` onto projection-then-snap-if-changed, and reserve the `0.0.0-g` namespace in `assertComponentVersion`.
 7. Update `link`'s generated manifests.
-8. Update the demo workspace: existing components acquire a `version` anchor on their next snap. Existing stores need no migration — previously recorded snaps remain valid, they simply carry an unprojected `.comp.json`.
+8. Update the demo workspace: `bit-lite.json` entries acquire a `version` anchor on their next snap. Existing stores need no migration — previously recorded snaps remain valid, they simply carry an unprojected `.comp.json`.
 
 Rollback is additive at the command level: reverting the command-layer changes restores byte-for-byte capture. Snaps recorded under the projection remain readable; they are ordinary commits whose `.comp.json` happens to name resolved versions.
 

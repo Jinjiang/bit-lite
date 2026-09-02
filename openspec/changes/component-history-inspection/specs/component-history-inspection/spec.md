@@ -28,7 +28,7 @@ Bit Lite SHALL provide a `status` command reporting, for each selected component
 
 - **never recorded**: the component has no canonical history;
 - **modified**: the component's projected working content differs from its recorded head;
-- **behind**: the component's working version anchor names an ancestor of its canonical head;
+- **behind**: the component's version anchor in workspace configuration names an ancestor of its canonical head;
 - **dependency updates available**: a workspace dependency or env of the component currently carries a version different from the one recorded in the component's head.
 
 Conditions SHALL be reported independently, because a component can be in more than one at once. A component with no condition SHALL be reported as clean.
@@ -51,7 +51,7 @@ Conditions SHALL be reported independently, because a component can be in more t
 
 #### Scenario: The working tree is based on an older version than the head
 
-- **WHEN** a component's working version anchor names an ancestor of its canonical head, as can happen after synchronization advances the head
+- **WHEN** a component's version anchor names an ancestor of its canonical head, as can happen after synchronization advances the head
 - **THEN** `status` reports the component as behind, naming both the anchored version and the head version
 - **AND** states that recording from this state would record content based on the older version
 

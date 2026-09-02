@@ -7,8 +7,8 @@ Snaps are also produced in arbitrary order and in whatever selection `--filter` 
 ## What Changes
 
 - Treat `workspace:*` as what it already is in practice — a placeholder meaning "this dependency is a component in this workspace right now" — and resolve it to a real version at the moment of recording, never on disk.
-- Introduce a **projection**: the `.comp.json` written into a component commit is derived from the workspace, not copied from disk. It resolves `workspace:*` dependency versions, injects the component's resolved `env` reference, and strips the on-disk `version` anchor. **BREAKING** for the recorded snapshot format: the committed `.comp.json` no longer matches the file on disk byte for byte.
-- Add a `version` field to the workspace `.comp.json` that anchors which version the component is currently based on. It is the only field `snap` writes back to disk, and it is deliberately excluded from the committed projection.
+- Introduce a **projection**: the `.comp.json` written into a component commit is derived from the workspace, not copied from disk. It resolves `workspace:*` dependency versions and injects the component's resolved `env` reference. **BREAKING** for the recorded snapshot format: the committed `.comp.json` no longer matches the file on disk byte for byte.
+- Add a `version` field to each component's entry in `bit-lite.json`, anchoring which version the component is currently based on. It sits beside the `env` reference it belongs with, it is the only workspace file a recording command writes back, and it is never captured by a snap because it lives outside every component root.
 - Define the snap version format as `0.0.0-g<full git object id>` (for example `0.0.0-g9f2c3ab…`), borrowing `git describe`'s `g` prefix. These versions are **identifiers, not ordered versions** — semantic-version precedence over their prerelease text has no relationship to history order.
 - Run `snap` and `tag` in component dependency order, using both component dependency edges and env edges, so every dependency's version is settled before any dependent is recorded.
 - Make `--filter` strict: if a selected component depends on a workspace component that has never been snapped, or whose working content differs from its recorded head, the command fails and names the offending dependency instead of silently recording a combination that was never built or tested.
@@ -21,7 +21,7 @@ Snaps are also produced in arbitrary order and in whatever selection `--filter` 
 
 ### New Capabilities
 
-- `component-version-resolution`: Defines the snap version format and its identifier-not-ordering semantics, the projection that turns workspace state into committed component content, the on-disk `version` anchor and when it is written back, dependency-ordered execution of recording commands, the strictness rules that reject unresolvable dependencies, and the versions carried by generated package manifests.
+- `component-version-resolution`: Defines the snap version format and its identifier-not-ordering semantics, the projection that turns workspace state into committed component content, the `version` anchor in workspace configuration and when it is written back, dependency-ordered execution of recording commands, the strictness rules that reject unresolvable dependencies, and the versions carried by generated package manifests.
 
 ### Modified Capabilities
 
@@ -31,9 +31,10 @@ Snaps are also produced in arbitrary order and in whatever selection `--filter` 
 ## Impact
 
 - `packages/bit-lite-history`: `snapComponents` splits into an explicitly exposed prepare phase and publish phase, and snapshot/object creation gains a way to substitute the bytes of a single captured file. The two-phase guarantee (prepare everything, then one atomic ref transaction) is preserved.
-- `packages/bit-lite/src/commands/snap.ts` and `tag.ts`: own the workspace dependency graph, drive the topological loop, call the pure projection function, enforce `--filter` strictness, and write the `version` anchor back only after the ref transaction succeeds.
-- `packages/bit-lite-context`: gains the shared component prerequisite/ordering definition and reads the new `version` field; the `workspace:*` detection that drives internal dependency and env resolution is unchanged, because the placeholder stays on disk.
+- `packages/bit-lite/src/commands/snap.ts` and `tag.ts`: own the workspace dependency graph, drive the topological loop, call the pure projection function, enforce `--filter` strictness, and write the `version` anchors back to `bit-lite.json` in one file update only after the ref transaction succeeds.
+- `packages/bit-lite-context`: gains the shared component prerequisite/ordering definition, reads and writes the new per-component `version` field in `bit-lite.json`, and closes the registration hole that lets a component root coincide with the workspace root; the `workspace:*` detection that drives internal dependency and env resolution is unchanged, because the placeholder stays on disk.
+- `.comp.json` is unchanged on disk and stays authored; only its committed projection differs from it.
 - `packages/bit-lite/src/commands/compile.ts`: uses the promoted shared ordering instead of its private prerequisite helper.
 - `packages/bit-lite/src/commands/link.ts`: generated manifests carry component versions read from disk; `link` still never touches the history store.
-- `packages/demo-workspace`: component `.comp.json` files gain a `version` anchor once snapped.
+- `packages/demo-workspace`: `bit-lite.json` component entries gain a `version` anchor once snapped.
 - Adds unit tests for the pure projection and version formatting, and integration tests over real bare repositories for dependency-ordered snapping, tag-induced snaps, and the strictness failures.
