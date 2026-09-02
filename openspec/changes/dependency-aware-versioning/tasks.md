@@ -86,3 +86,12 @@
 - [x] 10.3 Confirm `history-independence.test.ts` still passes, so non-versioning commands remain independent of the store
 - [x] 10.4 Run the full build, typecheck, and test suites across the monorepo
 - [x] 10.5 Exercise the demo workspace end to end: install, link, compile, snap in dependency order, tag, and confirm recorded metadata names resolved versions
+
+## 11. Skip components with nothing new
+
+- [x] 11.1 Move `tag`'s version derivation inside the dependency-ordered traversal, so a skip decision can depend on the projection built from the versions its dependencies were just given
+- [x] 11.2 Skip a component whose projection left its tree unchanged and whose snap already carries an assigned version, keeping the version it has
+- [x] 11.3 Keep assigning a version to an unchanged component that has never been released, and let an explicit `--version` override the skip
+- [x] 11.4 Validate an explicit `--version` before the store is opened so a bad version fails immediately
+- [x] 11.5 Report skipped components distinctly from tagged ones in both human and structured output, including under `--dry-run`
+- [x] 11.6 Add tests for: repeating `tag` assigning nothing, a skipped dependency propagating to its dependents, only changed components advancing, an unreleased unchanged component still being tagged, and an explicit version overriding the skip

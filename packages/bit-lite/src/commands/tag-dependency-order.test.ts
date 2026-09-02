@@ -124,6 +124,20 @@ describe("dependency-ordered tagging", () => {
     expect([...report.versionsByComponentId.values()]).toEqual(["0.0.1", "0.0.1", "0.0.1"]);
   });
 
+  it("propagates a skipped dependency so its dependents are skipped too", async () => {
+    const root = await createWorkspace();
+    await snap(root);
+    await tag(root);
+
+    const report = await tag(root);
+
+    // lib/math is skipped, so ui/button's projection is unchanged and it is
+    // skipped in turn -- no version anywhere advances.
+    expect(report.tags).toEqual([]);
+    expect(report.planned.every((entry) => entry.action === "skip")).toBe(true);
+    expect(report.planned.map((entry) => entry.version)).toEqual(["0.0.1", "0.0.1", "0.0.1"]);
+  });
+
   it("refuses to tag a component whose dependency has never been snapped", async () => {
     const root = await createWorkspace();
 

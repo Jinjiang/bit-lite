@@ -44,6 +44,8 @@ export type TagReporter = {
 export type TagPlanEntry = {
   componentId: string;
   version: string;
+  /** `skip` when nothing about the component is new; it keeps the version shown. */
+  action: "tag" | "skip";
   /** Whether tagging must create a snap because the projection changed content. */
   createsSnap: boolean;
 };
@@ -68,7 +70,9 @@ export async function runTagCommand(
 ): Promise<TagReport> {
   const dryRun = readFlagOption(parsed.args.options["dry-run"], "--dry-run");
   const asJson = readFlagOption(parsed.args.options.json, "--json");
-  const requestedVersion = readVersionOption(parsed.args.options.version);
+  // Validated before the store is opened, so a bad version fails immediately.
+  const requested = readVersionOption(parsed.args.options.version);
+  const requestedVersion = requested === undefined ? undefined : assertComponentVersion(requested);
   const message = readTextOption(parsed.args.options.message, "--message");
   const reporter = options.reporter ?? (asJson ? createTagJsonReporter() : createTagReporter());
 
@@ -86,29 +90,31 @@ export async function runTagCommand(
   }
 
   const store = await openComponentHistoryStore({ workspaceRoot: workspace.rootDir });
-  const versions = await planVersions(store, components, requestedVersion);
+  const decisions = new Map<string, TagDecision>();
 
   const recording = await prepareRecording({
     store,
     workspace,
     selected: components,
-    policy: createTagPolicy(store, versions),
+    policy: createTagPolicy(store, requestedVersion, decisions),
     ...(message === undefined ? {} : { message }),
   });
   const planned = recording.components.map((component, position) => ({
     componentId: component.id,
-    version: versions.get(component.id)!,
+    version: decisions.get(component.id)!.version,
+    action: decisions.get(component.id)!.action,
     createsSnap: recording.prepared[position]?.commitId !== undefined,
   }));
 
   const tags: ComponentTagResult[] = [];
   if (!dryRun) {
     await publishComponentSnaps(store, recording.prepared);
-    for (const component of recording.components) {
+    for (const entry of planned) {
+      if (entry.action === "skip") continue;
       tags.push(
         await tagComponent(store, {
-          componentId: component.id,
-          version: versions.get(component.id)!,
+          componentId: entry.componentId,
+          version: entry.version,
           ...(message === undefined ? {} : { message }),
         })
       );
@@ -121,37 +127,45 @@ export async function runTagCommand(
   return report;
 }
 
-/**
- * Versions are settled before any object is written so an invalid or already
- * taken version fails the whole operation rather than half of it.
- */
-async function planVersions(
-  store: ComponentHistoryStore,
-  components: readonly WorkspaceComponent[],
-  requestedVersion: string | undefined
-): Promise<Map<string, string>> {
-  const versions = new Map<string, string>();
-  for (const component of components) {
-    const version =
-      requestedVersion ??
-      deriveNextComponentVersion(await listComponentVersions(store, component.id));
-    versions.set(component.id, assertComponentVersion(version));
-  }
-  return versions;
-}
+type TagDecision = { action: "tag" | "skip"; version: string };
 
 /**
- * A component being tagged carries the version planned for it. A prerequisite
- * outside the selection carries whatever version names its current snap: its
- * assigned version when it has one, and otherwise its snap identifier, because
- * that is what the dependent was actually built against.
+ * Decides each component's version as the traversal reaches it, rather than up
+ * front, because whether a component is skipped depends on the projection built
+ * from the versions its dependencies were just given.
+ *
+ * A component with nothing new keeps the version it already carries. That is
+ * what stops repeated `tag` runs from inflating versions: without it, every
+ * repetition assigns a second version to every component, and because a
+ * dependent records its dependency's version, every repetition also writes a
+ * new snap for every dependent — immutable history for an operation in which
+ * nothing happened. The skip propagates on its own: a skipped dependency keeps
+ * its version, so its dependents see no change either.
  */
 function createTagPolicy(
   store: ComponentHistoryStore,
-  versions: ReadonlyMap<string, string>
+  requestedVersion: string | undefined,
+  decisions: Map<string, TagDecision>
 ): RecordingPolicy {
   return {
-    assignVersion: (component) => versions.get(component.id)!,
+    assignVersion: async (component, prepared) => {
+      // An explicit version was named deliberately, so it overrides the skip.
+      if (requestedVersion === undefined && prepared.commitId === undefined) {
+        const assigned = await readVersionAtSnap(store, component.id, prepared.snapId.hex);
+        // Unchanged but never released still has something to release.
+        if (assigned !== undefined) {
+          decisions.set(component.id, { action: "skip", version: assigned });
+          return assigned;
+        }
+      }
+
+      const version = assertComponentVersion(
+        requestedVersion ??
+          deriveNextComponentVersion(await listComponentVersions(store, component.id))
+      );
+      decisions.set(component.id, { action: "tag", version });
+      return version;
+    },
     resolveExistingVersion: async (component, head) =>
       (await readVersionAtSnap(store, component.id, head.hex)) ?? formatSnapVersion(head),
     assertSelectable: (component, head) => {
@@ -181,25 +195,36 @@ export function createTagReporter(
 ): TagReporter {
   return {
     report(report) {
+      const skipped = report.planned.filter((entry) => entry.action === "skip");
+
       if (report.dryRun) {
         for (const entry of report.planned) {
           log(
-            `would tag ${entry.componentId} ${entry.version}` +
-              `${entry.createsSnap ? " (creates a snap)" : ""}`
+            entry.action === "skip"
+              ? `unchanged ${entry.componentId} ${entry.version}`
+              : `would tag ${entry.componentId} ${entry.version}` +
+                  `${entry.createsSnap ? " (creates a snap)" : ""}`
           );
         }
+        const count = report.planned.length - skipped.length;
         log(
-          `${report.planned.length} component${report.planned.length === 1 ? "" : "s"} ` +
-            "would be tagged (dry run, nothing written)"
+          `${count} component${count === 1 ? "" : "s"} would be tagged, ` +
+            `${skipped.length} unchanged (dry run, nothing written)`
         );
         return;
       }
 
+      for (const entry of skipped) {
+        log(`unchanged ${entry.componentId} ${entry.version}`);
+      }
       for (const tag of report.tags) {
         const label = tag.status === "created" ? "tagged" : "already tagged";
         log(`${label} ${tag.componentId} ${tag.version} ${abbreviateComponentVersion(tag.snapId)}`);
       }
-      log(`${report.tags.length} component${report.tags.length === 1 ? "" : "s"} tagged`);
+      log(
+        `${report.tags.length} component${report.tags.length === 1 ? "" : "s"} tagged, ` +
+          `${skipped.length} unchanged`
+      );
     },
   };
 }
