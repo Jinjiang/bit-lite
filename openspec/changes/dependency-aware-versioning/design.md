@@ -113,9 +113,42 @@ The current rule is that `tag` never creates a snap. The new rule is a superset:
 
 > `tag` = project, create a snap if the projection changed the component's content, then annotate.
 
-For a component with no workspace dependencies and no local env, the projection produces the same content it produced for the current snap, so the tree is unchanged and the tag names the existing snap — exactly today's behavior. For a component whose dependencies move from snap identifiers to semantic versions, the projection genuinely changes the tree, so a commit must exist to carry that content before it can be annotated. Ordering (decision 4) is what makes the dependency's semantic version available in time.
+For a component with no workspace dependencies and no local env, the projection produces the same content it produced for the current snap, so the tree is unchanged and the tag names the existing snap — exactly today's behavior. For a component whose dependencies move from snap identifiers to semantic versions, the projection genuinely changes the tree, so a commit must exist to carry that content before it can be annotated.
 
-### 7. Materialize in memory, publish refs, then write back
+### 7. Tagging is a multi-component operation that derives a version per component
+
+`tag` previously required a selection resolving to exactly one component and a single `--version`. That shape encodes an assumption that does not hold: a release usually covers several components, and they do not share a version number.
+
+`tag` therefore selects components the way every other workspace command does — no filter means every registered component — and processes the selection in the same dependency order recording uses. Each component's version is derived independently:
+
+```text
+highest existing version tag on the component  ->  patch incremented
+no existing version tag                        ->  0.0.1
+```
+
+Deriving per component is what makes decision 6 work inside a single invocation. Tagging `lib/math` and `ui/button` together settles `lib/math`'s semantic version before `ui/button` is projected, so `ui/button`'s recorded metadata names `lib/math@0.2.1` rather than a snap identifier. Without multi-component tagging, a dependent tagged in a later invocation would have to guess whether its dependency's "current version" meant that dependency's tag or its snap identifier — an ambiguity that disappears entirely once ordering happens within one operation.
+
+The base for the increment comes from the component's existing version tags in the store, not from its version anchor: after a snap the anchor holds a snap identifier, which is not a semantic version and carries no ordering. Existing tags are real semantic versions, so taking the maximum is meaningful.
+
+`--version` survives as an override for the single-component case, and is refused when the selection resolves to more than one component, because one explicit number cannot describe several components. Choosing minor or major increments, or a per-component version, is a presentation problem over this same derivation; an interactive selection flag can be added later without changing any of it.
+
+Alternatives considered: keeping `tag` single-component and resolving a dependency's version from its tags across invocations. Rejected because it forces a rule for "which tag counts" when a snap carries several, and because it silently depends on the user having tagged strictly bottom-up in separate commands.
+
+### 8. Assigned versions are exactly `major.minor.patch`
+
+An assigned component version must be three numbers. Prereleases and build metadata are refused.
+
+This subsumes reserving the generated `0.0.0-g<hex>` identifier shape — that shape is a prerelease, so it cannot be assigned either — and it is more general: it also removes the question of how a prerelease would order against the release it precedes, and keeps derived increments total. The reserved-shape check remains as the more specific diagnostic when a user pastes a snap identifier, because "that is a snap identifier" explains more than "prereleases are not allowed".
+
+### 9. `snap` and `tag` share one command surface
+
+Both commands gain the same three options, because both are one operation over a selection of components:
+
+- `--dry-run` reports exactly what the command would do and writes nothing: no objects, no refs, no anchors. Preparation already separates cleanly from publication (decision 10), so a dry run is the prepare phase without the publish phase. Objects written during a dry run are unreachable and left to Git.
+- `--json` emits the structured result both commands already build internally, with version identifiers unabbreviated.
+- `--message` replaces the generated commit or tag message. Absent, each command keeps its current deterministic default. A message never affects whether a component is recorded: unchanged detection compares trees before any commit is created, so a custom message cannot conjure a version out of an unchanged component.
+
+### 10. Materialize in memory, publish refs, then write back
 
 ```text
 for each layer in dependency order:
@@ -135,11 +168,11 @@ Because every anchor lives in one file, write-back is a single update that can b
 
 Dependency versions are resolved from the versions settled earlier in this same run, falling back to the store's canonical head refs. They are **not** read from the anchors, which go stale after a `sync` fast-forward.
 
-### 8. The history layer stays workspace-agnostic
+### 11. The history layer stays workspace-agnostic
 
 `bit-lite-history` continues to accept `{ componentId, rootDir }` and knows nothing about envs, package names, or dependency graphs. It exposes the two phases already implicit in `snapComponents` — prepare and publish — plus per-file content substitution. The command layer owns the workspace, the graph, the topological loop, the strictness checks, and the pure `project()` function. This keeps the projection trivially unit-testable and leaves the storage boundary where the existing design put it.
 
-### 9. Generated package manifests carry versions, read from disk
+### 12. Generated package manifests carry versions, read from disk
 
 `createGeneratedPackageManifest` writes a real version for a local dependency instead of `workspace:*`, and sets the manifest's own `version` from the component's anchor rather than the current hard-coded `"0.0.0"`. A component that has never been snapped contributes `0.0.0`.
 

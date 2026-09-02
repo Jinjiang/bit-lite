@@ -31,6 +31,13 @@ export type WorkspaceComponentConfig = {
   id: string;
   packageName: string;
   env: PackageRef;
+  /**
+   * The version this component is currently based on, written back by a
+   * recording command. Absent means the component has never been recorded.
+   * It lives here rather than in `.comp.json` so it stays outside every
+   * captured component tree.
+   */
+  version?: string;
 };
 
 export type WorkspaceConfig = {
@@ -48,6 +55,8 @@ export type WorkspaceComponent = {
   packageName: string;
   kind: ComponentKind;
   env: PackageRef;
+  /** Recorded version anchor from workspace config; `undefined` when never recorded. */
+  version: string | undefined;
   mainFile: string;
   mainFileRelative: string;
   dependencies: Record<string, string>;

@@ -19,6 +19,10 @@ import type { ComponentSnapshot } from "./snapshot.js";
  * Writes every snapshot file as a blob. `--no-filters` is essential: clean and
  * smudge filters would make a snap depend on the machine's Git configuration
  * rather than on the component's bytes.
+ *
+ * Files read from disk are still hashed in one batched call, so the subprocess
+ * count stays independent of component size. Only substituted files, of which
+ * there is normally one, are hashed individually from their bytes.
  */
 export async function writeSnapshotBlobs(
   store: ComponentHistoryStore,
@@ -26,21 +30,56 @@ export async function writeSnapshotBlobs(
 ): Promise<readonly GitObjectId[]> {
   if (snapshot.files.length === 0) return [];
 
-  const result = await store.run({
-    args: ["hash-object", "-w", "--no-filters", "--stdin-paths"],
-    stdin: `${snapshot.files.map((file) => file.absolutePath).join("\n")}\n`,
-  });
+  const blobIds = new Array<GitObjectId | undefined>(snapshot.files.length);
+  const readFromDisk: { position: number; absolutePath: string }[] = [];
 
-  const lines = result.stdout
-    .toString("utf8")
-    .split("\n")
-    .filter((line) => line.length > 0);
-  if (lines.length !== snapshot.files.length) {
-    throw new ComponentHistoryError(
-      `component "${snapshot.componentId}" hashed ${lines.length} of ${snapshot.files.length} files`
-    );
+  for (const [position, file] of snapshot.files.entries()) {
+    if (file.content === undefined) {
+      readFromDisk.push({ position, absolutePath: file.absolutePath });
+      continue;
+    }
+    blobIds[position] = await writeBlobFromBytes(store, file.content);
   }
-  return lines.map((line) => createObjectId(line, store.objectFormat));
+
+  if (readFromDisk.length > 0) {
+    const result = await store.run({
+      args: ["hash-object", "-w", "--no-filters", "--stdin-paths"],
+      stdin: `${readFromDisk.map((file) => file.absolutePath).join("\n")}\n`,
+    });
+
+    const lines = result.stdout
+      .toString("utf8")
+      .split("\n")
+      .filter((line) => line.length > 0);
+    if (lines.length !== readFromDisk.length) {
+      throw new ComponentHistoryError(
+        `component "${snapshot.componentId}" hashed ${lines.length} of ${readFromDisk.length} files`
+      );
+    }
+    for (const [index, line] of lines.entries()) {
+      blobIds[readFromDisk[index]!.position] = createObjectId(line, store.objectFormat);
+    }
+  }
+
+  return blobIds.map((blobId, position) => {
+    if (blobId === undefined) {
+      throw new ComponentHistoryError(
+        `component "${snapshot.componentId}" produced no blob for ${snapshot.files[position]?.path}`
+      );
+    }
+    return blobId;
+  });
+}
+
+async function writeBlobFromBytes(
+  store: ComponentHistoryStore,
+  content: Uint8Array
+): Promise<GitObjectId> {
+  const result = await store.run({
+    args: ["hash-object", "-w", "--no-filters", "-t", "blob", "--stdin"],
+    stdin: content,
+  });
+  return createObjectId(result.stdout.toString("utf8"), store.objectFormat);
 }
 
 /**

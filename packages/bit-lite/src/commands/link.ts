@@ -2,7 +2,6 @@ import { access, lstat, mkdir, readlink, rm, symlink, writeFile } from "node:fs/
 import path from "node:path";
 import {
   isWorkspaceProtocolSpec,
-  orderWorkspaceComponents,
   readWorkspace,
 } from "bit-lite-context";
 import { isRecord, sortStringRecord } from "bit-lite-utils";
@@ -16,7 +15,7 @@ import type {
 import { BitLiteError } from "../utils/errors.js";
 
 export type { PackageRef, Workspace, WorkspaceComponent } from "bit-lite-context";
-export { isWorkspaceProtocolSpec, orderWorkspaceComponents, readWorkspace };
+export { isWorkspaceProtocolSpec, readWorkspace };
 export { sortStringRecord };
 
 export async function runLinkCommand(parsed: ParsedCliArgs) {
@@ -27,10 +26,14 @@ export async function runLinkCommand(parsed: ParsedCliArgs) {
 }
 
 export async function linkComponentPackages(workspace: Workspace) {
+  const versions = readComponentVersions(workspace);
   for (const component of workspace.components) {
     const packageDir = getPackageDirectory(workspace.rootDir, component.packageName);
     await preparePackageDirectory(packageDir, component);
-    await writeJsonFile(path.join(packageDir, "package.json"), createGeneratedPackageManifest(component));
+    await writeJsonFile(
+      path.join(packageDir, "package.json"),
+      createGeneratedPackageManifest(component, versions)
+    );
     await ensureSourceSymlink(packageDir, component.rootDir);
     await ensureComponentDependencyLinks(workspace.rootDir, packageDir, component);
     await mkdir(path.join(packageDir, "dist"), { recursive: true });
@@ -50,15 +53,56 @@ export async function writeJsonFile(filePath: string, value: unknown) {
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-function createGeneratedPackageManifest(component: WorkspaceComponent) {
+/**
+ * Version anchors read from the workspace configuration, keyed by package name.
+ *
+ * A generated manifest describes what is actually linked right now, so a local
+ * dependency is declared at the version that dependency currently carries
+ * rather than anything recorded in history. Linking therefore never opens the
+ * component history store; the anchors on disk are all it needs. They can be
+ * briefly stale after `sync` fast-forwards a head, which costs nothing today
+ * because resolution happens through symlinks rather than through these
+ * versions.
+ */
+export const unrecordedComponentVersion = "0.0.0";
+
+function readComponentVersions(workspace: Workspace): ReadonlyMap<string, string> {
+  return new Map(
+    workspace.components.map((component) => [
+      component.packageName,
+      component.version ?? unrecordedComponentVersion,
+    ])
+  );
+}
+
+function resolveManifestDependencies(
+  dependencies: Record<string, string>,
+  versions: ReadonlyMap<string, string>
+): Record<string, string> {
+  return sortStringRecord(
+    Object.fromEntries(
+      Object.entries(dependencies).map(([packageName, version]) => [
+        packageName,
+        isWorkspaceProtocolSpec(version)
+          ? versions.get(packageName) ?? unrecordedComponentVersion
+          : version,
+      ])
+    )
+  );
+}
+
+function createGeneratedPackageManifest(
+  component: WorkspaceComponent,
+  versions: ReadonlyMap<string, string>
+) {
   const entry = component.kind === "env" ? "./dist/index.json" : "./dist/index.js";
   const manifest: Record<string, unknown> = {
     name: component.packageName,
-    version: "0.0.0",
+    version: component.version ?? unrecordedComponentVersion,
     type: "module",
     main: entry,
     exports: { ".": entry },
-    dependencies: sortStringRecord(component.dependencies),
+    dependencies: resolveManifestDependencies(component.dependencies, versions),
     bitLite: {
       componentId: component.id,
       kind: component.kind,
@@ -77,7 +121,7 @@ function createGeneratedPackageManifest(component: WorkspaceComponent) {
     };
   }
   if (Object.keys(component.peerDependencies).length > 0) {
-    manifest.peerDependencies = sortStringRecord(component.peerDependencies);
+    manifest.peerDependencies = resolveManifestDependencies(component.peerDependencies, versions);
   }
   return manifest;
 }

@@ -77,7 +77,7 @@ These choices improve explicitness, isolation, and ease of experimentation for t
 | Development environments | [Envs](https://bit.dev/reference/envs/create-env/) are executable components that expose compiler, tester, preview, build-pipeline, and other handlers | Env components compile to flattened JSON packages that select vendors and JSON configuration for three services |
 | Dependencies | Infers and classifies component dependencies, with workspace and env policies | Reads explicit dependency metadata and installs isolated per-component dependency projects with pnpm |
 | Local development | `bit start` provides a full workspace UI with component metadata, previews, graphs, and history | `bit-lite start` provides a focused source, preview, test-result, and watch-task interface |
-| Component history | [Snaps and tags](https://bit.dev/reference/components/snaps/) record immutable component versions and build artifacts | No component version store; source history remains in the repository's VCS |
+| Component history | [Snaps and tags](https://bit.dev/reference/components/snaps/) record immutable component versions and build artifacts | `snap` and `tag` record immutable component versions in a Git-backed store, resolving each component's workspace dependency and env versions as it goes; build artifacts are not recorded |
 | Distribution | Components are imported from and exported to [remote scopes](https://bit.dev/reference/reference/scope/scope-overview/) | No remote scope protocol; envs, vendors, configs, and compiled components use package resolution |
 
 Bit Lite is not a compatible reimplementation or a migration target for existing Bit workspaces. It is a focused prototype for testing a simpler set of boundaries.
@@ -257,11 +257,17 @@ bit-lite <command> [--workspace <directory>] [--filter <pattern>] [-- ...vendor-
 | `test` | Groups selected components by environment and runs their test vendors |
 | `preview` | Starts the shared preview endpoint and each selected preview vendor |
 | `start` | Runs compile watch, test watch, source browsing, and preview routes in one session |
-| `snap` | Records selected components in the workspace's component history store |
-| `tag` | Assigns an immutable `--version <semver>` to one component's current snap |
+| `snap` | Records selected components in the workspace's component history store, in dependency order |
+| `tag` | Assigns immutable versions to the selected components' snaps, incrementing each component's patch by default |
 | `sync` | Exchanges component histories and tags with the store's `--remote <url>` |
 
 `snap`, `tag`, and `sync` require Git and use a durable store at `.bit-lite-store.git`; every other command works without Git and never opens that store.
+
+`snap` and `tag` process components in dependency order, so a component's workspace dependencies and its env carry a version before the component naming them is recorded. What they record for a component is a **projection** of workspace state rather than the `.comp.json` on disk: `workspace:*` dependency specifiers are resolved to real versions and the component's env reference is injected. The working `.comp.json` is never modified; the version each component is based on is written back to its `bit-lite.json` entry.
+
+A snap's version is spelled `0.0.0-g<git object id>`, and `tag` assigns versions of exactly `major.minor.patch`. **Snap versions are identifiers, not ordered versions** — semantic-version precedence over their text has no relationship to history order, so sorting them or computing a "latest" from them gives an arbitrary answer. Use the store's ancestry instead.
+
+Both commands accept `--message <text>` to replace the generated message, `--dry-run` to report what would happen without writing anything, and `--json` for structured output. `tag` also accepts `--version <x.y.z>` to override the derived version, which requires the selection to resolve to exactly one component.
 
 Common flags:
 

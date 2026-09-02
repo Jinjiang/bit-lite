@@ -61,9 +61,12 @@ Commands:
   install install/link packages and optionally compile once with --compile
   preview serve component docs and compositions
   snap    record selected components in the component history store
+          [--message <text>] [--dry-run] [--json]
   start   compile and serve preview/live tests in one watch session
   sync    exchange component histories and tags with [--remote <url>]
-  tag     assign an immutable --version <semver> to one component's snap
+  tag     assign immutable versions to the selected components' snaps,
+          incrementing each component's patch by default
+          [--version <x.y.z>, one component only] [--message <text>] [--dry-run] [--json]
   test    run the configured test service
   watch   alias for compile --watch
 `);

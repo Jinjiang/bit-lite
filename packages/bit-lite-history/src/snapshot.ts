@@ -31,6 +31,11 @@ export type ComponentFileEntry = {
   path: string;
   absolutePath: string;
   mode: ComponentFileMode;
+  /**
+   * Bytes to record instead of the file's own contents. Set only for a path
+   * the caller substituted; every other entry is captured verbatim.
+   */
+  content?: Uint8Array;
 };
 
 export type ComponentSnapshot = {
@@ -43,6 +48,12 @@ export type ComponentSnapshot = {
 export type ReadComponentSnapshotInput = {
   componentId: string;
   rootDir: string;
+  /**
+   * Component-relative POSIX paths whose recorded bytes differ from the bytes
+   * on disk. A substituted path must still exist in the component, so the
+   * substitution can only ever change a file's contents, never the file set.
+   */
+  contentOverrides?: ReadonlyMap<string, Uint8Array>;
 };
 
 export async function readComponentSnapshot(
@@ -56,7 +67,36 @@ export async function readComponentSnapshot(
   files.sort((left, right) =>
     Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8"))
   );
+  applyContentOverrides(input.componentId, files, input.contentOverrides);
   return { componentId: input.componentId, rootDir, files };
+}
+
+/**
+ * Substitution replaces bytes only. Refusing an override for a path the walker
+ * did not capture turns a stale or misspelled path into an error here rather
+ * than a silently unsubstituted snap.
+ */
+function applyContentOverrides(
+  componentId: string,
+  files: ComponentFileEntry[],
+  overrides: ReadonlyMap<string, Uint8Array> | undefined
+): void {
+  if (overrides === undefined || overrides.size === 0) return;
+
+  const applied = new Set<string>();
+  for (const file of files) {
+    const content = overrides.get(file.path);
+    if (content === undefined) continue;
+    file.content = content;
+    applied.add(file.path);
+  }
+
+  for (const path of overrides.keys()) {
+    if (applied.has(path)) continue;
+    throw new ComponentHistoryError(
+      `component "${componentId}" has no file at ${path} to substitute`
+    );
+  }
 }
 
 async function assertComponentRoot(componentId: string, rootDir: string): Promise<void> {

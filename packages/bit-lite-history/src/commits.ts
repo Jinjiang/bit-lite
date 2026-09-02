@@ -71,6 +71,9 @@ export type CreateComponentCommitInput = {
   treeId: GitObjectId;
   /** The component's current head, or `undefined` for that component's first snap. */
   parentId: GitObjectId | undefined;
+  /** Replaces the generated message. The message never affects snap identity's
+   * content comparison, which happens before a commit is created. */
+  message?: string;
 };
 
 export async function createComponentCommit(
@@ -82,7 +85,7 @@ export async function createComponentCommit(
     await assertSameComponentParent(store, input.componentId, input.parentId);
     args.push("-p", input.parentId.hex);
   }
-  args.push("-m", buildCommitMessage(input.componentId));
+  args.push("-m", input.message ?? buildCommitMessage(input.componentId));
 
   const result = await store.run({ args });
   return createObjectId(result.stdout.toString("utf8"), store.objectFormat);

@@ -49,6 +49,7 @@ export async function readWorkspace(workspaceRoot: string): Promise<Workspace> {
       packageName: entry.packageName,
       kind: packageConfig.kind,
       env: entry.env,
+      version: entry.version,
       mainFile,
       mainFileRelative: toPosixPath(path.relative(componentRoot, mainFile)),
       dependencies: packageConfig.dependencies,
@@ -114,38 +115,6 @@ export function selectWorkspaceComponents(workspace: Workspace, filters: readonl
     throw new BitLiteError(`--filter did not match any components: ${filters.join(", ")}`);
   }
   return selected;
-}
-
-export function orderWorkspaceComponents(
-  workspace: Workspace,
-  components: readonly WorkspaceComponent[] = workspace.components
-) {
-  const byPackageName = new Map(workspace.components.map((component) => [component.packageName, component]));
-  const included = new Set(components.map((component) => component.packageName));
-  const ordered: WorkspaceComponent[] = [];
-  const permanent = new Set<string>();
-  const temporary = new Set<string>();
-
-  const visit = (component: WorkspaceComponent, stack: string[]) => {
-    if (permanent.has(component.packageName)) return;
-    if (temporary.has(component.packageName)) {
-      throw new BitLiteError(
-        `component package dependency cycle detected: ${[...stack, component.packageName].join(" -> ")}`
-      );
-    }
-    temporary.add(component.packageName);
-    for (const dependencyPackageName of component.internalDependencyPackageNames) {
-      if (!included.has(dependencyPackageName)) continue;
-      const dependency = byPackageName.get(dependencyPackageName);
-      if (!dependency) throw new BitLiteError(`missing internal dependency "${dependencyPackageName}"`);
-      visit(dependency, [...stack, component.packageName]);
-    }
-    temporary.delete(component.packageName);
-    permanent.add(component.packageName);
-    ordered.push(component);
-  };
-  for (const component of components) visit(component, []);
-  return ordered;
 }
 
 export function groupWorkspaceComponentsByEnv(
@@ -271,6 +240,11 @@ function resolveInsideWorkspace(workspaceRoot: string, relativePath: string, lab
   const relative = path.relative(workspaceRoot, resolved);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new BitLiteError(`${label} must stay inside the workspace`);
+  }
+  // A component rooted at the workspace root would capture bit-lite.json, and
+  // the version anchors it carries would then feed their own commit hashes.
+  if (relative.length === 0) {
+    throw new BitLiteError(`${label} must not be the workspace root`);
   }
   return resolved;
 }

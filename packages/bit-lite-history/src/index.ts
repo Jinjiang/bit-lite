@@ -5,6 +5,13 @@ export {
   readComponentCommit,
   readComponentHead,
 } from "./commits.js";
+export {
+  abbreviateComponentVersion,
+  assertNotSnapVersion,
+  formatSnapVersion,
+  isSnapVersion,
+  parseSnapVersion,
+} from "./component-version.js";
 export { ComponentHistoryError, GitCommandError } from "./errors.js";
 export { createGitRunner, defaultMaxOutputBytes, runGitLine } from "./git-process.js";
 export { readCommitTree, writeSnapshotBlobs, writeSnapshotTree } from "./objects.js";
@@ -37,7 +44,12 @@ export {
   remoteTrackingRefPrefix,
 } from "./refs.js";
 export { defaultRemoteName, readStoreRemoteUrl, resolveStoreRemote } from "./remote.js";
-export { snapComponents } from "./snap.js";
+export {
+  describeComponentSnaps,
+  prepareComponentSnap,
+  publishComponentSnaps,
+  snapComponents,
+} from "./snap.js";
 export { syncComponentHistory } from "./sync.js";
 export { prunedDirectoryNames, readComponentSnapshot } from "./snapshot.js";
 export {
@@ -49,6 +61,10 @@ export {
 export {
   assertAnnotatedTag,
   assertComponentVersion,
+  deriveNextComponentVersion,
+  listComponentVersionRefs,
+  listComponentVersions,
+  readVersionAtSnap,
   assertTagTargetsComponent,
   assertValidComponentTag,
   readTagTarget,
@@ -76,6 +92,7 @@ export type {
 export type {
   ComponentSnapResult,
   ComponentSnapStatus,
+  PreparedComponentSnap,
   SnapRequest,
   SnapResult,
 } from "./snap.js";
@@ -90,4 +107,4 @@ export type {
   GitAvailability,
   OpenComponentHistoryStoreOptions,
 } from "./store.js";
-export type { ComponentTagResult, ComponentTagStatus } from "./tags.js";
+export type { ComponentTagResult, ComponentTagStatus, ComponentVersionRef } from "./tags.js";

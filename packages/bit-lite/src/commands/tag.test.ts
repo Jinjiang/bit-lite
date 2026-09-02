@@ -112,7 +112,8 @@ describe("tag command", () => {
     const { reports, reporter } = recorder();
     const report = await runTagCommand(parsedTag(root, ["ui/button"], "1.0.0"), { reporter });
 
-    expect(report.tag).toMatchObject({
+    expect(report.tags).toHaveLength(1);
+    expect(report.tags[0]).toMatchObject({
       componentId: "ui/button",
       version: "1.0.0",
       status: "created",
@@ -120,21 +121,60 @@ describe("tag command", () => {
     expect(reports).toHaveLength(1);
 
     const store = createGitRunner({ gitDir: resolveComponentStorePath(root) });
-    expect(await runGitLine(store, ["cat-file", "-t", report.tag.ref])).toBe("tag");
+    expect(await runGitLine(store, ["cat-file", "-t", report.tags[0]!.ref])).toBe("tag");
   });
 
-  it("requires a component filter", async () => {
+  it("tags every registered component when no filter is supplied", async () => {
     const root = await createWorkspace();
-    await expect(
-      runTagCommand(parsedTag(root, [], "1.0.0"), { reporter: recorder().reporter })
-    ).rejects.toThrow(/requires --filter/);
+    await runSnapCommand(parsedSnap(root), { reporter: silentSnapReporter });
+
+    const report = await runTagCommand(parsedTag(root, [], undefined), {
+      reporter: recorder().reporter,
+    });
+
+    expect(report.tags.map((tag) => tag.componentId).sort()).toEqual(["lib/math", "ui/button"]);
   });
 
-  it("requires a version", async () => {
+  it("derives a first version when none is supplied", async () => {
     const root = await createWorkspace();
-    await expect(
-      runTagCommand(parsedTag(root, ["ui/button"], undefined), { reporter: recorder().reporter })
-    ).rejects.toThrow(/requires --version/);
+    await runSnapCommand(parsedSnap(root), { reporter: silentSnapReporter });
+
+    const report = await runTagCommand(parsedTag(root, ["ui/button"], undefined), {
+      reporter: recorder().reporter,
+    });
+
+    expect(report.tags[0]?.version).toBe("0.0.1");
+  });
+
+  it("increments the patch of a component's highest version", async () => {
+    const root = await createWorkspace();
+    await runSnapCommand(parsedSnap(root), { reporter: silentSnapReporter });
+    await runTagCommand(parsedTag(root, ["ui/button"], "1.4.2"), {
+      reporter: recorder().reporter,
+    });
+
+    await writeWorkspaceFile(root, "components/ui/button/index.ts", "export const id = 3;\n");
+    await runSnapCommand(parsedSnap(root), { reporter: silentSnapReporter });
+    const report = await runTagCommand(parsedTag(root, ["ui/button"], undefined), {
+      reporter: recorder().reporter,
+    });
+
+    expect(report.tags[0]?.version).toBe("1.4.3");
+  });
+
+  it("derives versions independently across components", async () => {
+    const root = await createWorkspace();
+    await runSnapCommand(parsedSnap(root), { reporter: silentSnapReporter });
+    await runTagCommand(parsedTag(root, ["lib/math"], "2.0.0"), {
+      reporter: recorder().reporter,
+    });
+
+    const report = await runTagCommand(parsedTag(root, [], undefined), {
+      reporter: recorder().reporter,
+    });
+
+    const versions = Object.fromEntries(report.tags.map((tag) => [tag.componentId, tag.version]));
+    expect(versions).toEqual({ "lib/math": "2.0.1", "ui/button": "0.0.1" });
   });
 
   it("rejects a repeated --version", async () => {
@@ -146,22 +186,24 @@ describe("tag command", () => {
     ).rejects.toThrow(/exactly one value/);
   });
 
-  it("rejects an ambiguous selection", async () => {
+  it("rejects an explicit version for more than one component", async () => {
     const root = await createWorkspace();
     await runSnapCommand(parsedSnap(root), { reporter: silentSnapReporter });
 
     await expect(
       runTagCommand(parsedTag(root, ["**"], "1.0.0"), { reporter: recorder().reporter })
-    ).rejects.toThrow(/requires exactly one component, but --filter matched 2/);
+    ).rejects.toThrow(/--version applies to exactly one component, but the selection matched 2/);
   });
 
-  it("rejects an invalid semantic version", async () => {
+  it("rejects a version that is not exactly major.minor.patch", async () => {
     const root = await createWorkspace();
     await runSnapCommand(parsedSnap(root), { reporter: silentSnapReporter });
 
-    await expect(
-      runTagCommand(parsedTag(root, ["ui/button"], "v1.0"), { reporter: recorder().reporter })
-    ).rejects.toThrow(/strict semantic version/);
+    for (const version of ["v1.0", "1.2.3-rc.1", "1.2.3+build.5"]) {
+      await expect(
+        runTagCommand(parsedTag(root, ["ui/button"], version), { reporter: recorder().reporter })
+      ).rejects.toThrow(/exactly major\.minor\.patch/);
+    }
   });
 
   it("fails when the component has no snap", async () => {
@@ -181,7 +223,7 @@ describe("tag command", () => {
     const second = await runTagCommand(parsedTag(root, ["ui/button"], "1.0.0"), {
       reporter: recorder().reporter,
     });
-    expect(second.tag.status).toBe("unchanged");
+    expect(second.tags[0]?.status).toBe("unchanged");
   });
 
   it("refuses to reassign a version to a newer snap", async () => {

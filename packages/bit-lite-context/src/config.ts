@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isRecord, readPackageName } from "bit-lite-utils";
 import { isNodeErrorCode } from "bit-lite-utils/node";
@@ -64,6 +64,7 @@ export function validateConfig(value: unknown): WorkspaceConfig {
         `component entry at index ${index} field "packageName"`
       ),
       env: readPackageRef(entry.env, `component entry at index ${index} env`),
+      ...readComponentVersion(entry.version, `component entry at index ${index} field "version"`),
     };
     assertComponentId(component.id);
     if (paths.has(component.path)) throw new BitLiteError(`component path "${component.path}" is duplicated`);
@@ -89,6 +90,48 @@ export function validateConfig(value: unknown): WorkspaceConfig {
     ...(defaultScope ? { defaultScope } : {}),
     components: components.sort((left, right) => left.id.localeCompare(right.id)),
   };
+}
+
+/**
+ * Rewrites version anchors in place.
+ *
+ * Why raw JSON rather than the validated config: `validateConfig` sorts
+ * components by id, and writing that back would reorder a file the user reads.
+ * Reading the file again also keeps the write independent of whatever was
+ * loaded earlier in the operation. The temporary-file rename makes the update
+ * all-or-nothing, so a crash can never leave some anchors advanced and others
+ * stale.
+ */
+export async function writeComponentVersions(
+  workspaceRoot: string,
+  versionsByComponentId: ReadonlyMap<string, string>
+): Promise<void> {
+  if (versionsByComponentId.size === 0) return;
+
+  const configPath = path.join(workspaceRoot, CONFIG_FILE);
+  const parsed = JSON.parse(await readFile(configPath, "utf8")) as unknown;
+  if (!isRecord(parsed) || !Array.isArray(parsed.components)) {
+    throw new BitLiteError(`${CONFIG_FILE} is no longer a readable workspace config`);
+  }
+
+  const remaining = new Set(versionsByComponentId.keys());
+  for (const entry of parsed.components) {
+    if (!isRecord(entry) || typeof entry.id !== "string") continue;
+    const version = versionsByComponentId.get(entry.id);
+    if (version === undefined) continue;
+    entry.version = version;
+    remaining.delete(entry.id);
+  }
+
+  if (remaining.size > 0) {
+    throw new BitLiteError(
+      `${CONFIG_FILE} has no entry for component${remaining.size === 1 ? "" : "s"} ${[...remaining].join(", ")}`
+    );
+  }
+
+  const temporaryPath = `${configPath}.${process.pid}.tmp`;
+  await writeFile(temporaryPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  await rename(temporaryPath, configPath);
 }
 
 export function readPackageRef(value: unknown, label: string): PackageRef {
@@ -148,6 +191,14 @@ function assertComponentId(id: string) {
   if (id.startsWith("/") || id.endsWith("/") || id.includes("//")) {
     throw new BitLiteError(`invalid component id "${id}"`);
   }
+}
+
+function readComponentVersion(value: unknown, label: string) {
+  if (value === undefined) return {};
+  if (typeof value !== "string" || value.length === 0 || /\s/.test(value)) {
+    throw new BitLiteError(`${label} must be a non-empty version string`);
+  }
+  return { version: value };
 }
 
 function readRequiredString(value: unknown, label: string) {

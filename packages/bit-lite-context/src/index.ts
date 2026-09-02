@@ -1,6 +1,17 @@
 export { parseArgs, parseCliArguments } from "./args.js";
 export { findComponentFileTargets, findComponentFiles } from "./component-files.js";
-export { loadConfig, validateConfig, assertPackageName, isWorkspaceProtocolSpec } from "./config.js";
+export {
+  getComponentPrerequisitePackageNames,
+  layerComponentsByPrerequisites,
+  orderComponentsByPrerequisites,
+} from "./component-graph.js";
+export {
+  assertPackageName,
+  isWorkspaceProtocolSpec,
+  loadConfig,
+  validateConfig,
+  writeComponentVersions,
+} from "./config.js";
 export {
   loadEnvForComponent,
   resolveEnvModuleSpecifier,
@@ -16,7 +27,6 @@ export { matchPattern } from "./utils/patterns.js";
 export {
   getWorkspaceEnvs,
   groupWorkspaceComponentsByEnv,
-  orderWorkspaceComponents,
   readWorkspace,
   resolveWorkspace,
   selectWorkspaceComponents,
