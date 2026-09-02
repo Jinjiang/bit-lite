@@ -41,8 +41,8 @@ async function createComponent(
 }
 
 describe("component version validation", () => {
-  it("accepts exact semantic versions", () => {
-    for (const version of ["0.0.0", "1.2.3", "1.2.3-rc.1", "1.2.3+build.5"]) {
+  it("accepts exactly major.minor.patch", () => {
+    for (const version of ["0.0.0", "0.0.1", "1.2.3", "10.20.30"]) {
       expect(assertComponentVersion(version)).toBe(version);
     }
   });
@@ -51,6 +51,18 @@ describe("component version validation", () => {
     for (const version of ["1.2", "v1.2.3", "^1.2.3", "~1.2.3", "1.2.3.4", "latest", ""]) {
       expect(() => assertComponentVersion(version)).toThrow(ComponentHistoryError);
     }
+  });
+
+  it("rejects prereleases and build metadata", () => {
+    for (const version of ["1.2.3-rc.1", "1.2.3+build.5", "1.2.3-rc.1+build.5", "0.0.0-alpha"]) {
+      expect(() => assertComponentVersion(version)).toThrow(/exactly major\.minor\.patch/);
+    }
+  });
+
+  it("explains that a pasted snap identifier is one, not merely a prerelease", () => {
+    expect(() => assertComponentVersion(`0.0.0-g${"a".repeat(40)}`)).toThrow(
+      /reserved for snap identifiers/
+    );
   });
 });
 
@@ -95,7 +107,7 @@ describe("component tags", () => {
 
     await expect(
       tagComponent(store, { componentId: "ui/button", version: "1.2" })
-    ).rejects.toThrow(/strict semantic version/);
+    ).rejects.toThrow(/exactly major\.minor\.patch/);
     expect(await runGitLine(store.run, ["for-each-ref", "refs/tags"])).toBe("");
   });
 

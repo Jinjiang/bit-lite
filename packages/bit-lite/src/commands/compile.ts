@@ -1,5 +1,7 @@
 import path from "node:path";
 import {
+  getComponentPrerequisitePackageNames,
+  layerComponentsByPrerequisites,
   loadEnvForComponent,
   readWorkspace,
   selectWorkspaceComponents,
@@ -278,11 +280,11 @@ export function createCompilePlan(workspace: Workspace, selectedIds?: readonly s
   const componentByPackage = new Map(
     components.map((component) => [component.packageName, component])
   );
-  const componentLayers = createCompileLayers(workspace, components);
+  const componentLayers = layerComponentsByPrerequisites(workspace, components);
   const layers = (componentLayers.length === 0 ? [[]] : componentLayers).map((layer) =>
     layer.map((component) => ({
       id: compileUnitId(component),
-      dependsOn: compilePrerequisitePackageNames(component).flatMap((packageName) => {
+      dependsOn: getComponentPrerequisitePackageNames(component).flatMap((packageName) => {
         const prerequisite = componentByPackage.get(packageName);
         return prerequisite ? [compileUnitId(prerequisite)] : [];
       }),
@@ -330,36 +332,6 @@ export async function prepareCompileVendorTaskOptions(
     taskId: compileUnitId(component),
     taskLabel: `Compile: ${component.id}`,
   });
-}
-
-function createCompileLayers(workspace: Workspace, components: WorkspaceComponent[]) {
-  const included = new Set(components.map((component) => component.packageName));
-  const remaining = new Map(components.map((component) => [component.packageName, component]));
-  const completed = new Set<string>();
-  const layers: WorkspaceComponent[][] = [];
-  while (remaining.size > 0) {
-    const layer = [...remaining.values()]
-      .filter((component) => compilePrerequisitePackageNames(component).every(
-        (dependency) => !included.has(dependency) || completed.has(dependency)
-      ))
-      .sort((left, right) => left.id.localeCompare(right.id));
-    if (layer.length === 0) {
-      throw new BitLiteError(`component package or environment dependency cycle prevents compile in ${workspace.rootDir}`);
-    }
-    layers.push(layer);
-    for (const component of layer) {
-      remaining.delete(component.packageName);
-      completed.add(component.packageName);
-    }
-  }
-  return layers;
-}
-
-function compilePrerequisitePackageNames(component: WorkspaceComponent) {
-  return [
-    ...component.internalDependencyPackageNames,
-    ...(component.internalEnvPackageName ? [component.internalEnvPackageName] : []),
-  ];
 }
 
 function compileUnitId(component: WorkspaceComponent) {

@@ -1,8 +1,15 @@
 import semver from "semver";
 import { readComponentHead } from "./commits.js";
+import { assertNotSnapVersion } from "./component-version.js";
 import { ComponentHistoryError } from "./errors.js";
 import { createObjectId, formatObjectId, type GitObjectId } from "./object-id.js";
-import { componentHeadRef, componentTagRef } from "./refs.js";
+import {
+  componentHeadRef,
+  componentTagRef,
+  componentTagRefPrefix,
+  encodeComponentKey,
+  parseComponentTagRef,
+} from "./refs.js";
 import type { ComponentHistoryStore } from "./store.js";
 
 /**
@@ -27,32 +34,134 @@ export type ComponentTagResult = {
 };
 
 /**
- * Strict validation: a component tag must be an exact semantic version, so
- * ranges, `v` prefixes, and loose spellings such as `1.0` are all rejected.
+ * Strict validation: an assigned component version is exactly three numbers.
+ * Ranges, `v` prefixes, loose spellings such as `1.0`, prereleases, and build
+ * metadata are all rejected.
+ *
+ * Excluding prereleases also excludes the generated snap identifier shape,
+ * which is one — so a manually assigned version can never collide with an
+ * identifier Bit Lite generates for a different snap. It keeps derived
+ * increments total as well: there is no question of how `1.2.3-rc.1` should
+ * order against the release it precedes, because it cannot be assigned.
  */
 export function assertComponentVersion(version: string): string {
-  const parsed = semver.parse(version, { loose: false });
-  // `parsed.version` drops build metadata, so the canonical spelling is rebuilt
-  // before comparing. Requiring an exact round trip is what rejects `v1.2.3`,
-  // `1.2`, and anything with surrounding whitespace.
-  const canonical =
-    parsed === null
-      ? undefined
-      : parsed.build.length > 0
-        ? `${parsed.version}+${parsed.build.join(".")}`
-        : parsed.version;
+  // Checked first so pasting a generated identifier explains what it is rather
+  // than only that prereleases are refused.
+  assertNotSnapVersion(version);
 
-  if (canonical !== version) {
+  const parsed = semver.parse(version, { loose: false });
+  // Requiring an exact round trip against `parsed.version` rejects `v1.2.3`,
+  // `1.2`, surrounding whitespace, and anything carrying build metadata, since
+  // `parsed.version` drops it. The explicit prerelease check then rejects the
+  // rest.
+  if (parsed === null || parsed.version !== version || parsed.prerelease.length > 0) {
     throw new ComponentHistoryError(
-      `"${version}" is not a strict semantic version, for example 1.2.3 or 1.2.3-rc.1`
+      `"${version}" is not an assignable component version; use exactly major.minor.patch, for example 1.2.3`
     );
   }
-  return canonical;
+  return parsed.version;
+}
+
+/**
+ * Lists the versions already assigned to one component, ordered lowest first.
+ *
+ * Ordering these is meaningful in a way that ordering snap identifiers is not:
+ * assigned versions are real three-part semantic versions, so precedence
+ * between them is total and reflects intent.
+ */
+export async function listComponentVersions(
+  store: ComponentHistoryStore,
+  componentId: string
+): Promise<string[]> {
+  const refs = await listComponentVersionRefs(store, componentId);
+  return refs.map((ref) => ref.version).sort(semver.compare);
+}
+
+/** One assigned version together with the commit it resolves to. */
+export type ComponentVersionRef = {
+  version: string;
+  /** Hex of the commit the tag peels to. */
+  targetHex: string;
+};
+
+/**
+ * Lists a component's assigned versions with their targets in one Git call, so
+ * a caller can ask which version names a particular snap without walking tags
+ * one at a time.
+ */
+export async function listComponentVersionRefs(
+  store: ComponentHistoryStore,
+  componentId: string
+): Promise<ComponentVersionRef[]> {
+  const prefix = `${componentTagRefPrefix}${encodeComponentKey(componentId)}/`;
+  const result = await store.run({
+    // `*objectname` is the peeled target of an annotated tag; `objectname` is
+    // the fallback for a ref that is not a tag object.
+    args: ["for-each-ref", "--format=%(refname)%09%(objectname)%09%(*objectname)", `${prefix}*`],
+  });
+
+  const refs: ComponentVersionRef[] = [];
+  for (const line of result.stdout.toString("utf8").split("\n")) {
+    if (line.length === 0) continue;
+    const [ref, objectName, peeled] = line.split("\t");
+    if (ref === undefined) continue;
+    const parsed = parseComponentTagRef(ref);
+    // A ref outside this component's namespace cannot appear under its own
+    // prefix, but the parse also rejects a malformed version segment.
+    if (parsed === undefined || parsed.componentId !== componentId) continue;
+    if (semver.valid(parsed.version) === null) continue;
+    const targetHex = peeled !== undefined && peeled.length > 0 ? peeled : objectName;
+    if (targetHex === undefined || targetHex.length === 0) continue;
+    refs.push({ version: parsed.version, targetHex });
+  }
+  return refs;
+}
+
+/**
+ * The highest version assigned to one specific snap, or `undefined` when that
+ * snap carries none.
+ *
+ * Asking about a specific snap rather than about the component as a whole is
+ * what keeps the answer unambiguous: a component may carry many versions across
+ * its history, but only the ones on the snap being referenced describe it.
+ */
+export async function readVersionAtSnap(
+  store: ComponentHistoryStore,
+  componentId: string,
+  snapHex: string
+): Promise<string | undefined> {
+  const versions = (await listComponentVersionRefs(store, componentId))
+    .filter((ref) => ref.targetHex === snapHex)
+    .map((ref) => ref.version)
+    .sort(semver.compare);
+  return versions.at(-1);
+}
+
+/**
+ * The next version for a component: one patch past the highest it already
+ * carries, or `0.0.1` for its first.
+ *
+ * Patch is the default because it is the only increment that can be chosen
+ * without knowing what changed. Choosing minor or major is a decision about
+ * intent, which belongs to the user rather than to a derivation.
+ */
+export function deriveNextComponentVersion(assignedVersions: readonly string[]): string {
+  const highest = assignedVersions.reduce<string | undefined>(
+    (best, version) => (best === undefined || semver.gt(version, best) ? version : best),
+    undefined
+  );
+  if (highest === undefined) return "0.0.1";
+
+  const next = semver.inc(highest, "patch");
+  if (next === null) {
+    throw new ComponentHistoryError(`cannot derive a version after "${highest}"`);
+  }
+  return next;
 }
 
 export async function tagComponent(
   store: ComponentHistoryStore,
-  input: { componentId: string; version: string }
+  input: { componentId: string; version: string; message?: string }
 ): Promise<ComponentTagResult> {
   const version = assertComponentVersion(input.version);
   const ref = componentTagRef(input.componentId, version);
@@ -88,7 +197,7 @@ export async function tagComponent(
       "tag",
       "--annotate",
       "--message",
-      `${input.componentId} ${version}`,
+      input.message ?? `${input.componentId} ${version}`,
       ref.slice("refs/tags/".length),
       head.hex,
     ],

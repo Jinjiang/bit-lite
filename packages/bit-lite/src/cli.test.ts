@@ -179,9 +179,18 @@ describe("tag command", () => {
 
   it("lists tag in help", async () => {
     expect(await runCli(["--help"])).toBe(0);
-    expect(vi.mocked(console.log).mock.calls.flat().join("\n")).toContain(
-      "tag     assign an immutable --version <semver> to one component's snap"
-    );
+    const help = vi.mocked(console.log).mock.calls.flat().join("\n");
+    expect(help).toContain("tag     assign immutable versions to the selected components' snaps");
+    expect(help).toContain("incrementing each component's patch by default");
+    expect(help).toContain("[--version <x.y.z>, one component only]");
+  });
+
+  it("lists the shared recording options for snap and tag in help", async () => {
+    expect(await runCli(["--help"])).toBe(0);
+    const help = vi.mocked(console.log).mock.calls.flat().join("\n");
+    expect(help).toContain("snap    record selected components in the component history store");
+    // Both recording commands advertise the same three options.
+    expect(help.match(/\[--message <text>\] \[--dry-run\] \[--json\]/g)).toHaveLength(2);
   });
 });
 

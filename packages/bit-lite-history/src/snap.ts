@@ -20,6 +20,14 @@ import type { ComponentHistoryStore } from "./store.js";
 export type SnapRequest = {
   componentId: string;
   rootDir: string;
+  /**
+   * Component-relative POSIX paths whose recorded bytes differ from the bytes
+   * on disk. The history layer neither builds nor interprets these; a caller
+   * that derives recorded metadata from workspace state supplies them.
+   */
+  contentOverrides?: ReadonlyMap<string, Uint8Array>;
+  /** Replaces the generated commit message for this component. */
+  message?: string;
 };
 
 export type ComponentSnapStatus = "created" | "unchanged";
@@ -40,50 +48,50 @@ export type SnapResult = {
   unchanged: readonly ComponentSnapResult[];
 };
 
-type PreparedComponent = {
+/**
+ * A component whose objects exist but whose ref has not moved. Callers that
+ * drive their own ordering read `snapId` between preparations, because a
+ * component's identity is settled here even though it is not yet published.
+ */
+export type PreparedComponentSnap = {
   componentId: string;
   treeId: GitObjectId;
   fileCount: number;
   head: GitObjectId | undefined;
+  /** `undefined` when the captured tree matched the head and nothing was committed. */
   commitId: GitObjectId | undefined;
+  /** The commit this component is at once published: the new commit, or the unchanged head. */
+  snapId: GitObjectId;
 };
 
+/**
+ * Records the given components as one operation. Callers needing to interleave
+ * work between components — resolving a dependency's version before preparing
+ * its dependent, for instance — drive `prepareComponentSnap` and
+ * `publishComponentSnaps` directly instead.
+ */
 export async function snapComponents(
   store: ComponentHistoryStore,
   requests: readonly SnapRequest[]
 ): Promise<SnapResult> {
-  assertUniqueComponents(requests);
+  assertUniqueComponents(requests.map((request) => request.componentId));
 
-  const prepared: PreparedComponent[] = [];
+  const prepared: PreparedComponentSnap[] = [];
   for (const request of requests) {
-    prepared.push(await prepareComponent(store, request));
+    prepared.push(await prepareComponentSnap(store, request));
   }
-
-  const updates: RefUpdate[] = prepared
-    .filter((component): component is PreparedComponent & { commitId: GitObjectId } =>
-      component.commitId !== undefined
-    )
-    .map((component) => ({
-      ref: componentHeadRef(component.componentId),
-      newValue: component.commitId,
-      expectedOldValue: component.head,
-    }));
-
-  // Nothing is published until every selected component prepared successfully.
-  await updateRefsAtomically(store, updates);
-
-  const components = prepared.map((component) => toResult(component));
-  return {
-    components,
-    changed: components.filter((component) => component.status === "created"),
-    unchanged: components.filter((component) => component.status === "unchanged"),
-  };
+  return publishComponentSnaps(store, prepared);
 }
 
-async function prepareComponent(
+/**
+ * Creates every object one component needs without moving its ref. Preparing a
+ * component has no visible effect: objects written for a component that is
+ * never published are simply unreachable.
+ */
+export async function prepareComponentSnap(
   store: ComponentHistoryStore,
   request: SnapRequest
-): Promise<PreparedComponent> {
+): Promise<PreparedComponentSnap> {
   const snapshot = await readComponentSnapshot(request);
   const treeId = await writeSnapshotTree(store, snapshot);
   const head = await readComponentHead(store, request.componentId);
@@ -99,6 +107,7 @@ async function prepareComponent(
         fileCount: snapshot.files.length,
         head,
         commitId: undefined,
+        snapId: head,
       };
     }
   }
@@ -107,6 +116,7 @@ async function prepareComponent(
     componentId: request.componentId,
     treeId,
     parentId: head,
+    ...(request.message === undefined ? {} : { message: request.message }),
   });
 
   return {
@@ -115,29 +125,68 @@ async function prepareComponent(
     fileCount: snapshot.files.length,
     head,
     commitId,
+    snapId: commitId,
   };
 }
 
-function toResult(component: PreparedComponent): ComponentSnapResult {
-  const snapId = component.commitId ?? component.head;
-  if (snapId === undefined) {
-    throw new Error(`component "${component.componentId}" produced neither a commit nor a head`);
-  }
+/**
+ * Moves every changed component's ref in one transaction. Publication happens
+ * only after all callers' preparation succeeded, so a failure anywhere leaves
+ * every component history exactly where it was.
+ */
+export async function publishComponentSnaps(
+  store: ComponentHistoryStore,
+  prepared: readonly PreparedComponentSnap[]
+): Promise<SnapResult> {
+  assertUniqueComponents(prepared.map((component) => component.componentId));
+
+  const updates: RefUpdate[] = prepared
+    .filter((component): component is PreparedComponentSnap & { commitId: GitObjectId } =>
+      component.commitId !== undefined
+    )
+    .map((component) => ({
+      ref: componentHeadRef(component.componentId),
+      newValue: component.commitId,
+      expectedOldValue: component.head,
+    }));
+
+  await updateRefsAtomically(store, updates);
+  return describeComponentSnaps(prepared);
+}
+
+/**
+ * Summarizes prepared components without publishing anything, so a caller can
+ * report exactly what publication would do. Preparation has already settled
+ * every component's identity, so the summary is the same one publication
+ * produces.
+ */
+export function describeComponentSnaps(
+  prepared: readonly PreparedComponentSnap[]
+): SnapResult {
+  const components = prepared.map((component) => toResult(component));
+  return {
+    components,
+    changed: components.filter((component) => component.status === "created"),
+    unchanged: components.filter((component) => component.status === "unchanged"),
+  };
+}
+
+function toResult(component: PreparedComponentSnap): ComponentSnapResult {
   return {
     componentId: component.componentId,
     status: component.commitId === undefined ? "unchanged" : "created",
-    snapId: formatObjectId(snapId),
+    snapId: formatObjectId(component.snapId),
     treeId: formatObjectId(component.treeId),
     fileCount: component.fileCount,
   };
 }
 
-function assertUniqueComponents(requests: readonly SnapRequest[]): void {
+function assertUniqueComponents(componentIds: readonly string[]): void {
   const seen = new Set<string>();
-  for (const request of requests) {
-    if (seen.has(request.componentId)) {
-      throw new Error(`component "${request.componentId}" was selected more than once`);
+  for (const componentId of componentIds) {
+    if (seen.has(componentId)) {
+      throw new Error(`component "${componentId}" was selected more than once`);
     }
-    seen.add(request.componentId);
+    seen.add(componentId);
   }
 }
