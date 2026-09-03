@@ -6,7 +6,7 @@ Bit Lite SHALL provide a `tag` command that selects components using the same co
 
 Before tagging each component, Bit Lite SHALL project its metadata as defined by the `component-version-resolution` capability, resolving workspace dependency and env versions to the versions those components carry at that point in the operation. When the projection changes the component's tree, Bit Lite SHALL create a snap carrying the projected content and tag that snap. When the projection leaves the tree unchanged, any tag Bit Lite creates SHALL point at the component's existing current snap. Tagging SHALL NOT create a snap in any other circumstance.
 
-#### Scenario: Tag a component that has never been assigned a version
+#### Scenario: Tag the current snap
 
 - **WHEN** a user tags a component whose projected content matches its current snap and whose snap carries no assigned version
 - **THEN** Bit Lite creates an annotated component tag pointing directly to that snap commit
@@ -39,6 +39,11 @@ Before tagging each component, Bit Lite SHALL project its metadata as defined by
 
 - **WHEN** the requested version is not a valid version for a component
 - **THEN** the command fails before creating or changing any snap or tag ref
+
+#### Scenario: Reject ambiguous component selection
+
+- **WHEN** the component selector matches zero registered components, or matches more than one while an explicit version is supplied
+- **THEN** the command fails without creating a snap or changing any tag ref
 
 ## ADDED Requirements
 

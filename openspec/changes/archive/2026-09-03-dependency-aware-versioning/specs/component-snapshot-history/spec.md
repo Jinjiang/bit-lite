@@ -61,7 +61,7 @@ Selected components SHALL be prepared in the dependency order defined by the `co
 
 V1 component snaps SHALL derive versioned content from the captured component directory and from the workspace facts required to identify what the component was built against: the recorded versions of its workspace dependencies and its declared env reference. Bit Lite SHALL NOT implicitly add any other workspace-level configuration, dependency inference, package-manager state, resolved installed package versions, build artifacts, caches, or generated output to the component commit.
 
-#### Scenario: Workspace policy changes without component or dependency changes
+#### Scenario: Workspace policy changes without component file changes
 
 - **WHEN** `bit-lite.json` changes in a way that does not alter the component's env reference or any of its dependencies' versions, or inferred dependencies or package-manager state change, without changing the component's files
 - **THEN** the next snap reports that component as unchanged
