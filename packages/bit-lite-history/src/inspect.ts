@@ -85,6 +85,24 @@ export async function readVersionsBySnap(
   return bySnap;
 }
 
+/**
+ * Whether one commit is reachable from another. Used to tell a component whose
+ * anchor merely lags its head — which synchronization creates routinely — from
+ * one whose anchor names an unrelated commit, which is a broken workspace
+ * rather than a stale one.
+ */
+export async function isAncestorCommit(
+  store: ComponentHistoryStore,
+  ancestor: GitObjectId,
+  descendant: GitObjectId
+): Promise<boolean> {
+  const result = await store.run({
+    args: ["merge-base", "--is-ancestor", ancestor.hex, descendant.hex],
+    throwOnFailure: false,
+  });
+  return result.exitCode === 0;
+}
+
 /** One component-owned file's presence and identity within a tree. */
 export type TreeFileEntry = {
   /** POSIX path relative to the component root. */

@@ -15,6 +15,7 @@ export {
 export { ComponentHistoryError, GitCommandError } from "./errors.js";
 export {
   compareTrees,
+  isAncestorCommit,
   readComponentHistory,
   readTreeFile,
   readTreeFiles,
