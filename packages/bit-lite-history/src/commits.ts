@@ -16,6 +16,13 @@ export type ComponentCommit = {
   id: GitObjectId;
   treeId: GitObjectId;
   parentIds: readonly GitObjectId[];
+  /**
+   * When the snap was authored, as an ISO 8601 string. Author time rather than
+   * commit time: it is the moment the component was recorded, and nothing here
+   * ever rewrites a commit, so the two agree in practice and author time is the
+   * one that stays meaningful if that ever changes.
+   */
+  authoredAt: string;
 };
 
 /** Deterministic in shape; audit detail comes from Git's own author metadata. */
@@ -59,11 +66,32 @@ export async function readComponentCommit(
     .filter((line) => line.startsWith("parent "))
     .map((line) => createObjectId(line.slice("parent ".length), store.objectFormat));
 
+  const authorLine = header
+    .split("\n")
+    .find((line) => line.startsWith("author "))
+    ?.slice("author ".length);
+
   return {
     id: commitId,
     treeId: createObjectId(treeLine, store.objectFormat),
     parentIds,
+    authoredAt: parseAuthorTimestamp(commitId, authorLine),
   };
+}
+
+/**
+ * A commit header's author line ends with `<epoch seconds> <±hhmm>`. The name
+ * and email before it may contain spaces, so the timestamp is taken from the
+ * end rather than by splitting the line.
+ */
+function parseAuthorTimestamp(commitId: GitObjectId, authorLine: string | undefined): string {
+  const match = authorLine?.match(/ (\d+) [+-]\d{4}$/);
+  if (match?.[1] === undefined) {
+    throw new ComponentHistoryError(
+      `commit ${formatObjectId(commitId)} has no readable author timestamp`
+    );
+  }
+  return new Date(Number(match[1]) * 1000).toISOString();
 }
 
 export type CreateComponentCommitInput = {

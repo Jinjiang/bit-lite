@@ -1,19 +1,19 @@
 ## 1. Read-only tree computation
 
-- [ ] 1.1 Extract the snapshot and blob-hashing logic so the writing path and a compute-only path share everything up to the blob IDs
-- [ ] 1.2 Add compute-only blob hashing that produces the same IDs without `-w`
-- [ ] 1.3 Add a tree serializer that builds the nested subtree structure from the flat entry list and hashes each tree object's bytes, applying Git's entry ordering rule that sorts a directory as though its name ended in `/`
-- [ ] 1.4 Add a test asserting the writing path and the compute-only path produce identical tree IDs for the same component, covering nested directories, executable modes, and the substituted `.comp.json`; this is the only guard tying the serializer to Git's own, so treat a failure here as blocking
-- [ ] 1.5 Add a test asserting a compute-only run leaves the store's object count and refs unchanged
+- [x] 1.1 Extract the snapshot and blob-hashing logic so the writing path and a compute-only path share everything up to the blob IDs
+- [x] 1.2 Add compute-only blob hashing that produces the same IDs without `-w`
+- [x] 1.3 Add a tree serializer that builds the nested subtree structure from the flat entry list and hashes each tree object's bytes, applying Git's entry ordering rule that sorts a directory as though its name ended in `/`
+- [x] 1.4 Add a test asserting the writing path and the compute-only path produce identical tree IDs for the same component, covering nested directories, executable modes, and the substituted `.comp.json`; this is the only guard tying the serializer to Git's own, so treat a failure here as blocking
+- [x] 1.5 Add a test asserting a compute-only run leaves the store's object count and refs unchanged
 
 ## 2. History reading primitives
 
-- [ ] 2.1 Add walking a component's linear history from its canonical head; `readComponentCommit` already returns commit ID, tree ID, and parents, so extend it with the authored timestamp rather than writing a second reader
-- [ ] 2.2 Reuse `listComponentVersionRefs` for per-snap tag lookup; it already peels annotated tags, so add only what decoration needs on top of it
-- [ ] 2.3 Add reading a component's recorded metadata from a snap by extracting and parsing the committed `.comp.json` blob
-- [ ] 2.4 Add tree-to-tree file comparison returning added, modified, and deleted component-relative paths
-- [ ] 2.5 Report a component with no canonical history as never recorded rather than failing, across all primitives
-- [ ] 2.6 Add unit tests for history walking, tag lookup, metadata reading, and file comparison over a real bare store
+- [x] 2.1 Add walking a component's linear history from its canonical head; `readComponentCommit` already returns commit ID, tree ID, and parents, so extend it with the authored timestamp rather than writing a second reader
+- [x] 2.2 Reuse `listComponentVersionRefs` for per-snap tag lookup; it already peels annotated tags, so add only what decoration needs on top of it
+- [x] 2.3 Add reading a component's recorded metadata from a snap by extracting and parsing the committed `.comp.json` blob
+- [x] 2.4 Add tree-to-tree file comparison returning added, modified, and deleted component-relative paths
+- [x] 2.5 Report a component with no canonical history as never recorded rather than failing, across all primitives
+- [x] 2.6 Add unit tests for history walking, tag lookup, metadata reading, and file comparison over a real bare store
 
 ## 3. Comparison and attribution
 

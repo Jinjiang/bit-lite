@@ -5,6 +5,7 @@ import { ComponentHistoryError } from "./errors.js";
 import { createObjectId, type GitObjectId } from "./object-id.js";
 import type { ComponentHistoryStore } from "./store.js";
 import type { ComponentSnapshot } from "./snapshot.js";
+import { computeSnapshotTreeId } from "./tree-id.js";
 
 /**
  * What: turns a component snapshot into Git blob and tree objects.
@@ -13,23 +14,54 @@ import type { ComponentSnapshot } from "./snapshot.js";
  * hashed in one batched `hash-object` call and assembled through an
  * operation-scoped temporary index, which keeps the number of subprocesses
  * independent of file count and leaves no durable state behind.
+ *
+ * Inspection needs the same content identity without adding objects to the
+ * store, so blob hashing is shared and parameterized by whether it persists.
+ * Tree assembly cannot be shared: `write-tree` has no read-only counterpart,
+ * so the compute-only path serializes trees itself in `tree-id.ts`.
  */
 
 /**
- * Writes every snapshot file as a blob. `--no-filters` is essential: clean and
- * smudge filters would make a snap depend on the machine's Git configuration
- * rather than on the component's bytes.
+ * Writes every snapshot file as a blob, returning their IDs.
  *
- * Files read from disk are still hashed in one batched call, so the subprocess
- * count stays independent of component size. Only substituted files, of which
- * there is normally one, are hashed individually from their bytes.
+ * See {@link hashSnapshotBlobs} for why `--no-filters` matters and how the
+ * batching works.
  */
 export async function writeSnapshotBlobs(
   store: ComponentHistoryStore,
   snapshot: ComponentSnapshot
 ): Promise<readonly GitObjectId[]> {
+  return hashSnapshotBlobs(store, snapshot, true);
+}
+
+/**
+ * Produces the same blob IDs as {@link writeSnapshotBlobs} without storing the
+ * objects, so inspection measures content exactly as recording would.
+ */
+export async function computeSnapshotBlobs(
+  store: ComponentHistoryStore,
+  snapshot: ComponentSnapshot
+): Promise<readonly GitObjectId[]> {
+  return hashSnapshotBlobs(store, snapshot, false);
+}
+
+/**
+ * Hashes every snapshot file. `--no-filters` is essential: clean and smudge
+ * filters would make a snap depend on the machine's Git configuration rather
+ * than on the component's bytes.
+ *
+ * Files read from disk are hashed in one batched call, so the subprocess count
+ * stays independent of component size. Only substituted files, of which there
+ * is normally one, are hashed individually from their bytes.
+ */
+async function hashSnapshotBlobs(
+  store: ComponentHistoryStore,
+  snapshot: ComponentSnapshot,
+  persist: boolean
+): Promise<readonly GitObjectId[]> {
   if (snapshot.files.length === 0) return [];
 
+  const writeFlag = persist ? ["-w"] : [];
   const blobIds = new Array<GitObjectId | undefined>(snapshot.files.length);
   const readFromDisk: { position: number; absolutePath: string }[] = [];
 
@@ -38,12 +70,12 @@ export async function writeSnapshotBlobs(
       readFromDisk.push({ position, absolutePath: file.absolutePath });
       continue;
     }
-    blobIds[position] = await writeBlobFromBytes(store, file.content);
+    blobIds[position] = await hashBlobFromBytes(store, file.content, writeFlag);
   }
 
   if (readFromDisk.length > 0) {
     const result = await store.run({
-      args: ["hash-object", "-w", "--no-filters", "--stdin-paths"],
+      args: ["hash-object", ...writeFlag, "--no-filters", "--stdin-paths"],
       stdin: `${readFromDisk.map((file) => file.absolutePath).join("\n")}\n`,
     });
 
@@ -71,12 +103,13 @@ export async function writeSnapshotBlobs(
   });
 }
 
-async function writeBlobFromBytes(
+async function hashBlobFromBytes(
   store: ComponentHistoryStore,
-  content: Uint8Array
+  content: Uint8Array,
+  writeFlag: readonly string[]
 ): Promise<GitObjectId> {
   const result = await store.run({
-    args: ["hash-object", "-w", "--no-filters", "-t", "blob", "--stdin"],
+    args: ["hash-object", ...writeFlag, "--no-filters", "-t", "blob", "--stdin"],
     stdin: content,
   });
   return createObjectId(result.stdout.toString("utf8"), store.objectFormat);
@@ -125,6 +158,19 @@ export async function writeSnapshotTree(
   } finally {
     await rm(path.dirname(indexFile), { recursive: true, force: true });
   }
+}
+
+/**
+ * Produces the tree ID {@link writeSnapshotTree} would produce for the same
+ * snapshot, writing nothing. Inspection uses this so a command a user runs
+ * constantly never grows the store with unreachable objects.
+ */
+export async function computeSnapshotTree(
+  store: ComponentHistoryStore,
+  snapshot: ComponentSnapshot
+): Promise<GitObjectId> {
+  const blobIds = await computeSnapshotBlobs(store, snapshot);
+  return computeSnapshotTreeId(snapshot, blobIds, store.objectFormat);
 }
 
 /** Reads the tree a commit points at, without checking anything out. */
