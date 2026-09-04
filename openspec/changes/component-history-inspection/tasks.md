@@ -17,14 +17,14 @@
 
 ## 3. Comparison and attribution
 
-- [ ] 3.1 Implement a shared comparison producing file changes plus metadata changes between two component states, where a state is working content or a recorded snap
-- [ ] 3.2 Project working content before comparing so working and recorded states are always compared in the same form, resolving each workspace prerequisite to the version at its own canonical head and never refusing an unrecorded or modified prerequisite
-- [ ] 3.3 Propagate modification over the prerequisite graph so a component whose prerequisite is modified is itself reported changed, naming the prerequisite responsible
-- [ ] 3.4 Add a test asserting a component with untouched files is reported changed when its workspace dependency is modified, and that snapping both in one operation creates a commit for each
-- [ ] 3.5 Exclude `.comp.json` from the file-change list and derive dependency and env changes from parsed metadata on both sides
-- [ ] 3.6 Report metadata differences that are neither dependency nor env changes rather than dropping them
-- [ ] 3.7 Implement change-source attribution classifying a snap against its parent as any combination of source, deps, and env, and marking a parentless snap as the initial version
-- [ ] 3.8 Add unit tests for attribution covering source-only, deps-only, env-only, combined, initial version, and metadata reformatting that must not be reported as a version change
+- [x] 3.1 Implement a shared comparison producing file changes plus metadata changes between two component states, where a state is working content or a recorded snap
+- [x] 3.2 Project working content before comparing so working and recorded states are always compared in the same form, resolving each workspace prerequisite to the version at its own canonical head and never refusing an unrecorded or modified prerequisite
+- [x] 3.3 Propagate modification over the prerequisite graph so a component whose prerequisite is modified is itself reported changed, naming the prerequisite responsible
+- [x] 3.4 Add a test asserting a component with untouched files is reported changed when its workspace dependency is modified, and that snapping both in one operation creates a commit for each
+- [x] 3.5 Exclude `.comp.json` from the file-change list and derive dependency and env changes from parsed metadata on both sides
+- [x] 3.6 Report metadata differences that are neither dependency nor env changes rather than dropping them
+- [x] 3.7 Implement change-source attribution classifying a snap against its parent as any combination of source, deps, and env, and marking a parentless snap as the initial version
+- [x] 3.8 Add unit tests for attribution covering source-only, deps-only, env-only, combined, initial version, and metadata reformatting that must not be reported as a version change
 
 ## 4. Status command
 
