@@ -64,9 +64,9 @@
 
 ## 7. Documentation and verification
 
-- [ ] 7.1 Update the root README's implemented-capabilities and not-implemented sections to reflect that history inspection now exists, and add the three commands to its CLI overview table
-- [ ] 7.2 Document the three commands in `packages/bit-lite/README.md`, and while there correct that page's stale `snap` and `tag` sections, which still describe `tag` as single-component and describe `snap` capturing `.comp.json` without mentioning the projection
-- [ ] 7.3 Document that a component can gain a version with no source change and that the change source explains it
-- [ ] 7.4 Confirm non-versioning commands remain independent of the store, that inspection commands never create one, and that inspection needs no install
-- [ ] 7.5 Run the full build, typecheck, and test suites across the monorepo
-- [ ] 7.6 Exercise the demo workspace end to end: snap, tag, upgrade an env, re-snap, then verify status, log attribution, and diff all explain the resulting versions
+- [x] 7.1 Update the root README's implemented-capabilities and not-implemented sections to reflect that history inspection now exists, and add the three commands to its CLI overview table
+- [x] 7.2 Document the three commands in `packages/bit-lite/README.md`, and while there correct that page's stale `snap` and `tag` sections, which still describe `tag` as single-component and describe `snap` capturing `.comp.json` without mentioning the projection
+- [x] 7.3 Document that a component can gain a version with no source change and that the change source explains it
+- [x] 7.4 Confirm non-versioning commands remain independent of the store, that inspection commands never create one, and that inspection needs no install
+- [x] 7.5 Run the full build, typecheck, and test suites across the monorepo
+- [x] 7.6 Exercise the demo workspace end to end: snap, tag, upgrade an env, re-snap, then verify status, log attribution, and diff all explain the resulting versions
