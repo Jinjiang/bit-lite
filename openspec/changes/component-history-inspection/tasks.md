@@ -28,18 +28,18 @@
 
 ## 4. Status command
 
-- [ ] 4.1 Add `status` reading the workspace with `readWorkspace` as `snap` does, so it stays independent of resolved envs and installed packages, selecting components with existing filter conventions, and opening the store without creating one
-- [ ] 4.2 Report never-recorded components, including when the workspace has no store at all
-- [ ] 4.3 Report modified components by comparing projected working content against the head tree, including components modified only because a prerequisite is
-- [ ] 4.4 Report behind components by testing whether the version anchor names an ancestor of the head, resolving an anchor that holds either a snap version identifier or a semantic version naming a tag, and state that recording from that state would record content based on the older version
-- [ ] 4.5 Report available dependency and env updates by comparing each dependency's current version against the version recorded in the component's head
-- [ ] 4.6 Report never-released components: a head exists, nothing is modified, and no semantic version is assigned to that head
-- [ ] 4.7 Report a component with no applicable condition as clean, and allow multiple conditions on one component
-- [ ] 4.8 Report the head version, and both the anchored and head versions when they differ
-- [ ] 4.9 Add a reporter producing one line per component plus a structured result for machine-readable output
-- [ ] 4.10 Add integration tests over a real bare store for every state, for multiple simultaneous conditions, for a workspace with no store, and for a workspace with nothing installed
-- [ ] 4.11 Add an integration test asserting `status` filtered to one component still reports when a prerequisite outside the selection is unrecorded or modified, where recording would refuse
-- [ ] 4.12 Register `status` in the CLI and its help
+- [x] 4.1 Add `status` reading the workspace with `readWorkspace` as `snap` does, so it stays independent of resolved envs and installed packages, selecting components with existing filter conventions, and opening the store without creating one
+- [x] 4.2 Report never-recorded components, including when the workspace has no store at all
+- [x] 4.3 Report modified components by comparing projected working content against the head tree, including components modified only because a prerequisite is
+- [x] 4.4 Report behind components by testing whether the version anchor names an ancestor of the head, resolving an anchor that holds either a snap version identifier or a semantic version naming a tag, and state that recording from that state would record content based on the older version
+- [x] 4.5 Report available dependency and env updates by comparing each dependency's current version against the version recorded in the component's head
+- [x] 4.6 Report never-released components: a head exists, nothing is modified, and no semantic version is assigned to that head
+- [x] 4.7 Report a component with no applicable condition as clean, and allow multiple conditions on one component
+- [x] 4.8 Report the head version, and both the anchored and head versions when they differ
+- [x] 4.9 Add a reporter producing one line per component plus a structured result for machine-readable output
+- [x] 4.10 Add integration tests over a real bare store for every state, for multiple simultaneous conditions, for a workspace with no store, and for a workspace with nothing installed
+- [x] 4.11 Add an integration test asserting `status` filtered to one component still reports when a prerequisite outside the selection is unrecorded or modified, where recording would refuse
+- [x] 4.12 Register `status` in the CLI and its help
 
 ## 5. Log command
 

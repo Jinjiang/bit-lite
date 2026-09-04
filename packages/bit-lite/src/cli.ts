@@ -5,6 +5,7 @@ import { runInstallCommand } from "./commands/install.js";
 import { runPreviewCommand } from "./commands/preview.js";
 import { runSnapCommand } from "./commands/snap.js";
 import { runStartCommand } from "./commands/start.js";
+import { runStatusCommand } from "./commands/status.js";
 import { runSyncCommand } from "./commands/sync.js";
 import { runTagCommand } from "./commands/tag.js";
 import { runTestCommand } from "./commands/test.js";
@@ -21,6 +22,7 @@ const commands: Record<string, CommandHandler> = {
   preview: runPreviewCommand,
   snap: runSnapCommand,
   start: runStartCommand,
+  status: runStatusCommand,
   sync: runSyncCommand,
   tag: runTagCommand,
   test: runTestCommand,
@@ -63,6 +65,8 @@ Commands:
   snap    record selected components in the component history store
           [--message <text>] [--dry-run] [--json]
   start   compile and serve preview/live tests in one watch session
+  status  report each selected component's state against its recorded history
+          [--json]
   sync    exchange component histories and tags with [--remote <url>]
   tag     assign immutable versions to the selected components' snaps,
           incrementing each component's patch by default
