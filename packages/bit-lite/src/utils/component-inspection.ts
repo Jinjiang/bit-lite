@@ -3,19 +3,23 @@ import {
   orderComponentsByPrerequisites,
 } from "bit-lite-context";
 import {
-  compareTrees,
-  computeSnapshotTree,
+  compareFileLists,
+  computeSnapshotBlobs,
+  computeSnapshotTreeId,
   formatSnapVersion,
   objectIdsEqual,
   readCommitTree,
   readComponentHead,
   readComponentSnapshot,
+  readTreeFiles,
   readVersionAtSnap,
   type ComponentHistoryStore,
   type FileChange,
   type GitObjectId,
+  type TreeFileEntry,
 } from "bit-lite-history";
 import type { Workspace, WorkspaceComponent } from "bit-lite-context";
+import { BitLiteError } from "./errors.js";
 import {
   componentConfigFileName,
   projectComponentConfigBytes,
@@ -59,6 +63,20 @@ import {
  */
 export const unrecordedComponentVersion = "0.0.0";
 
+/**
+ * A component's working content as it would be recorded. The entry list is
+ * carried rather than only the tree ID because the tree was computed and never
+ * written: Git can compare IDs for equality, but it cannot list the contents of
+ * an object the store does not hold, so any comparison against working state
+ * has to work from entries.
+ */
+export type ComponentWorkingState = {
+  treeId: GitObjectId;
+  files: readonly TreeFileEntry[];
+  /** The projected `.comp.json` these files would record. */
+  configBytes: Uint8Array;
+};
+
 export type InspectedComponent = {
   component: WorkspaceComponent;
   /** The component's canonical head, or `undefined` when never recorded. */
@@ -66,8 +84,7 @@ export type InspectedComponent = {
   /** Version the head carries: its assigned semantic version, else its snap identifier. */
   headVersion: string | undefined;
   headTreeId: GitObjectId | undefined;
-  /** Tree the component's projected working content produces right now. */
-  workingTreeId: GitObjectId;
+  working: ComponentWorkingState;
   /** The component's own content differs from its head, or it has no head. */
   ownContentChanged: boolean;
   /** `ownContentChanged`, or some prerequisite changed. What recording will act on. */
@@ -119,9 +136,9 @@ export async function inspectWorkspace(
   for (const component of orderComponentsByPrerequisites(workspace)) {
     const head = heads.get(component.id);
     const headTreeId = head === undefined ? undefined : await readCommitTree(store, head);
-    const workingTreeId = await computeProjectedWorkingTree(store, component, resolveVersion);
+    const working = await computeProjectedWorkingState(store, component, resolveVersion);
     const ownContentChanged =
-      headTreeId === undefined || !objectIdsEqual(headTreeId, workingTreeId);
+      headTreeId === undefined || !objectIdsEqual(headTreeId, working.treeId);
 
     const changedPrerequisiteIds: string[] = [];
     for (const prerequisiteName of getComponentPrerequisitePackageNames(component)) {
@@ -137,7 +154,7 @@ export async function inspectWorkspace(
       head,
       headVersion: headVersions.get(component.id),
       headTreeId,
-      workingTreeId,
+      working,
       ownContentChanged,
       changed: ownContentChanged || changedPrerequisiteIds.length > 0,
       changedPrerequisiteIds,
@@ -148,25 +165,39 @@ export async function inspectWorkspace(
 }
 
 /**
- * The tree a component's working directory would record right now. Projected
+ * What a component's working directory would record right now. Projected
  * first, so working state and recorded state are never compared in different
  * shapes.
  */
-export async function computeProjectedWorkingTree(
+export async function computeProjectedWorkingState(
   store: ComponentHistoryStore,
   component: WorkspaceComponent,
   resolveVersion: ComponentVersionLookup
-): Promise<GitObjectId> {
-  const contentOverrides = new Map([
-    [componentConfigFileName, await projectComponentConfigBytes({ component, resolveVersion })],
-  ]);
+): Promise<ComponentWorkingState> {
+  const configBytes = await projectComponentConfigBytes({ component, resolveVersion });
   const snapshot = await readComponentSnapshot({
     componentId: component.id,
     rootDir: component.rootDir,
-    contentOverrides,
+    contentOverrides: new Map([[componentConfigFileName, configBytes]]),
   });
-  return computeSnapshotTree(store, snapshot);
+
+  const blobIds = await computeSnapshotBlobs(store, snapshot);
+  return {
+    treeId: computeSnapshotTreeId(snapshot, blobIds, store.objectFormat),
+    files: snapshot.files.map((file, position) => ({
+      path: file.path,
+      mode: file.mode,
+      blobHex: blobIds[position]!.hex,
+    })),
+    configBytes,
+  };
 }
+
+/** One end of a comparison: nothing, a recorded snap's tree, or working state. */
+export type ComparisonSide =
+  | { kind: "absent" }
+  | { kind: "recorded"; treeId: GitObjectId }
+  | { kind: "working"; state: ComponentWorkingState };
 
 export type ComponentComparison = {
   /** Component-owned files other than `.comp.json`. */
@@ -175,31 +206,64 @@ export type ComponentComparison = {
 };
 
 /**
- * The one comparison `status`, `log`, and `diff` all read. Either side may be
- * absent, which means the component did not exist there.
+ * The one comparison `status`, `log`, and `diff` all read.
  *
  * `.comp.json` is lifted out of the file list and expressed through the
  * metadata comparison instead: it is a projection rather than a file anyone
  * can open, so listing it as changed would say nothing useful.
  */
-export async function compareComponentTrees(
+export async function compareComponentStates(
   store: ComponentHistoryStore,
   componentId: string,
-  beforeTree: GitObjectId | undefined,
-  afterTree: GitObjectId | undefined
+  before: ComparisonSide,
+  after: ComparisonSide
 ): Promise<ComponentComparison> {
-  const files = (await compareTrees(store, beforeTree, afterTree)).filter(
-    (change) => change.path !== componentConfigFileName
-  );
+  const beforeContent = await readSide(store, componentId, before);
+  const afterContent = await readSide(store, componentId, after);
 
-  const before =
-    beforeTree === undefined
-      ? undefined
-      : await readRecordedComponentConfig(store, componentId, beforeTree);
-  const after =
-    afterTree === undefined
-      ? undefined
-      : await readRecordedComponentConfig(store, componentId, afterTree);
+  return {
+    files: compareFileLists(beforeContent.files, afterContent.files).filter(
+      (change) => change.path !== componentConfigFileName
+    ),
+    metadata: compareComponentMetadata(beforeContent.config, afterContent.config),
+  };
+}
 
-  return { files, metadata: compareComponentMetadata(before, after) };
+async function readSide(
+  store: ComponentHistoryStore,
+  componentId: string,
+  side: ComparisonSide
+): Promise<{
+  files: readonly TreeFileEntry[];
+  config: Record<string, unknown> | undefined;
+}> {
+  if (side.kind === "absent") return { files: [], config: undefined };
+  if (side.kind === "working") {
+    return {
+      files: side.state.files,
+      config: parseProjectedConfig(componentId, side.state.configBytes),
+    };
+  }
+  return {
+    files: await readTreeFiles(store, side.treeId),
+    config: await readRecordedComponentConfig(store, componentId, side.treeId),
+  };
+}
+
+/**
+ * The working side's metadata is the projection this run just produced, so it
+ * is read from those bytes rather than from the store — the tree they belong to
+ * was never written.
+ */
+function parseProjectedConfig(
+  componentId: string,
+  configBytes: Uint8Array
+): Record<string, unknown> | undefined {
+  const parsed: unknown = JSON.parse(Buffer.from(configBytes).toString("utf8"));
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new BitLiteError(
+      `component "${componentId}" projected a ${componentConfigFileName} that is not an object`
+    );
+  }
+  return parsed as Record<string, unknown>;
 }

@@ -53,14 +53,14 @@
 
 ## 6. Diff command
 
-- [ ] 6.1 Add `diff` requiring a selection resolving to exactly one component and defaulting to projected working content against the recorded head
-- [ ] 6.2 Accept explicit states naming a snap version identifier or an assigned semantic version on either side, and fail naming the component and any version that does not resolve to one of its snaps
-- [ ] 6.3 Present source file changes as added, modified, or deleted component-relative paths
-- [ ] 6.4 Present dependency changes as added, removed, and changed entries with versions on each side, and env changes separately
-- [ ] 6.5 Add a structured output variant carrying the same facts with unabbreviated version identifiers
-- [ ] 6.6 Add an integration test asserting a default diff reports no changes exactly when snapping reports the component unchanged, including the case where only a dependency version moved and the case where a prerequisite has uncommitted changes
-- [ ] 6.7 Add integration tests for working-versus-head, snap-versus-snap, tag-versus-tag, and unresolved version arguments
-- [ ] 6.8 Register `diff` in the CLI and its help
+- [x] 6.1 Add `diff` requiring a selection resolving to exactly one component and defaulting to projected working content against the recorded head
+- [x] 6.2 Accept explicit states naming a snap version identifier or an assigned semantic version on either side, and fail naming the component and any version that does not resolve to one of its snaps
+- [x] 6.3 Present source file changes as added, modified, or deleted component-relative paths
+- [x] 6.4 Present dependency changes as added, removed, and changed entries with versions on each side, and env changes separately
+- [x] 6.5 Add a structured output variant carrying the same facts with unabbreviated version identifiers
+- [x] 6.6 Add an integration test asserting a default diff reports no changes exactly when snapping reports the component unchanged, including the case where only a dependency version moved and the case where a prerequisite has uncommitted changes
+- [x] 6.7 Add integration tests for working-versus-head, snap-versus-snap, tag-versus-tag, and unresolved version arguments
+- [x] 6.8 Register `diff` in the CLI and its help
 
 ## 7. Documentation and verification
 
