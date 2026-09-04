@@ -1,6 +1,7 @@
 import { parseArgs } from "bit-lite-context";
 import { runCompileCommand } from "./commands/compile.js";
 import { runLinkCommand } from "./commands/link.js";
+import { runLogCommand } from "./commands/log.js";
 import { runInstallCommand } from "./commands/install.js";
 import { runPreviewCommand } from "./commands/preview.js";
 import { runSnapCommand } from "./commands/snap.js";
@@ -19,6 +20,7 @@ const commands: Record<string, CommandHandler> = {
   compile: runCompileCommand,
   install: runInstallCommand,
   link: runLinkCommand,
+  log: runLogCommand,
   preview: runPreviewCommand,
   snap: runSnapCommand,
   start: runStartCommand,
@@ -61,6 +63,8 @@ Usage:
 Commands:
   compile compile component packages once or watch with vendor-owned --watch
   install install/link packages and optionally compile once with --compile
+  log     list one component's recorded snaps with the versions on each and
+          why each version exists [--json]
   preview serve component docs and compositions
   snap    record selected components in the component history store
           [--message <text>] [--dry-run] [--json]
