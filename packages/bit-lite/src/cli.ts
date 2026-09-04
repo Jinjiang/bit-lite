@@ -1,5 +1,6 @@
 import { parseArgs } from "bit-lite-context";
 import { runCompileCommand } from "./commands/compile.js";
+import { runDiffCommand } from "./commands/diff.js";
 import { runLinkCommand } from "./commands/link.js";
 import { runLogCommand } from "./commands/log.js";
 import { runInstallCommand } from "./commands/install.js";
@@ -18,6 +19,7 @@ type CommandHandler = (parsed: ParsedCliArgs) => void | Promise<unknown>;
 
 const commands: Record<string, CommandHandler> = {
   compile: runCompileCommand,
+  diff: runDiffCommand,
   install: runInstallCommand,
   link: runLinkCommand,
   log: runLogCommand,
@@ -62,6 +64,9 @@ Usage:
 
 Commands:
   compile compile component packages once or watch with vendor-owned --watch
+  diff    compare one component between two points, defaulting to working
+          content against its recorded head
+          [--from <version>] [--to <version>] [--json]
   install install/link packages and optionally compile once with --compile
   log     list one component's recorded snaps with the versions on each and
           why each version exists [--json]

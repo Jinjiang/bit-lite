@@ -13,7 +13,7 @@ import {
 import type { ParsedCliArgs } from "bit-lite-context";
 import { readFlagOption } from "../utils/command-options.js";
 import { selectSingleWorkspaceComponent } from "../utils/command-selection.js";
-import { compareComponentTrees } from "../utils/component-inspection.js";
+import { compareComponentStates } from "../utils/component-inspection.js";
 import {
   attributeSnapChange,
   type ChangeSource,
@@ -91,11 +91,11 @@ export async function runLogCommand(
   for (const { commit, versions } of history) {
     const parentId = commit.parentIds[0];
     const parentTree = parentId === undefined ? undefined : await readCommitTree(store, parentId);
-    const comparison = await compareComponentTrees(
+    const comparison = await compareComponentStates(
       store,
       component.id,
-      parentTree,
-      commit.treeId
+      parentTree === undefined ? { kind: "absent" } : { kind: "recorded", treeId: parentTree },
+      { kind: "recorded", treeId: commit.treeId }
     );
     const attribution = attributeSnapChange({
       hasParent: parentId !== undefined,

@@ -14,6 +14,7 @@ export {
 } from "./component-version.js";
 export { ComponentHistoryError, GitCommandError } from "./errors.js";
 export {
+  compareFileLists,
   compareTrees,
   isAncestorCommit,
   readComponentHistory,

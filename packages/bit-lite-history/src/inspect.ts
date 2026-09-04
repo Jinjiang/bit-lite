@@ -145,24 +145,23 @@ export type FileChange = {
 };
 
 /**
- * Compares two trees as sets of component-relative paths. A mode change counts
- * as a modification: whether a file is executable is part of what a snap
+ * Compares two file lists as sets of component-relative paths. A mode change
+ * counts as a modification: whether a file is executable is part of what a snap
  * records, so a component that only gained an execute bit did change.
  *
- * Either side may be `undefined`, which means "no tree" — a component that has
- * never been recorded compared against its working state, for instance. Paths
- * are returned sorted so output is stable across runs.
+ * This works on lists rather than on tree IDs because one side is routinely a
+ * tree that was computed but never written — inspection's whole point — and
+ * Git cannot read the contents of an object the store does not hold. Comparing
+ * entries is the only form that works for both sides.
+ *
+ * Paths are returned sorted so output is stable across runs.
  */
-export async function compareTrees(
-  store: ComponentHistoryStore,
-  before: GitObjectId | undefined,
-  after: GitObjectId | undefined
-): Promise<FileChange[]> {
-  const beforeFiles = before === undefined ? [] : await readTreeFiles(store, before);
-  const afterFiles = after === undefined ? [] : await readTreeFiles(store, after);
-
-  const beforeByPath = new Map(beforeFiles.map((file) => [file.path, file]));
-  const afterByPath = new Map(afterFiles.map((file) => [file.path, file]));
+export function compareFileLists(
+  before: readonly TreeFileEntry[],
+  after: readonly TreeFileEntry[]
+): FileChange[] {
+  const beforeByPath = new Map(before.map((file) => [file.path, file]));
+  const afterByPath = new Map(after.map((file) => [file.path, file]));
   const changes: FileChange[] = [];
 
   for (const [path, afterFile] of afterByPath) {
@@ -181,6 +180,21 @@ export async function compareTrees(
 
   changes.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
   return changes;
+}
+
+/**
+ * Compares two trees the store holds. Either side may be `undefined`, meaning
+ * the component did not exist there.
+ */
+export async function compareTrees(
+  store: ComponentHistoryStore,
+  before: GitObjectId | undefined,
+  after: GitObjectId | undefined
+): Promise<FileChange[]> {
+  return compareFileLists(
+    before === undefined ? [] : await readTreeFiles(store, before),
+    after === undefined ? [] : await readTreeFiles(store, after)
+  );
 }
 
 /**
