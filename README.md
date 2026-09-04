@@ -101,6 +101,7 @@ The prototype is considered successful when that scenario remains understandable
 | Testing | Test vendors run per resolved env group; `test --watch` combines worker-owned runners, repeated structured results, and managed terminal interaction |
 | Preview | Docs and compositions are prepared per env and served through Vite or Webpack reference vendors behind one proxy, eagerly or lazily |
 | Composable commands | Command capabilities expose tasks, routes, readiness, and disposal so `start` can compose compile, test, preview, and source layers |
+| History inspection | `status`, `log`, and `diff` read the component history store without writing to it; `log` attributes every version to source, dependency, or env changes |
 | Development session | `start` combines source browsing, compile watch, test watch, previews, terminal output, and coordinated shutdown |
 | Process isolation | Vendors share one JSON-safe protocol; one-shot work may run inline while watch services run in worker threads |
 
@@ -125,13 +126,13 @@ The installation boundary is especially important: npm package installation is r
 
 The following original Bit capabilities are outside the current codebase:
 
-- changelogs, checkout, diff, and artifact history; `snap` and `tag` record component history, but nothing reproduces a component *from* a snap;
+- changelogs, checkout, and artifact history; `snap` and `tag` record component history and `status`, `log`, and `diff` read it, but nothing reproduces a component *from* a snap;
 - remote scopes, import/export, eject/fork, lanes, and multi-workspace collaboration beyond `sync`'s fast-forward exchange of component histories and tags;
 - component publishing, a dedicated component or env registry, authentication, and cloud services;
 - dependency inference, update policies, automatic peer handling, and production-grade lockfile conflict management;
 - an env-controlled package service comparable to Bit's [`package()` handler](https://bit.dev/reference/packages/managing-package-json/);
 - build pipelines, CI orchestration, caching, affected-component analysis, deployment, linting, and formatting;
-- a unified status, issue, or diagnostic system beyond command validation and service-specific error output;
+- an issue or diagnostic system beyond command validation, `status`'s component conditions, and service-specific error output;
 - Aspect composition, arbitrary service registration, generators, templates, and an extension marketplace;
 - compatibility or migration tooling for existing Bit workspaces.
 
@@ -260,14 +261,21 @@ bit-lite <command> [--workspace <directory>] [--filter <pattern>] [-- ...vendor-
 | `snap` | Records selected components in the workspace's component history store, in dependency order |
 | `tag` | Assigns immutable versions to the selected components' snaps, incrementing each component's patch by default |
 | `sync` | Exchanges component histories and tags with the store's `--remote <url>` |
+| `status` | Reports each selected component's state against its recorded history |
+| `log` | Lists one component's snaps, with the versions on each and why each version exists |
+| `diff` | Compares one component between working state and recorded versions |
 
-`snap`, `tag`, and `sync` require Git and use a durable store at `.bit-lite-store.git`; every other command works without Git and never opens that store.
+`snap`, `tag`, `sync`, `status`, `log`, and `diff` use a durable store at `.bit-lite-store.git`; every other command works without Git and never opens that store. The three inspection commands only ever read: they never create the store, never add an object to it, and need no install, so `status` answers in a workspace that has just been cloned.
 
 `snap` and `tag` process components in dependency order, so a component's workspace dependencies and its env carry a version before the component naming them is recorded. What they record for a component is a **projection** of workspace state rather than the `.comp.json` on disk: `workspace:*` dependency specifiers are resolved to real versions and the component's env reference is injected. The working `.comp.json` is never modified; the version each component is based on is written back to its `bit-lite.json` entry.
 
 A snap's version is spelled `0.0.0-g<git object id>`, and `tag` assigns versions of exactly `major.minor.patch`. **Snap versions are identifiers, not ordered versions** — semantic-version precedence over their text has no relationship to history order, so sorting them or computing a "latest" from them gives an arbitrary answer. Use the store's ancestry instead.
 
 Both commands accept `--message <text>` to replace the generated message, `--dry-run` to report what would happen without writing anything, and `--json` for structured output. `tag` also accepts `--version <x.y.z>` to override the derived version, which requires the selection to resolve to exactly one component.
+
+Because the recorded projection names the versions a component was built against, **a component can gain a new version with no change to any of its own files** — when a dependency or its env moves, its recorded metadata moves with it. That is deliberate, and it is why the inspection commands exist: `log` attributes every version to `source`, `deps`, `env`, or a combination, and names the versions on both sides, so a version with no visible source change explains itself. `status` reports the same relationship ahead of time as an available dependency or env update.
+
+The inspection commands accept the same `--filter` arguments as everything else and `--json` for structured output, in which version identifiers are never abbreviated. `log` and `diff` describe one component, so their selection must resolve to exactly one. `diff` takes `--from <version>` and `--to <version>`, each naming a snap identifier or an assigned semantic version; with neither, it compares working content against the recorded head. An empty `diff` means the next `snap` will report that component unchanged — including when the reason it *is* changed is a workspace dependency with uncommitted changes, which `diff` names rather than passing over.
 
 Common flags:
 

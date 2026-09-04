@@ -13,8 +13,24 @@ export {
   parseSnapVersion,
 } from "./component-version.js";
 export { ComponentHistoryError, GitCommandError } from "./errors.js";
+export {
+  compareFileLists,
+  compareTrees,
+  isAncestorCommit,
+  readComponentHistory,
+  readTreeFile,
+  readTreeFiles,
+  readVersionsBySnap,
+} from "./inspect.js";
 export { createGitRunner, defaultMaxOutputBytes, runGitLine } from "./git-process.js";
-export { readCommitTree, writeSnapshotBlobs, writeSnapshotTree } from "./objects.js";
+export {
+  computeSnapshotBlobs,
+  computeSnapshotTree,
+  readCommitTree,
+  writeSnapshotBlobs,
+  writeSnapshotTree,
+} from "./objects.js";
+export { computeSnapshotTreeId } from "./tree-id.js";
 export {
   createObjectId,
   formatObjectId,
@@ -72,6 +88,12 @@ export {
 } from "./tags.js";
 
 export type { ComponentCommit, CreateComponentCommitInput } from "./commits.js";
+export type {
+  ComponentHistoryEntry,
+  FileChange,
+  FileChangeStatus,
+  TreeFileEntry,
+} from "./inspect.js";
 export type {
   CreateGitRunnerOptions,
   GitCommandInput,

@@ -1,10 +1,13 @@
 import { parseArgs } from "bit-lite-context";
 import { runCompileCommand } from "./commands/compile.js";
+import { runDiffCommand } from "./commands/diff.js";
 import { runLinkCommand } from "./commands/link.js";
+import { runLogCommand } from "./commands/log.js";
 import { runInstallCommand } from "./commands/install.js";
 import { runPreviewCommand } from "./commands/preview.js";
 import { runSnapCommand } from "./commands/snap.js";
 import { runStartCommand } from "./commands/start.js";
+import { runStatusCommand } from "./commands/status.js";
 import { runSyncCommand } from "./commands/sync.js";
 import { runTagCommand } from "./commands/tag.js";
 import { runTestCommand } from "./commands/test.js";
@@ -16,11 +19,14 @@ type CommandHandler = (parsed: ParsedCliArgs) => void | Promise<unknown>;
 
 const commands: Record<string, CommandHandler> = {
   compile: runCompileCommand,
+  diff: runDiffCommand,
   install: runInstallCommand,
   link: runLinkCommand,
+  log: runLogCommand,
   preview: runPreviewCommand,
   snap: runSnapCommand,
   start: runStartCommand,
+  status: runStatusCommand,
   sync: runSyncCommand,
   tag: runTagCommand,
   test: runTestCommand,
@@ -58,11 +64,18 @@ Usage:
 
 Commands:
   compile compile component packages once or watch with vendor-owned --watch
+  diff    compare one component between two points, defaulting to working
+          content against its recorded head
+          [--from <version>] [--to <version>] [--json]
   install install/link packages and optionally compile once with --compile
+  log     list one component's recorded snaps with the versions on each and
+          why each version exists [--json]
   preview serve component docs and compositions
   snap    record selected components in the component history store
           [--message <text>] [--dry-run] [--json]
   start   compile and serve preview/live tests in one watch session
+  status  report each selected component's state against its recorded history
+          [--json]
   sync    exchange component histories and tags with [--remote <url>]
   tag     assign immutable versions to the selected components' snaps,
           incrementing each component's patch by default

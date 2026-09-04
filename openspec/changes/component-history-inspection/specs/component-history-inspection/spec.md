@@ -27,11 +27,14 @@ A candidate tree computed for inspection SHALL have the same object ID the recor
 Bit Lite SHALL provide a `status` command reporting, for each selected component, its recorded version and every one of the following conditions that applies:
 
 - **never recorded**: the component has no canonical history;
-- **modified**: the component's projected working content differs from its recorded head;
+- **modified**: the component's projected working content differs from its recorded head, or any of its workspace prerequisites is modified;
+- **never released**: the component has a canonical head and is not modified, but no semantic version is assigned to that head;
 - **behind**: the component's version anchor in workspace configuration names an ancestor of its canonical head;
 - **dependency updates available**: a workspace dependency or env of the component currently carries a version different from the one recorded in the component's head.
 
 Conditions SHALL be reported independently, because a component can be in more than one at once. A component with no condition SHALL be reported as clean.
+
+The version a component is reported at SHALL be the version its canonical head carries. When the component's version anchor names a different version, both SHALL be reported, since that difference is the **behind** condition. Resolving a version anchor to a snap SHALL accept both spellings an anchor can hold: a snap version identifier, and a semantic version assigned to one of the component's snaps.
 
 #### Scenario: A component has never been recorded
 
@@ -44,10 +47,26 @@ Conditions SHALL be reported independently, because a component can be in more t
 - **WHEN** a selected component's projected working content differs from its recorded head
 - **THEN** `status` reports it as modified
 
+#### Scenario: A component whose dependency has uncommitted changes
+
+- **WHEN** a selected component's own files are unchanged but a workspace component it depends on is modified
+- **THEN** `status` reports the component as modified
+- **AND** names the prerequisite responsible rather than a version
+
 #### Scenario: A component is unchanged
 
 - **WHEN** a selected component's projected working content matches its recorded head and no other condition applies
 - **THEN** `status` reports it as clean
+
+#### Scenario: A component that has never been released
+
+- **WHEN** a selected component is not modified and no semantic version is assigned to its canonical head
+- **THEN** `status` reports it as never released
+
+#### Scenario: A released component with nothing new
+
+- **WHEN** a selected component is not modified and its canonical head carries an assigned semantic version
+- **THEN** `status` does not report it as never released
 
 #### Scenario: The working tree is based on an older version than the head
 
@@ -155,6 +174,8 @@ Comparison SHALL always be performed between projected forms, so working state a
 
 A default comparison SHALL report no changes for a component if and only if recording that component would report it unchanged. The two commands SHALL derive this answer from the same projected working tree and the same recorded head tree.
 
+Because a component's projection names its workspace dependencies' versions, a component whose prerequisite is modified SHALL itself be reported as changed, applied transitively over the prerequisite graph. Inspection SHALL determine this from the prerequisite's own state rather than by predicting the version that recording would assign it, which is not available to a command that writes nothing.
+
 #### Scenario: An unchanged component
 
 - **WHEN** a component's projected working content matches its recorded head
@@ -166,6 +187,27 @@ A default comparison SHALL report no changes for a component if and only if reco
 - **WHEN** a workspace dependency of a component has received a new version and the component's own files are unchanged
 - **THEN** a default diff reports the dependency version change
 - **AND** recording the component creates a new commit
+
+#### Scenario: A component whose dependency has uncommitted changes
+
+- **WHEN** a component's own files are unchanged and a workspace component it depends on is modified
+- **THEN** a default diff reports the component as changed because of that dependency
+- **AND** recording both components in one operation creates a commit for each
+
+### Requirement: Inspection resolves dependency versions without refusing
+
+When inspecting a component, Bit Lite SHALL resolve every workspace dependency and env to the version recorded at that prerequisite's own canonical head, whatever the prerequisite's working state, and SHALL NOT fail because a prerequisite is outside the selection, has never been recorded, or has uncommitted changes. Where recording refuses such a prerequisite, inspection SHALL report it instead.
+
+#### Scenario: Inspect a component whose dependency has uncommitted changes
+
+- **WHEN** an inspection command selects a component whose workspace dependency is modified and outside the selection
+- **THEN** the command reports the component rather than failing
+
+#### Scenario: Inspect a component whose dependency has never been recorded
+
+- **WHEN** an inspection command selects a component whose workspace dependency has never been recorded
+- **THEN** the command reports the component rather than failing
+- **AND** reports that the dependency has never been recorded
 
 ### Requirement: Present component metadata changes semantically
 
@@ -202,7 +244,14 @@ Any difference in recorded component metadata that is not a dependency or env ch
 
 Inspection commands SHALL accept the same component selection conventions as other workspace commands, selecting every registered component when no filter is supplied and reporting an error when a supplied filter matches no registered component. Commands reporting one component at a time SHALL require a selection resolving to exactly one component.
 
+Inspection SHALL derive every fact it reports from declared workspace state, component roots, and the component history store alone. It SHALL NOT require resolved envs or installed packages, so inspection works in a workspace where nothing has been installed.
+
 Every inspection command SHALL be able to produce its result as machine-readable structured output carrying the same facts as its human-readable form, with version identifiers unabbreviated.
+
+#### Scenario: Inspect a workspace with nothing installed
+
+- **WHEN** an inspection command runs in a workspace whose dependencies have never been installed
+- **THEN** it reports every selected component's state
 
 #### Scenario: Inspect all components
 
