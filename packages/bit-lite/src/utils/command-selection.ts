@@ -4,11 +4,37 @@ import {
 } from "bit-lite-context";
 import type {
   ParsedCliArgs,
+  Workspace,
   WorkspaceComponent,
   WorkspaceContext,
   WorkspaceEnvGroup,
 } from "bit-lite-context";
+import { BitLiteError } from "./errors.js";
 import { prepareWorkspaceForEnvLoading } from "./prepare-workspace.js";
+
+/**
+ * Resolves a selection that must name exactly one component, for commands whose
+ * output describes a single component in detail. An ambiguous selection names
+ * what it matched, so the user can narrow it without guessing.
+ */
+export function selectSingleWorkspaceComponent(
+  workspace: Workspace,
+  filters: readonly string[],
+  commandName: string
+): WorkspaceComponent {
+  const components = selectWorkspaceComponents(workspace, filters);
+  if (components.length === 0) {
+    throw new BitLiteError(`no registered components to ${commandName}`);
+  }
+  if (components.length > 1) {
+    const ids = components.map((component) => component.id).join(", ");
+    throw new BitLiteError(
+      `${commandName} reports one component, but the selection matched ${components.length}: ` +
+        `${ids}. Narrow the selection with --filter.`
+    );
+  }
+  return components[0]!;
+}
 
 export type ResolvedCommandSelection = {
   parsed: ParsedCliArgs;

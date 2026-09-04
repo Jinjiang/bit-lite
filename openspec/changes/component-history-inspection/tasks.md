@@ -43,13 +43,13 @@
 
 ## 5. Log command
 
-- [ ] 5.1 Add `log` requiring a selection resolving to exactly one component and listing its history from the head backwards
-- [ ] 5.2 Show each snap's version identifier abbreviated for display, its authored timestamp, and any semantic versions tagged on it
-- [ ] 5.3 Show each snap's change source with the dependency and env versions on both sides where applicable
-- [ ] 5.4 Report a component with no history as never recorded without failing
-- [ ] 5.5 Add a structured output variant carrying unabbreviated version identifiers
-- [ ] 5.6 Add integration tests for a multi-snap history, tag decoration, an env-only version, a deps-only version, and a component with no history
-- [ ] 5.7 Register `log` in the CLI and its help
+- [x] 5.1 Add `log` requiring a selection resolving to exactly one component and listing its history from the head backwards
+- [x] 5.2 Show each snap's version identifier abbreviated for display, its authored timestamp, and any semantic versions tagged on it
+- [x] 5.3 Show each snap's change source with the dependency and env versions on both sides where applicable
+- [x] 5.4 Report a component with no history as never recorded without failing
+- [x] 5.5 Add a structured output variant carrying unabbreviated version identifiers
+- [x] 5.6 Add integration tests for a multi-snap history, tag decoration, an env-only version, a deps-only version, and a component with no history
+- [x] 5.7 Register `log` in the CLI and its help
 
 ## 6. Diff command
 
