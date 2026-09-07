@@ -84,6 +84,35 @@ The version a component is reported at SHALL be the version its canonical head c
 - **WHEN** a selected component's env currently carries a version different from the one that component's head records
 - **THEN** `status` reports that an env update is available, naming the env and both versions
 
+### Requirement: Expand component state into the changes behind it
+
+`status` SHALL accept a detail option expanding each reported component's **modified** condition into the changes that produced it: the component-owned files that differ from the recorded head as added, modified, or deleted paths, together with the dependency, env, and other metadata changes derived from the recorded and projected component metadata.
+
+The expanded view SHALL always compare projected working content against the recorded head. It SHALL NOT accept two recorded versions, because comparing recorded versions against each other is what `log` reports for every snap in a component's history.
+
+The expanded view SHALL report the same components and the same conditions the summary view reports, adding detail rather than changing the answer. A component that is not modified SHALL gain no expansion.
+
+#### Scenario: Expand a modified component
+
+- **WHEN** a user requests detail for a component whose projected working content differs from its recorded head
+- **THEN** `status` names each differing component-owned file as an added, modified, or deleted path
+- **AND** names each dependency and env change behind the difference
+
+#### Scenario: Expand a clean component
+
+- **WHEN** a user requests detail for a component reported as clean
+- **THEN** `status` reports it as clean with no expansion
+
+#### Scenario: Expand a component modified only by a prerequisite
+
+- **WHEN** a user requests detail for a component whose own files are unchanged but whose workspace prerequisite is modified
+- **THEN** `status` reports the component as modified, names the prerequisite responsible, and lists no differing file of its own
+
+#### Scenario: Detail does not change the summary answer
+
+- **WHEN** the same selection is reported with and without detail
+- **THEN** both report the same components with the same conditions
+
 ### Requirement: List a component's recorded history
 
 Bit Lite SHALL provide a `log` command that lists a selected component's snaps from its canonical head backwards along its linear history. Each entry SHALL carry the snap's version identifier, the semantic versions tagged on that snap if any, and the snap's authored timestamp.
@@ -143,21 +172,23 @@ Attribution SHALL be derived from the parsed recorded metadata rather than from 
 - **WHEN** the listed snap has no parent
 - **THEN** it is reported as the component's initial version rather than attributed to a change source
 
-### Requirement: Compare a component between two states
+### Requirement: Reproduce component content as a unified diff
 
-Bit Lite SHALL provide a `diff` command comparing a component between two states, where a state is either the component's current working content or one of its recorded versions, named by snap version identifier or by an assigned semantic version. With no explicit states, the command SHALL compare the component's projected working content against its recorded head.
+Bit Lite SHALL provide a `diff` command emitting the line-by-line content difference of the selected components between two states, where a state is either a component's current working content or one of its recorded versions, named by snap version identifier or by an assigned semantic version. With no explicit states, the command SHALL compare each selected component's projected working content against its recorded head.
 
-Comparison SHALL always be performed between projected forms, so working state and recorded state are never compared in different shapes.
+Comparison SHALL always be performed between projected forms, so working state and recorded state are never compared in different shapes. Recorded content SHALL be read from the store; working content SHALL be read from the component root, because the tree it belongs to is computed and never written.
+
+Naming two recorded versions SHALL require a selection resolving to exactly one component, because a version identifier is local to one component's history. With no explicit states the command SHALL accept the same selection conventions as `status`.
 
 #### Scenario: Compare working state against the head
 
 - **WHEN** a user diffs a component without naming states
-- **THEN** Bit Lite compares its projected working content against its recorded head
+- **THEN** Bit Lite emits the difference between its projected working content and its recorded head
 
 #### Scenario: Compare two recorded versions
 
 - **WHEN** a user diffs a component naming two recorded versions
-- **THEN** Bit Lite compares those two snaps
+- **THEN** Bit Lite emits the difference between those two snaps
 - **AND** does not read the component's working directory content into the comparison
 
 #### Scenario: Compare against a semantic version
@@ -170,29 +201,105 @@ Comparison SHALL always be performed between projected forms, so working state a
 - **WHEN** a user names a version that is not a recorded snap of that component
 - **THEN** the command fails naming the component and the unresolved version
 
-### Requirement: Diff and snap agree on whether a component changed
+#### Scenario: Name two versions for more than one component
 
-A default comparison SHALL report no changes for a component if and only if recording that component would report it unchanged. The two commands SHALL derive this answer from the same projected working tree and the same recorded head tree.
+- **WHEN** a user names two recorded versions with a selection matching more than one component
+- **THEN** the command fails naming the matched components
 
-Because a component's projection names its workspace dependencies' versions, a component whose prerequisite is modified SHALL itself be reported as changed, applied transitively over the prerequisite graph. Inspection SHALL determine this from the prerequisite's own state rather than by predicting the version that recording would assign it, which is not available to a command that writes nothing.
+#### Scenario: Diff several components at once
+
+- **WHEN** a user diffs without naming states and the selection matches several changed components
+- **THEN** the output carries every changed component's difference in one patch, ordered by component identifier
+
+### Requirement: Emit differences in unified diff format
+
+The content difference SHALL be emitted as a unified diff carrying the conventional `diff --git` header, the `---` and `+++` file lines, and `@@` hunk headers, so a redirected diff is a patch file that existing tooling recognizes and editors highlight.
+
+Paths SHALL be addressed in the workspace's own vocabulary as `a/<component-id>::<component-relative-path>` and `b/<component-id>::<component-relative-path>`. The separator SHALL make the boundary between the component identifier and the file path unambiguous, since both otherwise contain slashes, and SHALL keep two components owning a file of the same name from colliding on one path within a single patch. Bit Lite SHALL NOT claim these paths are applicable to a checkout.
+
+Each component's patches SHALL be preceded by a banner naming the component and the two states being compared. The banner states the version transition once for the whole component rather than repeating it on every file header. Every banner line SHALL begin with a character that carries no meaning in unified diff, so that no banner line can be read as a file marker, a hunk header, or an added or deleted line.
+
+An added file SHALL be emitted against `/dev/null` with its new file mode, a deleted file against `/dev/null` with its deleted file mode, and a file whose mode changed but whose content did not SHALL still be emitted so the mode change is visible. Content that is not valid UTF-8 SHALL be reported as differing binary rather than rendered as lines.
+
+Standard output SHALL carry the patch and nothing else, so redirecting it produces a valid `*.diff` file. Any advisory Bit Lite needs to add SHALL be written to standard error.
+
+#### Scenario: A modified file
+
+- **WHEN** a component-owned file's content differs between the two states
+- **THEN** the output carries a `diff --git` header naming the component-qualified path on both sides, and hunks showing the differing lines with surrounding context
+
+#### Scenario: Separate several components in one patch
+
+- **WHEN** the output carries more than one component
+- **THEN** each component's patches are preceded by a banner naming that component and its two states
+- **AND** no banner line begins with a character that unified diff gives meaning to
+
+#### Scenario: Two components own a file of the same name
+
+- **WHEN** two components in one patch each own a file at the same component-relative path
+- **THEN** the two files appear on distinct paths, each naming its own component
+
+#### Scenario: An added file
+
+- **WHEN** a file exists only on the later side
+- **THEN** the output records it as a new file with its mode, against `/dev/null` on the earlier side
+
+#### Scenario: A deleted file
+
+- **WHEN** a file exists only on the earlier side
+- **THEN** the output records it as a deleted file with its mode, against `/dev/null` on the later side
+
+#### Scenario: Only the file mode changed
+
+- **WHEN** a file's content is identical on both sides but its mode differs
+- **THEN** the output records the mode change and emits no content hunk
+
+#### Scenario: A binary file
+
+- **WHEN** a differing file's content on either side is not valid UTF-8
+- **THEN** the output records that the binary files differ instead of rendering lines
+
+#### Scenario: Redirect the output to a file
+
+- **WHEN** a user redirects the command's standard output
+- **THEN** the resulting file contains only the patch
+
+#### Scenario: Nothing differs
+
+- **WHEN** no selected component's content differs between the two states
+- **THEN** the command emits an empty patch and succeeds
+
+### Requirement: Status and snap agree on whether a component changed
+
+`status` SHALL report a component as modified if and only if recording that component would act on it. The two commands SHALL derive this answer from the same projected working tree and the same recorded head tree.
+
+Because a component's projection names its workspace dependencies' versions, a component whose prerequisite is modified SHALL itself be reported as modified, applied transitively over the prerequisite graph. Inspection SHALL determine this from the prerequisite's own state rather than by predicting the version that recording would assign it, which is not available to a command that writes nothing.
+
+An empty patch from `diff` SHALL NOT be taken to carry this guarantee. A component modified only because a prerequisite is modified has no content difference of its own, since inspection resolves that prerequisite to the version at its own head, and a patch has nothing to show. Where `diff` emits an empty patch for a component `status` reports as modified, it SHALL say so on standard error rather than on standard output, so the emitted patch stays valid.
 
 #### Scenario: An unchanged component
 
 - **WHEN** a component's projected working content matches its recorded head
-- **THEN** a default diff reports no changes
+- **THEN** `status` reports it as clean
 - **AND** recording the component reports it as unchanged and creates no commit
 
 #### Scenario: A component changed only by a dependency version
 
 - **WHEN** a workspace dependency of a component has received a new version and the component's own files are unchanged
-- **THEN** a default diff reports the dependency version change
+- **THEN** `status` reports the component as modified and names the dependency change
 - **AND** recording the component creates a new commit
 
 #### Scenario: A component whose dependency has uncommitted changes
 
 - **WHEN** a component's own files are unchanged and a workspace component it depends on is modified
-- **THEN** a default diff reports the component as changed because of that dependency
+- **THEN** `status` reports the component as modified because of that dependency
 - **AND** recording both components in one operation creates a commit for each
+
+#### Scenario: A component modified only by a prerequisite produces an empty patch
+
+- **WHEN** a user diffs a component whose own files are unchanged but whose workspace prerequisite is modified
+- **THEN** the patch on standard output is empty
+- **AND** an advisory naming the prerequisite responsible is written to standard error
 
 ### Requirement: Inspection resolves dependency versions without refusing
 
@@ -209,30 +316,37 @@ When inspecting a component, Bit Lite SHALL resolve every workspace dependency a
 - **THEN** the command reports the component rather than failing
 - **AND** reports that the dependency has never been recorded
 
-### Requirement: Present component metadata changes semantically
+### Requirement: Present component metadata changes semantically where Bit Lite reports
 
-Bit Lite SHALL NOT present `.comp.json` as a changed file or as a textual difference. It SHALL instead report the component's metadata changes as added, removed, and changed dependency entries and as env reference changes, naming the package and the versions on each side. All other component-owned files SHALL be reported as added, modified, or deleted paths.
+Wherever Bit Lite reports on a comparison rather than reproducing its content — `status --detail` and `log` — it SHALL NOT present `.comp.json` as a changed file or as a textual difference. It SHALL instead report the component's metadata changes as added, removed, and changed dependency entries and as env reference changes, naming the package and the versions on each side. All other component-owned files SHALL be reported as added, modified, or deleted paths.
 
 Any difference in recorded component metadata that is not a dependency or env change SHALL still be reported, so no metadata change can be silently omitted.
 
+`diff` reproduces content rather than reporting on it, and SHALL therefore include `.comp.json` as an ordinary file patch. A patch that omitted a file the snap records would be an incomplete account of the difference between two states.
+
 #### Scenario: A dependency version changed
 
-- **WHEN** a comparison finds a different recorded version for a workspace dependency
+- **WHEN** a report finds a different recorded version for a workspace dependency
 - **THEN** the output names the dependency, the version on each side, and does not list `.comp.json` as a changed file
+
+#### Scenario: Component metadata differs in a patch
+
+- **WHEN** `diff` compares two states whose recorded component metadata differs
+- **THEN** the patch carries `.comp.json` as an ordinary file with its content hunks
 
 #### Scenario: A dependency was added or removed
 
-- **WHEN** a comparison finds a dependency present on only one side
+- **WHEN** a report finds a dependency present on only one side
 - **THEN** the output reports it as added or removed with its version
 
 #### Scenario: The env reference changed
 
-- **WHEN** a comparison finds a different recorded env package or env version
+- **WHEN** a report finds a different recorded env package or env version
 - **THEN** the output reports the env change separately from dependency changes
 
 #### Scenario: Source files changed
 
-- **WHEN** a comparison finds differences in component-owned files other than `.comp.json`
+- **WHEN** a report finds differences in component-owned files other than `.comp.json`
 - **THEN** each is reported as an added, modified, or deleted component-relative path
 
 #### Scenario: An unrecognized metadata difference
@@ -242,7 +356,7 @@ Any difference in recorded component metadata that is not a dependency or env ch
 
 ### Requirement: Inspection follows workspace selection conventions
 
-Inspection commands SHALL accept the same component selection conventions as other workspace commands, selecting every registered component when no filter is supplied and reporting an error when a supplied filter matches no registered component. Commands reporting one component at a time SHALL require a selection resolving to exactly one component.
+Inspection commands SHALL accept the same component selection conventions as other workspace commands, selecting every registered component when no filter is supplied and reporting an error when a supplied filter matches no registered component. Where a command's output is meaningful only for one component at a time — `log`, and `diff` when two recorded versions are named — it SHALL require a selection resolving to exactly one component.
 
 Inspection SHALL derive every fact it reports from declared workspace state, component roots, and the component history store alone. It SHALL NOT require resolved envs or installed packages, so inspection works in a workspace where nothing has been installed.
 
