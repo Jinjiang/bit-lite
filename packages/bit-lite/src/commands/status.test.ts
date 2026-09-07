@@ -317,6 +317,103 @@ describe("output", () => {
   });
 });
 
+describe("detail", () => {
+  it("reports the same components and conditions as the summary view", async () => {
+    const root = await createWorkspace();
+    await snap(root);
+    await write(root, "components/lib/math/index.ts", "export const add = 1;\n");
+
+    const summary = await status(root);
+    const detailed = await detailedStatus(root);
+
+    expect(detailed.components.map((component) => component.componentId)).toEqual(
+      summary.components.map((component) => component.componentId)
+    );
+    for (const component of summary.components) {
+      const expanded = find(detailed, component.componentId);
+      expect(expanded.modified).toBe(component.modified);
+      expect(expanded.clean).toBe(component.clean);
+      expect(expanded.behind).toBe(component.behind);
+      expect(expanded.neverRecorded).toBe(component.neverRecorded);
+      expect(expanded.neverReleased).toBe(component.neverReleased);
+    }
+  });
+
+  it("expands a modified component into the files that differ", async () => {
+    const root = await createWorkspace();
+    await snap(root);
+    await write(root, "components/lib/math/index.ts", "export const add = 1;\n");
+    await write(root, "components/lib/math/extra.ts", "export const extra = 1;\n");
+
+    const detail = find(await detailedStatus(root, ["lib/math"]), "lib/math").detail;
+
+    expect(detail?.files).toEqual([
+      { path: "extra.ts", status: "added" },
+      { path: "index.ts", status: "modified" },
+    ]);
+  });
+
+  it("never lists `.comp.json` as a file, reporting metadata changes instead", async () => {
+    const root = await createWorkspace();
+    await snap(root);
+    await write(
+      root,
+      "components/lib/math/.comp.json",
+      JSON.stringify({ dependencies: { clsx: "^2.1.0" } })
+    );
+
+    const detail = find(await detailedStatus(root, ["lib/math"]), "lib/math").detail;
+
+    expect(detail?.files).toEqual([]);
+    expect(detail?.dependencies).toEqual([
+      {
+        field: "dependencies",
+        packageName: "clsx",
+        before: undefined,
+        after: "^2.1.0",
+        status: "added",
+      },
+    ]);
+  });
+
+  it("expands a component modified only by a prerequisite into no files of its own", async () => {
+    const root = await createWorkspace();
+    await snap(root);
+    await write(root, "components/lib/math/index.ts", "export const add = 1;\n");
+
+    const button = find(await detailedStatus(root), "ui/button");
+
+    expect(button.modified).toBe(true);
+    expect(button.modifiedBy).toEqual(["lib/math"]);
+    expect(button.detail?.files).toEqual([]);
+    expect(button.detail?.dependencies).toEqual([]);
+  });
+
+  it("leaves a clean component without an expansion", async () => {
+    const root = await createWorkspace();
+    await snap(root);
+    await tag(root);
+
+    const report = await detailedStatus(root);
+
+    for (const component of report.components) {
+      expect(component.clean).toBe(true);
+      expect(component.detail).toBeUndefined();
+    }
+  });
+
+  it("shows the expanded files in the human-readable output", async () => {
+    const root = await createWorkspace();
+    await snap(root);
+    await write(root, "components/lib/math/index.ts", "export const add = 1;\n");
+
+    const output = (await detailedOutput(root, ["lib/math"])).join("\n");
+
+    expect(output).toContain("M  index.ts");
+    expect((await humanOutput(root, ["lib/math"])).join("\n")).not.toContain("M  index.ts");
+  });
+});
+
 describe("independence from installed packages", () => {
   it("reports without any node_modules in the workspace", async () => {
     const root = await createWorkspace();
@@ -333,9 +430,21 @@ async function status(root: string, filters: string[] = []): Promise<StatusRepor
   return runStatusCommand(parsed(root, filters), { reporter: silent });
 }
 
+async function detailedStatus(root: string, filters: string[] = []): Promise<StatusReport> {
+  return runStatusCommand(parsed(root, filters, { detail: true }), { reporter: silent });
+}
+
 async function humanOutput(root: string, filters: string[] = []): Promise<string[]> {
   const lines: string[] = [];
   await runStatusCommand(parsed(root, filters), {
+    reporter: createStatusReporter((message) => lines.push(message)),
+  });
+  return lines;
+}
+
+async function detailedOutput(root: string, filters: string[] = []): Promise<string[]> {
+  const lines: string[] = [];
+  await runStatusCommand(parsed(root, filters, { detail: true }), {
     reporter: createStatusReporter((message) => lines.push(message)),
   });
   return lines;
@@ -388,15 +497,26 @@ async function rewindAnchor(root: string, componentId: string): Promise<void> {
 }
 
 
-function parsed(workspaceRoot: string, componentFilters: string[] = []): ParsedCliArgs {
+function parsed(
+  workspaceRoot: string,
+  componentFilters: string[] = [],
+  options: Record<string, boolean> = {}
+): ParsedCliArgs {
   return {
     command: "status",
     workspaceRoot,
     componentFilters,
     help: false,
     args: {
-      raw: ["status", ...componentFilters.flatMap((filter) => ["--filter", filter])],
-      options: componentFilters.length > 0 ? { filter: componentFilters } : {},
+      raw: [
+        "status",
+        ...componentFilters.flatMap((filter) => ["--filter", filter]),
+        ...Object.keys(options).map((name) => `--${name}`),
+      ],
+      options: {
+        ...(componentFilters.length > 0 ? { filter: componentFilters } : {}),
+        ...options,
+      },
       passthrough: [],
     },
   };

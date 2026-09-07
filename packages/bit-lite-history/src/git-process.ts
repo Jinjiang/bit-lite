@@ -165,6 +165,22 @@ function spawnGit(
       });
     });
 
+    // A command that ignores its input — `cat-file blob`, `ls-tree` — can exit
+    // before this end() reaches it, and writing to a pipe the child already
+    // closed raises EPIPE. That is not a failure: the result comes from the
+    // `close` event, which has its own handler above. Without a listener here
+    // the stream would raise it as an uncaught exception instead.
+    child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "EPIPE") return;
+      if (settled) return;
+      settled = true;
+      reject(
+        new ComponentHistoryError(`git ${args.join(" ")} could not be given input`, {
+          cause: error,
+        })
+      );
+    });
+
     if (input.stdin !== undefined) {
       child.stdin.end(input.stdin);
     } else {

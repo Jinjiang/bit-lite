@@ -101,7 +101,7 @@ The prototype is considered successful when that scenario remains understandable
 | Testing | Test vendors run per resolved env group; `test --watch` combines worker-owned runners, repeated structured results, and managed terminal interaction |
 | Preview | Docs and compositions are prepared per env and served through Vite or Webpack reference vendors behind one proxy, eagerly or lazily |
 | Composable commands | Command capabilities expose tasks, routes, readiness, and disposal so `start` can compose compile, test, preview, and source layers |
-| History inspection | `status`, `log`, and `diff` read the component history store without writing to it; `log` attributes every version to source, dependency, or env changes |
+| History inspection | `status`, `log`, and `diff` read the component history store without writing to it; `log` attributes every version to source, dependency, or env changes, and `diff` emits a unified diff |
 | Development session | `start` combines source browsing, compile watch, test watch, previews, terminal output, and coordinated shutdown |
 | Process isolation | Vendors share one JSON-safe protocol; one-shot work may run inline while watch services run in worker threads |
 
@@ -126,7 +126,7 @@ The installation boundary is especially important: npm package installation is r
 
 The following original Bit capabilities are outside the current codebase:
 
-- changelogs, checkout, and artifact history; `snap` and `tag` record component history and `status`, `log`, and `diff` read it, but nothing reproduces a component *from* a snap;
+- changelogs, checkout, and artifact history; `snap` and `tag` record component history and `status`, `log`, and `diff` read it, but nothing reproduces a component *from* a snap, and `diff`'s patch is not addressed to a checkout;
 - remote scopes, import/export, eject/fork, lanes, and multi-workspace collaboration beyond `sync`'s fast-forward exchange of component histories and tags;
 - component publishing, a dedicated component or env registry, authentication, and cloud services;
 - dependency inference, update policies, automatic peer handling, and production-grade lockfile conflict management;
@@ -261,9 +261,9 @@ bit-lite <command> [--workspace <directory>] [--filter <pattern>] [-- ...vendor-
 | `snap` | Records selected components in the workspace's component history store, in dependency order |
 | `tag` | Assigns immutable versions to the selected components' snaps, incrementing each component's patch by default |
 | `sync` | Exchanges component histories and tags with the store's `--remote <url>` |
-| `status` | Reports each selected component's state against its recorded history |
+| `status` | Reports each selected component's state against its recorded history; `--detail` expands what makes each one modified |
 | `log` | Lists one component's snaps, with the versions on each and why each version exists |
-| `diff` | Compares one component between working state and recorded versions |
+| `diff` | Emits a unified diff of the selected components between working state and recorded versions |
 
 `snap`, `tag`, `sync`, `status`, `log`, and `diff` use a durable store at `.bit-lite-store.git`; every other command works without Git and never opens that store. The three inspection commands only ever read: they never create the store, never add an object to it, and need no install, so `status` answers in a workspace that has just been cloned.
 
@@ -275,7 +275,13 @@ Both commands accept `--message <text>` to replace the generated message, `--dry
 
 Because the recorded projection names the versions a component was built against, **a component can gain a new version with no change to any of its own files** — when a dependency or its env moves, its recorded metadata moves with it. That is deliberate, and it is why the inspection commands exist: `log` attributes every version to `source`, `deps`, `env`, or a combination, and names the versions on both sides, so a version with no visible source change explains itself. `status` reports the same relationship ahead of time as an available dependency or env update.
 
-The inspection commands accept the same `--filter` arguments as everything else and `--json` for structured output, in which version identifiers are never abbreviated. `log` and `diff` describe one component, so their selection must resolve to exactly one. `diff` takes `--from <version>` and `--to <version>`, each naming a snap identifier or an assigned semantic version; with neither, it compares working content against the recorded head. An empty `diff` means the next `snap` will report that component unchanged — including when the reason it *is* changed is a workspace dependency with uncommitted changes, which `diff` names rather than passing over.
+The inspection commands accept the same `--filter` arguments as everything else and `--json` for structured output, in which version identifiers are never abbreviated. `log` describes one component, so its selection must resolve to exactly one.
+
+The three divide the work by what kind of answer they give. `status` and `log` **report**: they name changes in the workspace's vocabulary, and `.comp.json` — a projection rather than a file anyone edits — is presented as dependency and env changes rather than as a file. `status --detail` expands each modified component into the files and metadata changes behind it. `diff` **reproduces**: it emits the content itself as a unified diff, where `.comp.json` appears as an ordinary file patch like any other.
+
+`diff` takes `--from <version>` and `--to <version>`, each naming a snap identifier or an assigned semantic version; with neither, it compares working content against the recorded head and covers every selected component. Its paths are addressed as `a/<component-id>::<path>` so one patch can carry several components, standard output carries the patch and nothing else, and the paths do not name files in a checkout — the output is for reading and reviewing, not applying.
+
+`status` is the authority on what recording will act on: it reports a component as modified if and only if `snap` would act on it, including when the reason is a workspace prerequisite with uncommitted changes. An empty `diff` does not carry that guarantee, because such a component has no content difference of its own for a patch to show; `diff` says so on standard error.
 
 Common flags:
 

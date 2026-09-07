@@ -1,5 +1,6 @@
-import { stat } from "node:fs/promises";
-import { readWorkspace } from "bit-lite-context";
+import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
+import { readWorkspace, selectWorkspaceComponents } from "bit-lite-context";
 import {
   abbreviateComponentVersion,
   componentTagRef,
@@ -8,43 +9,46 @@ import {
   isSnapVersion,
   openComponentHistoryStore,
   parseSnapVersion,
+  readBlobBytes,
   readCommitTree,
   readTagTarget,
+  readTreeFiles,
   resolveComponentStorePath,
   type ComponentHistoryStore,
-  type FileChange,
   type GitObjectId,
+  type TreeFileEntry,
 } from "bit-lite-history";
 import type { ParsedCliArgs, WorkspaceComponent } from "bit-lite-context";
 import { BitLiteError } from "../utils/errors.js";
 import { readFlagOption, readTextOption } from "../utils/command-options.js";
-import { selectSingleWorkspaceComponent } from "../utils/command-selection.js";
+import { componentConfigFileName } from "../utils/component-projection.js";
 import {
-  compareComponentStates,
   inspectWorkspace,
-  type ComparisonSide,
   type InspectedComponent,
 } from "../utils/component-inspection.js";
-import type { DependencyChange, EnvChange } from "../utils/component-metadata-diff.js";
+import { formatPatch, type PatchComponent, type PatchFile } from "../utils/unified-diff.js";
 
 /**
- * What: compares a component between two points — working state or recorded
- * versions — and says what differs.
+ * What: emits the line-by-line content difference of the selected components
+ * between two points, as a unified diff.
  *
- * The default comparison reads the same two trees `snap` compares, so an empty
- * diff means the next snap reports the component unchanged. That equivalence is
- * the command's whole value: a user who sees "no changes" and then watches
- * `snap` create a commit stops trusting both commands.
+ * Why a patch rather than a report: this command exists to be redirected.
+ * `bit-lite diff > changes.diff` should produce a file editors highlight and
+ * patch tools recognize, which fixes several things that would otherwise be
+ * matters of taste — standard output carries the patch and nothing else, no
+ * colorization, and every advisory goes to standard error.
  *
- * Keeping it true takes one more thing than reading the same trees. A component
- * whose dependency has uncommitted changes will get a new version when both are
- * recorded, even though nothing in its own projection has moved yet — because
- * the dependency's next version is not knowable without writing a commit. So a
- * default diff also reports the prerequisites that will move it, rather than
- * claiming a component is unchanged that `snap` is about to advance.
+ * What this command does *not* answer is whether recording will act on a
+ * component. It cannot: a component modified only because a workspace
+ * prerequisite is dirty has no content difference of its own, since inspection
+ * resolves that prerequisite to the version at its own head. Both sides are
+ * byte-identical and the patch is necessarily empty. `status` is the authority
+ * there, and where this command knows it is emitting an empty patch for such a
+ * component it says so on standard error rather than pretending otherwise.
  *
  * States are named by component version, never by raw object ID: inspection
- * speaks the workspace's vocabulary, not Git's.
+ * speaks the workspace's vocabulary, not Git's. That extends to the patch's own
+ * paths, which are addressed as `a/<component-id>::<path>`.
  */
 
 export type DiffSide =
@@ -52,22 +56,25 @@ export type DiffSide =
   | { kind: "snap"; version: string; snapId: string }
   | { kind: "absent" };
 
-export type DiffReport = {
+/** One component's place in the emitted patch. */
+export type DiffComponentReport = {
   componentId: string;
   from: DiffSide;
   to: DiffSide;
-  /** Component-owned files other than `.comp.json`. */
-  files: readonly FileChange[];
-  dependencies: readonly DependencyChange[];
-  env: EnvChange | undefined;
-  /** Recorded metadata differs in a way that is neither a dependency nor an env change. */
-  otherMetadataChanged: boolean;
+  /** Component-relative paths whose content or mode differs, sorted. */
+  changedPaths: readonly string[];
   /**
    * Prerequisites whose own uncommitted changes will move this component when
-   * it is next recorded. Only ever set for a comparison involving working state.
+   * it is next recorded, though nothing in its own content differs. Only ever
+   * set for a comparison involving working state.
    */
   modifiedBy: readonly string[];
-  changed: boolean;
+};
+
+export type DiffReport = {
+  components: readonly DiffComponentReport[];
+  /** The serialized patch, exactly as written to standard output. */
+  patch: string;
 };
 
 export type DiffReporter = {
@@ -76,6 +83,8 @@ export type DiffReporter = {
 
 export type RunDiffCommandOptions = {
   reporter?: DiffReporter;
+  /** Where advisories go. Never standard output, which carries the patch. */
+  logAdvisory?: (message: string) => void;
 };
 
 export async function runDiffCommand(
@@ -86,17 +95,21 @@ export async function runDiffCommand(
   const from = readTextOption(parsed.args.options.from, "--from");
   const to = readTextOption(parsed.args.options.to, "--to");
   const reporter = options.reporter ?? (asJson ? createDiffJsonReporter() : createDiffReporter());
+  const logAdvisory = options.logAdvisory ?? console.error;
 
   const workspace = await readWorkspace(parsed.workspaceRoot);
-  const component = selectSingleWorkspaceComponent(workspace, parsed.componentFilters, "diff");
+  const components = selectComponents(workspace, parsed.componentFilters, from, to);
 
   if (!(await directoryExists(resolveComponentStorePath(workspace.rootDir)))) {
     if (from !== undefined || to !== undefined) {
       throw new BitLiteError(
-        `component "${component.id}" has no recorded history, so there is no version to compare`
+        `component "${components[0]!.id}" has no recorded history, so there is no version to compare`
       );
     }
-    const report = emptyReport(component.id, { kind: "absent" }, { kind: "working" });
+    // Nothing has ever been recorded, so every file is an addition against
+    // nothing. There is no store to read the other side from, and no patch
+    // that would say anything a listing of the component root does not.
+    const report: DiffReport = { components: [], patch: "" };
     reporter.report(report);
     return report;
   }
@@ -106,59 +119,95 @@ export async function runDiffCommand(
     create: false,
   });
   const inspection = await inspectWorkspace(store, workspace);
-  const inspected = inspection.byComponentId.get(component.id);
-  if (inspected === undefined) {
-    throw new BitLiteError(`component "${component.id}" is not part of this workspace`);
+
+  const reports: DiffComponentReport[] = [];
+  const patchComponents: PatchComponent[] = [];
+
+  for (const component of components) {
+    const inspected = inspection.byComponentId.get(component.id);
+    if (inspected === undefined) {
+      throw new BitLiteError(`component "${component.id}" is not part of this workspace`);
+    }
+
+    const beforeSide = await resolveSide(store, component, inspected, from, "head");
+    const afterSide = await resolveSide(store, component, inspected, to, "working");
+
+    const before = await readSide(store, component, inspected, beforeSide);
+    const after = await readSide(store, component, inspected, afterSide);
+    const files = pairSides(before, after);
+
+    // Only a comparison against working state can be moved by a prerequisite;
+    // two recorded snaps are settled and have no such relationship.
+    const involvesWorking = beforeSide.kind === "working" || afterSide.kind === "working";
+    const modifiedBy =
+      involvesWorking && !inspected.ownContentChanged ? inspected.changedPrerequisiteIds : [];
+
+    reports.push({
+      componentId: component.id,
+      from: beforeSide,
+      to: afterSide,
+      changedPaths: files.map((file) => file.path),
+      modifiedBy,
+    });
+    if (files.length > 0) {
+      patchComponents.push({
+        componentId: component.id,
+        fromLabel: describeSide(beforeSide),
+        toLabel: describeSide(afterSide),
+        files,
+      });
+    }
   }
 
-  const beforeSide = await resolveSide(store, component, inspected, from, "head");
-  const afterSide = await resolveSide(store, component, inspected, to, "working");
-
-  const comparison = await compareComponentStates(
-    store,
-    component.id,
-    await comparisonSide(store, inspected, beforeSide),
-    await comparisonSide(store, inspected, afterSide)
-  );
-
-  // Only a comparison against working state can be moved by a prerequisite;
-  // two recorded snaps are settled and have no such relationship.
-  const involvesWorking = beforeSide.kind === "working" || afterSide.kind === "working";
-  const modifiedBy =
-    involvesWorking && !inspected.ownContentChanged ? inspected.changedPrerequisiteIds : [];
-
-  const report: DiffReport = {
-    componentId: component.id,
-    from: beforeSide,
-    to: afterSide,
-    files: comparison.files,
-    dependencies: comparison.metadata.dependencies,
-    env: comparison.metadata.env,
-    otherMetadataChanged: comparison.metadata.otherChanged,
-    modifiedBy,
-    changed:
-      comparison.files.length > 0 ||
-      comparison.metadata.dependencies.length > 0 ||
-      comparison.metadata.env !== undefined ||
-      comparison.metadata.otherChanged ||
-      modifiedBy.length > 0,
-  };
+  const report: DiffReport = { components: reports, patch: formatPatch(patchComponents) };
   reporter.report(report);
+  advise(report, logAdvisory);
   return report;
 }
 
-function emptyReport(componentId: string, from: DiffSide, to: DiffSide): DiffReport {
-  return {
-    componentId,
-    from,
-    to,
-    files: [],
-    dependencies: [],
-    env: undefined,
-    otherMetadataChanged: false,
-    modifiedBy: [],
-    changed: false,
-  };
+/**
+ * A version identifier is local to one component's history, so naming versions
+ * has no reading across a selection. Without them the command follows the same
+ * conventions as `status`, which is what makes a whole-workspace patch useful.
+ */
+function selectComponents(
+  workspace: Parameters<typeof selectWorkspaceComponents>[0],
+  filters: readonly string[],
+  from: string | undefined,
+  to: string | undefined
+): readonly WorkspaceComponent[] {
+  const components = selectWorkspaceComponents(workspace, filters);
+  if (components.length === 0) {
+    throw new BitLiteError("no registered components to diff");
+  }
+  if ((from !== undefined || to !== undefined) && components.length > 1) {
+    const ids = components.map((component) => component.id).join(", ");
+    throw new BitLiteError(
+      `naming a version compares one component, but the selection matched ` +
+        `${components.length}: ${ids}. Narrow the selection with --filter.`
+    );
+  }
+  return components;
+}
+
+/**
+ * The empty-patch case from the command's own contract. Written to standard
+ * error, so that a redirected patch stays a patch.
+ */
+function advise(report: DiffReport, logAdvisory: (message: string) => void): void {
+  for (const component of report.components) {
+    if (component.changedPaths.length > 0 || component.modifiedBy.length === 0) continue;
+    logAdvisory(
+      `${component.componentId}: no content differs, but ${component.modifiedBy.join(", ")} ` +
+        `will move this component when recorded. Run status for what recording will act on.`
+    );
+  }
+}
+
+function describeSide(side: DiffSide): string {
+  if (side.kind === "working") return "working";
+  if (side.kind === "absent") return "never recorded";
+  return abbreviateComponentVersion(side.version);
 }
 
 /**
@@ -214,21 +263,87 @@ async function resolveVersionToSnap(
   return candidate;
 }
 
-/** Turns a reported side into the form the shared comparison consumes. */
-async function comparisonSide(
+type SideContent = Map<string, { mode: string; blobHex: string; content: Buffer }>;
+
+/**
+ * Reads one side's files with their content. A recorded side comes from the
+ * store by blob ID; the working side comes from the component root, because the
+ * tree it belongs to was computed and never written, so the store does not hold
+ * a single one of its objects.
+ */
+async function readSide(
   store: ComponentHistoryStore,
+  component: WorkspaceComponent,
   inspected: InspectedComponent,
   side: DiffSide
-): Promise<ComparisonSide> {
-  if (side.kind === "absent") return { kind: "absent" };
-  if (side.kind === "working") return { kind: "working", state: inspected.working };
-  return {
-    kind: "recorded",
-    treeId: await readCommitTree(store, {
-      algorithm: inspected.working.treeId.algorithm,
-      hex: side.snapId,
-    }),
-  };
+): Promise<SideContent> {
+  const content: SideContent = new Map();
+  if (side.kind === "absent") return content;
+
+  if (side.kind === "working") {
+    for (const file of inspected.working.files) {
+      content.set(file.path, {
+        mode: file.mode,
+        blobHex: file.blobHex,
+        content: await readWorkingFile(component, file, inspected),
+      });
+    }
+    return content;
+  }
+
+  const treeId = await readCommitTree(store, {
+    algorithm: inspected.working.treeId.algorithm,
+    hex: side.snapId,
+  });
+  for (const file of await readTreeFiles(store, treeId)) {
+    content.set(file.path, {
+      mode: file.mode,
+      blobHex: file.blobHex,
+      content: await readBlobBytes(store, file.blobHex),
+    });
+  }
+  return content;
+}
+
+/**
+ * `.comp.json` on the working side is the projection this run produced, not the
+ * file on disk: the projection is what a snap would record, and comparing the
+ * working file instead would report a difference on every component every time.
+ */
+async function readWorkingFile(
+  component: WorkspaceComponent,
+  file: TreeFileEntry,
+  inspected: InspectedComponent
+): Promise<Buffer> {
+  if (file.path === componentConfigFileName) {
+    return Buffer.from(inspected.working.configBytes);
+  }
+  return readFile(path.join(component.rootDir, file.path));
+}
+
+/**
+ * Pairs the two sides by path, keeping only what differs. Identity is decided
+ * by blob ID and mode, exactly as the shared comparison decides it, so the
+ * patch and the reports can never disagree about which files changed.
+ */
+function pairSides(before: SideContent, after: SideContent): PatchFile[] {
+  const paths = [...new Set([...before.keys(), ...after.keys()])].sort();
+  const files: PatchFile[] = [];
+
+  for (const filePath of paths) {
+    const left = before.get(filePath);
+    const right = after.get(filePath);
+    if (left !== undefined && right !== undefined) {
+      if (left.blobHex === right.blobHex && left.mode === right.mode) continue;
+    }
+    files.push({
+      path: filePath,
+      before: left === undefined ? { kind: "absent" } : { kind: "present", ...left },
+      after: right === undefined ? { kind: "absent" } : { kind: "present", ...right },
+    });
+  }
+
+  return files;
 }
 
 async function directoryExists(directory: string): Promise<boolean> {
@@ -239,87 +354,19 @@ async function directoryExists(directory: string): Promise<boolean> {
   }
 }
 
-export function createDiffReporter(log: (message: string) => void = console.log): DiffReporter {
+/**
+ * The patch is written verbatim, with no trailing newline of its own added: it
+ * already ends in one when it is non-empty, and an empty patch writes nothing
+ * at all.
+ */
+export function createDiffReporter(
+  write: (chunk: string) => void = (chunk) => process.stdout.write(chunk)
+): DiffReporter {
   return {
     report(report) {
-      log(
-        `${report.componentId}   ${describeSide(report.from)} -> ${describeSide(report.to)}`
-      );
-      if (!report.changed) {
-        log("");
-        log("  no changes");
-        return;
-      }
-
-      if (report.files.length > 0) {
-        log("");
-        log("  source");
-        for (const change of report.files) {
-          log(`    ${fileMarker(change.status)}  ${change.path}`);
-        }
-      }
-      if (report.dependencies.length > 0) {
-        log("");
-        log("  dependencies");
-        for (const change of report.dependencies) {
-          log(`    ${dependencyMarker(change)}  ${describeDependency(change)}`);
-        }
-      }
-      if (report.env !== undefined) {
-        log("");
-        log("  env");
-        log(`    ~  ${describeEnv(report.env)}`);
-      }
-      if (report.otherMetadataChanged) {
-        log("");
-        log("  metadata");
-        log("    ~  component metadata changed");
-      }
-      if (report.modifiedBy.length > 0) {
-        log("");
-        log("  dependencies with uncommitted changes");
-        for (const componentId of report.modifiedBy) {
-          log(`    ~  ${componentId} will move this component when recorded`);
-        }
-      }
+      if (report.patch.length > 0) write(report.patch);
     },
   };
-}
-
-function describeSide(side: DiffSide): string {
-  if (side.kind === "working") return "working";
-  if (side.kind === "absent") return "never recorded";
-  return abbreviateComponentVersion(side.version);
-}
-
-function fileMarker(status: FileChange["status"]): string {
-  return status === "added" ? "A" : status === "deleted" ? "D" : "M";
-}
-
-function dependencyMarker(change: DependencyChange): string {
-  return change.status === "added" ? "+" : change.status === "removed" ? "-" : "~";
-}
-
-function describeDependency(change: DependencyChange): string {
-  const field = change.field === "dependencies" ? "" : ` (${change.field})`;
-  if (change.status === "added") {
-    return `${change.packageName}${field}   ${abbreviateComponentVersion(change.after ?? "-")}`;
-  }
-  if (change.status === "removed") {
-    return `${change.packageName}${field}   ${abbreviateComponentVersion(change.before ?? "-")}`;
-  }
-  return (
-    `${change.packageName}${field}   ${abbreviateComponentVersion(change.before ?? "-")} -> ` +
-    `${abbreviateComponentVersion(change.after ?? "-")}`
-  );
-}
-
-function describeEnv(change: EnvChange): string {
-  const name = change.after?.packageName ?? change.before?.packageName ?? "-";
-  return (
-    `${name}   ${abbreviateComponentVersion(change.before?.version ?? "-")} -> ` +
-    `${abbreviateComponentVersion(change.after?.version ?? "-")}`
-  );
 }
 
 /** Structured output carries complete version identifiers, never abbreviated. */

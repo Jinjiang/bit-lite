@@ -17,6 +17,7 @@ export {
   compareFileLists,
   compareTrees,
   isAncestorCommit,
+  readBlobBytes,
   readComponentHistory,
   readTreeFile,
   readTreeFiles,
