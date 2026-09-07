@@ -174,6 +174,20 @@ Five conditions are reported independently, because a component can be in severa
 
 Unlike `snap` and `tag`, `status` never refuses. A prerequisite that has never been recorded or has uncommitted changes is reported rather than rejected.
 
+`status` is the authority on what recording will act on: a component reported **modified** is one the next `snap` will record, and a component reported clean is one it will not.
+
+#### `--detail`
+
+Expands each modified component into the changes behind it — the component-owned files that differ, and the dependency, env, and other metadata changes.
+
+```bash
+bit-lite status --detail --filter ui/button
+```
+
+Detail always compares working content against the recorded head; comparing two recorded versions against each other is what `log` reports for every snap. It reports the same components and the same conditions as the summary view, adding detail rather than changing the answer, and a component that is not modified gains no expansion.
+
+`.comp.json` never appears as a file here. Its differences are reported as added, removed, and changed dependency entries and as env changes, with the versions on each side — the recorded file is a projection whose keys are sorted and whose `workspace:*` specifiers have been substituted, so reading it as text would report reformatting as a version change.
+
 ### `log`
 
 Lists one component's snaps from its head backwards, and says why each version exists.
@@ -186,18 +200,46 @@ Each entry carries the snap identifier, its authored timestamp, any semantic ver
 
 ### `diff`
 
-Compares one component between two points.
+Emits a line-by-line unified diff of the selected components' content.
 
 ```bash
-bit-lite diff --filter ui/button
+bit-lite diff
+bit-lite diff --filter ui/button > changes.diff
 bit-lite diff --filter ui/button --from 0.0.1 --to 0.0.2
 ```
 
-With no `--from` or `--to`, it compares working content against the recorded head. Each accepts a snap identifier or an assigned semantic version; a version that is not one of that component's snaps fails naming both.
+With no `--from` or `--to`, it compares each selected component's working content against its recorded head and follows the same selection conventions as `status`, so a bare `bit-lite diff` covers the whole workspace. Each option accepts a snap identifier or an assigned semantic version; a version that is not one of that component's snaps fails naming both. Naming a version requires a selection resolving to one component, because a version identifier is local to one component's history.
 
-`.comp.json` is never listed as a changed file. Its differences are presented as added, removed, and changed dependency entries and as env changes, with the versions on each side.
+Standard output carries the patch and nothing else, so redirecting it produces a usable `*.diff` file. There is no colorization, and any advisory goes to standard error.
 
-An empty `diff` means the next `snap` reports that component unchanged. Where a component is unchanged in itself but a workspace dependency has uncommitted changes, `diff` names that dependency rather than reporting no changes — recording both would advance the component, and the two commands must not disagree.
+#### The patch format
+
+```diff
+# ui/button  0.0.0-ga17d5e0 -> working
+# ============================================================
+
+diff --git a/ui/button::src/button.tsx b/ui/button::src/button.tsx
+index a1b2c3d..e4f5a6b 100644
+--- a/ui/button::src/button.tsx
++++ b/ui/button::src/button.tsx
+@@ -10,7 +10,7 @@
+-  const cls = "btn";
++  const cls = clsx("btn", variant);
+```
+
+Paths are addressed in the workspace's own vocabulary as `a/<component-id>::<path>`. Both a component identifier and a file path contain slashes, so `::` marks the boundary between them; it also keeps two components that each own a file of the same name from colliding on one path, which is what lets a single patch carry several components. **These paths do not name files in a checkout, so the patch is not meant to be applied.**
+
+Each component's files are preceded by a banner naming it and both states, stating the version transition once. Banner lines begin with `#`, which unified diff gives no meaning to, so no banner line can be read as a file marker or a deleted line.
+
+The `index` line carries real blob identifiers on both sides — the working side's blobs are hashed without being written, so the identifier is correct even though the object is not in the store. Added and deleted files are emitted against `/dev/null` with their modes, a file whose mode changed but whose content did not is emitted with no hunk, and content that is not valid UTF-8 is reported as differing binary rather than rendered.
+
+Unlike in `status --detail` and `log`, `.comp.json` appears here as an ordinary file patch. `diff` reproduces content rather than reporting on it, and a patch that omitted a file the snap records would be an incomplete account of the difference. It is often the most informative hunk in the output, because it shows the dependency version substitution that produced a new version.
+
+#### An empty patch does not mean nothing will happen
+
+A component whose own files are untouched but whose workspace prerequisite has uncommitted changes has no content difference of its own: inspection resolves that prerequisite to the version at its own head, which is the version the component already recorded. Both sides are byte-identical and the patch is empty — yet recording both would advance the component.
+
+`diff` writes an advisory naming the prerequisite to standard error when this happens. For what recording will act on, read `status`, not the size of a patch.
 
 ## Global options
 

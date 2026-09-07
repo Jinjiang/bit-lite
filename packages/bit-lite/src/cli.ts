@@ -64,9 +64,9 @@ Usage:
 
 Commands:
   compile compile component packages once or watch with vendor-owned --watch
-  diff    compare one component between two points, defaulting to working
-          content against its recorded head
-          [--from <version>] [--to <version>] [--json]
+  diff    emit a unified diff of the selected components between two points,
+          defaulting to working content against each recorded head
+          [--from <version>] [--to <version>, one component only] [--json]
   install install/link packages and optionally compile once with --compile
   log     list one component's recorded snaps with the versions on each and
           why each version exists [--json]
@@ -75,7 +75,7 @@ Commands:
           [--message <text>] [--dry-run] [--json]
   start   compile and serve preview/live tests in one watch session
   status  report each selected component's state against its recorded history
-          [--json]
+          [--detail, expand what makes each component modified] [--json]
   sync    exchange component histories and tags with [--remote <url>]
   tag     assign immutable versions to the selected components' snaps,
           incrementing each component's patch by default

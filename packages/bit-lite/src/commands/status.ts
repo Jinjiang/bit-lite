@@ -10,17 +10,23 @@ import {
   readTagTarget,
   resolveComponentStorePath,
   type ComponentHistoryStore,
+  type FileChange,
   type GitObjectId,
 } from "bit-lite-history";
 import type { ParsedCliArgs, WorkspaceComponent } from "bit-lite-context";
 import { BitLiteError } from "../utils/errors.js";
 import { readFlagOption } from "../utils/command-options.js";
 import {
+  compareComponentStates,
   inspectWorkspace,
   type InspectedComponent,
   type WorkspaceInspection,
 } from "../utils/component-inspection.js";
-import { readRecordedComponentConfig } from "../utils/component-metadata-diff.js";
+import {
+  readRecordedComponentConfig,
+  type DependencyChange,
+  type EnvChange,
+} from "../utils/component-metadata-diff.js";
 
 /**
  * What: reports where each selected component stands relative to the store.
@@ -46,6 +52,20 @@ export type DependencyUpdate = {
   current: string;
 };
 
+/**
+ * The changes behind a component's **modified** condition. Present only when
+ * detail was requested and the component is modified: a clean component has
+ * nothing to expand, and saying so twice would be noise.
+ */
+export type ComponentStatusDetail = {
+  /** Component-owned files other than `.comp.json`. */
+  files: readonly FileChange[];
+  dependencies: readonly DependencyChange[];
+  env: EnvChange | undefined;
+  /** Recorded metadata differs in a way that is neither a dependency nor an env change. */
+  otherMetadataChanged: boolean;
+};
+
 export type ComponentStatus = {
   componentId: string;
   /** Version at the canonical head; absent when never recorded. */
@@ -60,6 +80,8 @@ export type ComponentStatus = {
   behind: boolean;
   dependencyUpdates: readonly DependencyUpdate[];
   clean: boolean;
+  /** The changes behind **modified**, when detail was requested. */
+  detail: ComponentStatusDetail | undefined;
 };
 
 export type StatusReport = {
@@ -81,6 +103,7 @@ export async function runStatusCommand(
   options: RunStatusCommandOptions = {}
 ): Promise<StatusReport> {
   const asJson = readFlagOption(parsed.args.options.json, "--json");
+  const detail = readFlagOption(parsed.args.options.detail, "--detail");
   const reporter =
     options.reporter ?? (asJson ? createStatusJsonReporter() : createStatusReporter());
 
@@ -107,7 +130,7 @@ export async function runStatusCommand(
 
   const statuses: ComponentStatus[] = [];
   for (const component of components) {
-    statuses.push(await describeComponent(store, component, inspection));
+    statuses.push(await describeComponent(store, component, inspection, detail));
   }
 
   const report: StatusReport = { storePath: store.gitDir, components: statuses };
@@ -127,13 +150,15 @@ function neverRecordedStatus(component: WorkspaceComponent): ComponentStatus {
     behind: false,
     dependencyUpdates: [],
     clean: false,
+    detail: undefined,
   };
 }
 
 async function describeComponent(
   store: ComponentHistoryStore,
   component: WorkspaceComponent,
-  inspection: WorkspaceInspection
+  inspection: WorkspaceInspection,
+  withDetail: boolean
 ): Promise<ComponentStatus> {
   const inspected = inspection.byComponentId.get(component.id);
   if (inspected === undefined || inspected.head === undefined) {
@@ -163,6 +188,41 @@ async function describeComponent(
     dependencyUpdates,
     clean:
       !inspected.changed && !neverReleased && !behind && dependencyUpdates.length === 0,
+    detail:
+      withDetail && inspected.changed
+        ? await describeDetail(store, component.id, inspected)
+        : undefined,
+  };
+}
+
+/**
+ * Expands **modified** into the changes that produced it, reading the same
+ * comparison `log` and `diff` read rather than a second one — a second reading
+ * path would be the natural place for detail to disagree with the condition it
+ * is explaining.
+ *
+ * Always working content against the recorded head. Comparing two recorded
+ * versions is what `log` already reports for every snap in a history.
+ */
+async function describeDetail(
+  store: ComponentHistoryStore,
+  componentId: string,
+  inspected: InspectedComponent
+): Promise<ComponentStatusDetail> {
+  const comparison = await compareComponentStates(
+    store,
+    componentId,
+    inspected.headTreeId === undefined
+      ? { kind: "absent" }
+      : { kind: "recorded", treeId: inspected.headTreeId },
+    { kind: "working", state: inspected.working }
+  );
+
+  return {
+    files: comparison.files,
+    dependencies: comparison.metadata.dependencies,
+    env: comparison.metadata.env,
+    otherMetadataChanged: comparison.metadata.otherChanged,
   };
 }
 
@@ -326,6 +386,14 @@ function detailLines(status: ComponentStatus): string[] {
         "recording from here would record content based on the older version"
     );
   }
+
+  // The expansion states every dependency and env change the summary would
+  // state, and more of them: it covers packages outside the workspace and
+  // additions and removals, where "updates available" only covers workspace
+  // prerequisites whose version moved. So it replaces those lines rather than
+  // joining them, and the condition itself is reported either way.
+  if (status.detail !== undefined) return [...lines, ...expansionLines(status.detail)];
+
   for (const update of status.dependencyUpdates) {
     lines.push(
       `${update.kind} ${update.packageName} ` +
@@ -335,6 +403,49 @@ function detailLines(status: ComponentStatus): string[] {
   }
 
   return lines;
+}
+
+function expansionLines(detail: ComponentStatusDetail): string[] {
+  const lines: string[] = [];
+
+  for (const change of detail.files) {
+    lines.push(`${fileMarker(change.status)}  ${change.path}`);
+  }
+  for (const change of detail.dependencies) {
+    lines.push(`dependency ${describeDependencyChange(change)}`);
+  }
+  if (detail.env !== undefined) {
+    const name = detail.env.after?.packageName ?? detail.env.before?.packageName ?? "-";
+    lines.push(
+      `env ${name} ` +
+        `${abbreviateComponentVersion(detail.env.before?.version ?? "-")} -> ` +
+        `${abbreviateComponentVersion(detail.env.after?.version ?? "-")}`
+    );
+  }
+  if (detail.otherMetadataChanged) {
+    lines.push("component metadata changed");
+  }
+
+  return lines;
+}
+
+function fileMarker(status: FileChange["status"]): string {
+  return status === "added" ? "A" : status === "deleted" ? "D" : "M";
+}
+
+function describeDependencyChange(change: DependencyChange): string {
+  const field = change.field === "dependencies" ? "" : ` (${change.field})`;
+  if (change.status === "added") {
+    return `${change.packageName}${field} + ${abbreviateComponentVersion(change.after ?? "-")}`;
+  }
+  if (change.status === "removed") {
+    return `${change.packageName}${field} - ${abbreviateComponentVersion(change.before ?? "-")}`;
+  }
+  return (
+    `${change.packageName}${field} ` +
+    `${abbreviateComponentVersion(change.before ?? "-")} -> ` +
+    `${abbreviateComponentVersion(change.after ?? "-")}`
+  );
 }
 
 /** Structured output carries complete version identifiers, never abbreviated. */

@@ -198,6 +198,23 @@ export async function compareTrees(
 }
 
 /**
+ * Reads a blob's bytes by object ID. Patch generation needs the recorded side's
+ * content, and it already holds each file's blob ID from listing the tree, so
+ * addressing the object directly avoids resolving the same path twice.
+ *
+ * The blob must be one the store holds. A tree computed for inspection was
+ * never written, so its side of a comparison is read from the working
+ * directory instead.
+ */
+export async function readBlobBytes(
+  store: ComponentHistoryStore,
+  blobHex: string
+): Promise<Buffer> {
+  const result = await store.run({ args: ["cat-file", "blob", blobHex] });
+  return result.stdout;
+}
+
+/**
  * Reads one file's bytes out of a tree, or `undefined` when the tree does not
  * contain that path. Used to recover a snap's recorded component metadata
  * without checking anything out.

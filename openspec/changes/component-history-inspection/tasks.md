@@ -40,11 +40,11 @@
 - [x] 4.10 Add integration tests over a real bare store for every state, for multiple simultaneous conditions, for a workspace with no store, and for a workspace with nothing installed
 - [x] 4.11 Add an integration test asserting `status` filtered to one component still reports when a prerequisite outside the selection is unrecorded or modified, where recording would refuse
 - [x] 4.12 Register `status` in the CLI and its help
-- [ ] 4.13 Add `--detail`, expanding each modified component into its differing component-owned files as added, modified, or deleted paths, plus the dependency, env, and other metadata changes behind the difference; reuse the shared comparison rather than adding a second reading path
-- [ ] 4.14 Restrict `--detail` to comparing projected working content against the recorded head, and do not accept version arguments; comparing recorded versions against each other is what `log` reports
-- [ ] 4.15 Leave a component that is not modified without an expansion, and keep a component modified only by a prerequisite showing the prerequisite rather than files of its own
-- [ ] 4.16 Carry the expansion in the structured output with unabbreviated version identifiers
-- [ ] 4.17 Add integration tests asserting `--detail` reports the same components and conditions as the summary view, expands a modified component into files and metadata changes, and expands a prerequisite-only modification into no files of its own
+- [x] 4.13 Add `--detail`, expanding each modified component into its differing component-owned files as added, modified, or deleted paths, plus the dependency, env, and other metadata changes behind the difference; reuse the shared comparison rather than adding a second reading path
+- [x] 4.14 Restrict `--detail` to comparing projected working content against the recorded head, and do not accept version arguments; comparing recorded versions against each other is what `log` reports
+- [x] 4.15 Leave a component that is not modified without an expansion, and keep a component modified only by a prerequisite showing the prerequisite rather than files of its own
+- [x] 4.16 Carry the expansion in the structured output with unabbreviated version identifiers
+- [x] 4.17 Add integration tests asserting `--detail` reports the same components and conditions as the summary view, expands a modified component into files and metadata changes, and expands a prerequisite-only modification into no files of its own
 
 ## 5. Log command
 
@@ -63,19 +63,19 @@
 - [x] 6.1 Add `diff` defaulting to projected working content against the recorded head
 - [x] 6.2 Accept explicit states naming a snap version identifier or an assigned semantic version on either side, and fail naming the component and any version that does not resolve to one of its snaps
 - [x] 6.8 Register `diff` in the CLI and its help
-- [ ] 6.9 Follow `status`' selection conventions instead of requiring one component, and require a selection resolving to exactly one component only when two recorded versions are named, failing with the matched components otherwise
-- [ ] 6.10 Add reading a blob's bytes by object ID to the history layer for the recorded side, and read the working side from the component root, since the tree it belongs to is computed and never written
-- [ ] 6.11 Add line comparison over the two sides producing hunks with three lines of context, treating content that is not valid UTF-8 as binary rather than rendering it
-- [ ] 6.12 Serialize hunks as a unified diff with `diff --git`, `index`, `---`, `+++`, and `@@` headers, emitting the real blob IDs on the `index` line, `/dev/null` and the file mode for an added or deleted file, and a mode change with no hunk when only the mode differs
-- [ ] 6.13 Address paths as `a/<component-id>::<path>` and `b/<component-id>::<path>`, and add a test asserting two components owning a file of the same name appear on distinct paths
-- [ ] 6.14 Precede each component's patches with a banner naming the component and both states, and add a test asserting no banner line begins with a character unified diff gives meaning to
-- [ ] 6.15 Remove the semantic report from `diff`: source file status lines, dependency and env sections, and the prerequisite advisory section
-- [ ] 6.16 Include `.comp.json` as an ordinary file patch
-- [ ] 6.17 Write the patch and nothing else to standard output, sending any advisory to standard error, and add a test asserting redirected output is a valid patch
-- [ ] 6.18 Emit an empty patch and succeed when nothing differs, and when a component is modified only because a prerequisite is, write an advisory naming the prerequisite to standard error
-- [ ] 6.19 Replace the structured output variant so it carries the patch alongside the per-file entries, with unabbreviated version identifiers
-- [ ] 6.20 Add unit tests over the serialized bytes for a modified file, an added file, a deleted file, a mode-only change, a binary file, and an empty patch
-- [ ] 6.21 Add integration tests for working-versus-head, snap-versus-snap, tag-versus-tag, unresolved version arguments, two versions with an ambiguous selection, and a multi-component patch ordered by component identifier
+- [x] 6.9 Follow `status`' selection conventions instead of requiring one component, and require a selection resolving to exactly one component only when two recorded versions are named, failing with the matched components otherwise
+- [x] 6.10 Add reading a blob's bytes by object ID to the history layer for the recorded side, and read the working side from the component root, since the tree it belongs to is computed and never written
+- [x] 6.11 Add line comparison over the two sides producing hunks with three lines of context, treating content that is not valid UTF-8 as binary rather than rendering it
+- [x] 6.12 Serialize hunks as a unified diff with `diff --git`, `index`, `---`, `+++`, and `@@` headers, emitting the real blob IDs on the `index` line, `/dev/null` and the file mode for an added or deleted file, and a mode change with no hunk when only the mode differs
+- [x] 6.13 Address paths as `a/<component-id>::<path>` and `b/<component-id>::<path>`, and add a test asserting two components owning a file of the same name appear on distinct paths
+- [x] 6.14 Precede each component's patches with a banner naming the component and both states, and add a test asserting no banner line begins with a character unified diff gives meaning to
+- [x] 6.15 Remove the semantic report from `diff`: source file status lines, dependency and env sections, and the prerequisite advisory section
+- [x] 6.16 Include `.comp.json` as an ordinary file patch
+- [x] 6.17 Write the patch and nothing else to standard output, sending any advisory to standard error, and add a test asserting redirected output is a valid patch
+- [x] 6.18 Emit an empty patch and succeed when nothing differs, and when a component is modified only because a prerequisite is, write an advisory naming the prerequisite to standard error
+- [x] 6.19 Replace the structured output variant so it carries the patch alongside the per-file entries, with unabbreviated version identifiers
+- [x] 6.20 Add unit tests over the serialized bytes for a modified file, an added file, a deleted file, a mode-only change, a binary file, and an empty patch
+- [x] 6.21 Add integration tests for working-versus-head, snap-versus-snap, tag-versus-tag, unresolved version arguments, two versions with an ambiguous selection, and a multi-component patch ordered by component identifier
 
 ## 7. Documentation and verification
 
@@ -85,7 +85,7 @@
 - [x] 7.4 Confirm non-versioning commands remain independent of the store, that inspection commands never create one, and that inspection needs no install
 - [x] 7.5 Run the full build, typecheck, and test suites across the monorepo
 - [x] 7.6 Exercise the demo workspace end to end: snap, tag, upgrade an env, re-snap, then verify status, log attribution, and diff all explain the resulting versions
-- [ ] 7.7 Update both READMEs for the revised division of labor: `status --detail` carries the semantic account of what recording would capture, and `diff` emits a patch
-- [ ] 7.8 Document the patch format — the component-qualified paths, the banner, and that the paths are not applicable to a checkout — and state that an empty patch does not mean recording will do nothing, pointing at `status` for that
-- [ ] 7.9 Re-run the full build, typecheck, and test suites across the monorepo
-- [ ] 7.10 Re-exercise the demo workspace end to end, additionally redirecting a multi-component diff to a `*.diff` file and confirming it opens as a patch, that each component is separated by its banner, and that two components owning a file of the same name stay distinct
+- [x] 7.7 Update both READMEs for the revised division of labor: `status --detail` carries the semantic account of what recording would capture, and `diff` emits a patch
+- [x] 7.8 Document the patch format — the component-qualified paths, the banner, and that the paths are not applicable to a checkout — and state that an empty patch does not mean recording will do nothing, pointing at `status` for that
+- [x] 7.9 Re-run the full build, typecheck, and test suites across the monorepo
+- [x] 7.10 Re-exercise the demo workspace end to end, additionally redirecting a multi-component diff to a `*.diff` file and confirming it opens as a patch, that each component is separated by its banner, and that two components owning a file of the same name stay distinct
