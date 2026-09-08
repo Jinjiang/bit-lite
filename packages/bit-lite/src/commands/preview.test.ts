@@ -3,7 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { ProxyServer } from "bit-lite-proxy";
-import type { ParsedCliArgs, Workspace, WorkspaceContext, WorkspaceEnvGroup } from "bit-lite-context";
+import type { Workspace } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { WorkspaceContext, WorkspaceEnvGroup } from "bit-lite-env-resolution";
 import { describe, expect, it, vi } from "vitest";
 import {
   createPreviewCommandContribution,

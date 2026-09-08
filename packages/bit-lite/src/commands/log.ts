@@ -10,7 +10,7 @@ import {
   resolveComponentStorePath,
   type ComponentHistoryStore,
 } from "bit-lite-history";
-import type { ParsedCliArgs } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
 import { readFlagOption } from "../utils/command-options.js";
 import { selectSingleWorkspaceComponent } from "../utils/command-selection.js";
 import { compareComponentStates } from "../utils/component-inspection.js";

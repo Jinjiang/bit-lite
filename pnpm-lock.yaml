@@ -6,9 +6,6 @@ importers:
   .:
     configDependencies: {}
     packageManagerDependencies:
-      '@pnpm/exe':
-        specifier: 12.0.0-rc.0
-        version: 12.0.0-rc.0
       pnpm:
         specifier: 12.0.0-rc.0
         version: 12.0.0-rc.0
@@ -59,11 +56,6 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@pnpm/exe@12.0.0-rc.0':
-    resolution: {integrity: sha512-iWbpfW7tvN4u10zv2cKVqmsuk7oeh2JF+MZuDm0WBjbcQBd7RgCSAr8iSwUGD6JeSPGXscCzywz+rO4ihRaAOw==}
-    engines: {node: '>=18.*'}
-    hasBin: true
-
   pnpm@12.0.0-rc.0:
     resolution: {integrity: sha512-hm1acLXW+/eLalBSr1HMo+Ockk5WbYuKqudi5zd6pA/6f5JgJSdD8HVlzTFdPNUzzPRj5Axli1w3OInydn7Iuw==}
     engines: {node: '>=18.*'}
@@ -94,17 +86,6 @@ snapshots:
 
   '@pnpm/exe.win32-x64@12.0.0-rc.0':
     optional: true
-
-  '@pnpm/exe@12.0.0-rc.0':
-    optionalDependencies:
-      '@pnpm/exe.darwin-arm64': 12.0.0-rc.0
-      '@pnpm/exe.darwin-x64': 12.0.0-rc.0
-      '@pnpm/exe.linux-arm64': 12.0.0-rc.0
-      '@pnpm/exe.linux-arm64-musl': 12.0.0-rc.0
-      '@pnpm/exe.linux-x64': 12.0.0-rc.0
-      '@pnpm/exe.linux-x64-musl': 12.0.0-rc.0
-      '@pnpm/exe.win32-arm64': 12.0.0-rc.0
-      '@pnpm/exe.win32-x64': 12.0.0-rc.0
 
   pnpm@12.0.0-rc.0:
     optionalDependencies:
@@ -142,6 +123,9 @@ importers:
       bit-lite-env:
         specifier: workspace:*
         version: link:../bit-lite-env
+      bit-lite-env-resolution:
+        specifier: workspace:*
+        version: link:../bit-lite-env-resolution
       bit-lite-history:
         specifier: workspace:*
         version: link:../bit-lite-history
@@ -160,6 +144,9 @@ importers:
       bit-lite-vendors:
         specifier: workspace:*
         version: link:../bit-lite-vendors
+      yargs-parser:
+        specifier: ^22.0.0
+        version: 22.0.0
     devDependencies:
       '@mdx-js/loader':
         specifier: ^3.1.1
@@ -167,6 +154,9 @@ importers:
       '@types/node':
         specifier: ^25.9.1
         version: 25.9.4
+      '@types/yargs-parser':
+        specifier: ^21.0.3
+        version: 21.0.3
       demo-config:
         specifier: workspace:*
         version: link:../demo-config
@@ -210,16 +200,10 @@ importers:
       bit-lite-utils:
         specifier: workspace:*
         version: link:../bit-lite-utils
-      yargs-parser:
-        specifier: ^22.0.0
-        version: 22.0.0
     devDependencies:
       '@types/node':
         specifier: ^25.9.1
         version: 25.9.4
-      '@types/yargs-parser':
-        specifier: ^21.0.3
-        version: 21.0.3
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -268,6 +252,28 @@ importers:
         specifier: ^4.1.8
         version: 4.1.9(@types/node@25.9.4)(jsdom@29.1.1)(vite@8.1.2(@types/node@25.9.4)(esbuild@0.28.1)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))
 
+  packages/bit-lite-env-resolution:
+    dependencies:
+      bit-lite-context:
+        specifier: workspace:*
+        version: link:../bit-lite-context
+      bit-lite-env:
+        specifier: workspace:*
+        version: link:../bit-lite-env
+      bit-lite-utils:
+        specifier: workspace:*
+        version: link:../bit-lite-utils
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.4
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.8
+        version: 4.1.9(@types/node@25.9.4)(jsdom@29.1.1)(vite@8.1.2(@types/node@25.9.4)(esbuild@0.28.1)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))
+
   packages/bit-lite-history:
     dependencies:
       bit-lite-utils:
@@ -295,6 +301,9 @@ importers:
       bit-lite-context:
         specifier: workspace:*
         version: link:../bit-lite-context
+      bit-lite-env-resolution:
+        specifier: workspace:*
+        version: link:../bit-lite-env-resolution
       bit-lite-proxy:
         specifier: workspace:*
         version: link:../bit-lite-proxy
@@ -375,6 +384,9 @@ importers:
       bit-lite-env:
         specifier: workspace:*
         version: link:../bit-lite-env
+      bit-lite-env-resolution:
+        specifier: workspace:*
+        version: link:../bit-lite-env-resolution
       bit-lite-terminal:
         specifier: workspace:*
         version: link:../bit-lite-terminal
@@ -510,6 +522,9 @@ importers:
       bit-lite-env:
         specifier: workspace:*
         version: link:../bit-lite-env
+      bit-lite-env-resolution:
+        specifier: workspace:*
+        version: link:../bit-lite-env-resolution
       bit-lite-preview:
         specifier: workspace:*
         version: link:../bit-lite-preview

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { SelectedEnvIdentity } from "bit-lite-context";
+import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCli } from "../cli.js";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";

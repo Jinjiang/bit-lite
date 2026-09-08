@@ -1,12 +1,9 @@
 import { superviseVendorTasks } from "bit-lite-vendors";
 import { isJsonObject } from "bit-lite-utils";
 import { isInteractiveTerminal } from "bit-lite-utils/node";
-import type {
-  ParsedCliArgs,
-  SelectedEnvIdentity,
-  Workspace,
-  WorkspaceEnvGroup,
-} from "bit-lite-context";
+import type { Workspace } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { SelectedEnvIdentity, WorkspaceEnvGroup } from "bit-lite-env-resolution";
 import type {
   JsonObject,
   VendorTask,

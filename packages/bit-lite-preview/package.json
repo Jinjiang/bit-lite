@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "bit-lite-context": "workspace:*",
+    "bit-lite-env-resolution": "workspace:*",
     "bit-lite-proxy": "workspace:*",
     "bit-lite-utils": "workspace:*",
     "react": "^19.2.7",

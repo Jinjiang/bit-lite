@@ -1,7 +1,4 @@
-import {
-  getSelectedEnvKey,
-  resolveEnvModuleSpecifier,
-} from "bit-lite-context";
+import { getSelectedEnvKey, resolveEnvModuleSpecifier } from "bit-lite-env-resolution";
 import { ProxyServer } from "bit-lite-proxy";
 import {
   formatError,
@@ -22,14 +19,10 @@ import {
   type PreviewPreparedRuntime,
   type PreviewServerInfo,
 } from "bit-lite-preview/node";
-import type {
-  CliOptionValue,
-  EnvContext,
-  ParsedCliArgs,
-  SelectedEnvIdentity,
-  Workspace,
-  WorkspaceEnvGroup,
-} from "bit-lite-context";
+import type { Workspace } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { CliOptionValue } from "bit-lite-utils";
+import type { EnvContext, SelectedEnvIdentity, WorkspaceEnvGroup } from "bit-lite-env-resolution";
 import type { ProxyEndpoint } from "bit-lite-proxy";
 import type {
   JsonObject,

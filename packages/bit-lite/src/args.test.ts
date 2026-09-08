@@ -1,11 +1,11 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseArgs, parseCliArguments } from "./args.js";
+import { parseArgs } from "./args.js";
 
 describe("CLI args", () => {
-  it("parses raw argv into a shared CLI arguments shape", () => {
-    expect(parseCliArguments(["--port", "3000", "--", "--debug"])).toEqual({
-      raw: ["--port", "3000", "--", "--debug"],
+  it("keeps arguments after -- as vendor passthrough", () => {
+    expect(parseArgs(["test", "--port", "3000", "--", "--debug"]).args).toEqual({
+      raw: ["test", "--port", "3000", "--", "--debug"],
       options: {
         port: 3000,
       },
@@ -78,7 +78,5 @@ describe("CLI args", () => {
   it("rejects bare arguments after the command with named-option guidance", () => {
     expect(() => parseArgs(["compile", "ui/button"]))
       .toThrow("Use --filter for component selection or place vendor arguments after --");
-    expect(() => parseCliArguments(["ui/button"]))
-      .toThrow("Unsupported positional argument");
   });
 });

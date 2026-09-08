@@ -1,4 +1,3 @@
-import { parseCliArguments } from "bit-lite-context";
 import { describe, expect, it } from "vitest";
 import { meta as barXVendor } from "./bar-x.js";
 import { meta as barYVendor } from "./bar-y.js";
@@ -37,7 +36,7 @@ describe("demo vendors", () => {
       env: selectedEnv("demo"),
       components: [{ id: "components/lib/math", rootDir: "/workspace/components/lib/math" }],
       config: {},
-      args: parseCliArguments(["--demo"]),
+      args: { raw: ["--demo"], options: { demo: true }, passthrough: [] },
     });
 
     startFooXVendor(harness.runtime);
@@ -60,7 +59,7 @@ describe("demo vendors", () => {
       env: selectedEnv("vue"),
       components: [{ id: "components/vue/card", rootDir: "/workspace/components/vue/card" }],
       config: { delay: 10 },
-      args: parseCliArguments([]),
+      args: { raw: [], options: {}, passthrough: [] },
     });
 
     const handle = startBarZVendor(harness.runtime);

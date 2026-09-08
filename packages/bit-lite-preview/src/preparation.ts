@@ -4,10 +4,11 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
-import { getSelectedEnvKey } from "bit-lite-context";
+import { getSelectedEnvKey } from "bit-lite-env-resolution";
 import { isFileUrl, isRecord, sanitizeFileName } from "bit-lite-utils";
 import { isFile, toPosixPath } from "bit-lite-utils/node";
-import type { SelectedEnvIdentity, WorkspaceComponent } from "bit-lite-context";
+import type { WorkspaceComponent } from "bit-lite-context";
+import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
 import { formatCompositionRoute, formatDocsRoute, formatOverviewRoute } from "./routes.js";
 import type { PreviewPreparedRuntime } from "./types.js";
 

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { collectFiles, toPosixPath } from "bit-lite-utils/node";
-import type { WorkspaceComponent } from "./types/index.js";
-import { matchPattern } from "./utils/patterns.js";
+import { matchPattern } from "bit-lite-context";
+import type { WorkspaceComponent } from "bit-lite-context";
 
 const ignoredDirs = new Set([".git", "dist", "node_modules"]);
 

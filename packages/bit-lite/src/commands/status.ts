@@ -13,7 +13,8 @@ import {
   type FileChange,
   type GitObjectId,
 } from "bit-lite-history";
-import type { ParsedCliArgs, WorkspaceComponent } from "bit-lite-context";
+import type { WorkspaceComponent } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
 import { BitLiteError } from "../utils/errors.js";
 import { readFlagOption } from "../utils/command-options.js";
 import {

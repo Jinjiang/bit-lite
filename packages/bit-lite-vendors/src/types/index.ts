@@ -1,10 +1,6 @@
-import type {
-  CliArguments,
-  PackageLocation,
-  SelectedEnvIdentity,
-  Workspace,
-  WorkspaceComponent,
-} from "bit-lite-context";
+import type { Workspace, WorkspaceComponent } from "bit-lite-context";
+import type { CliArguments } from "bit-lite-utils";
+import type { PackageLocation, SelectedEnvIdentity } from "bit-lite-env-resolution";
 import type {
   Runner,
   RunnerParentMessage,

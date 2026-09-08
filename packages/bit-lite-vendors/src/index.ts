@@ -1,3 +1,5 @@
+export { findComponentFileTargets, findComponentFiles } from "./component-files.js";
+export type { ComponentFileTarget } from "./component-files.js";
 export { createInlineRunner, createRunner, createWorkerRunner } from "./runner/index.js";
 export { isVendorDefinition } from "./vendor-definition.js";
 export {

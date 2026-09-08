@@ -3,16 +3,7 @@ import path from "node:path";
 import { isRecord, sortStringRecord } from "bit-lite-utils";
 import { isNodeErrorCode, readJsonFile } from "bit-lite-utils/node";
 import { assertPackageName, CONFIG_FILE, isWorkspaceProtocolSpec, loadConfig } from "./config.js";
-import { loadWorkspaceEnvContexts } from "./env-loader.js";
-import { getSelectedEnvKey } from "./env-identity.js";
-import type {
-  ComponentKind,
-  Workspace,
-  WorkspaceComponent,
-  WorkspaceComponentConfig,
-  WorkspaceContext,
-  WorkspaceEnvGroup,
-} from "./types/index.js";
+import type { ComponentKind, Workspace, WorkspaceComponent } from "./types/index.js";
 import { BitLiteError } from "./utils/errors.js";
 import { toPosixPath } from "./utils/path-utils.js";
 import { matchPattern } from "./utils/patterns.js";
@@ -27,6 +18,7 @@ type ComponentPackageConfig = {
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
   peerDependencies: Record<string, string>;
+  config: Record<string, unknown>;
 };
 
 /** Read the canonical JSON-safe workspace without resolving any env package. */
@@ -55,6 +47,7 @@ export async function readWorkspace(workspaceRoot: string): Promise<Workspace> {
       dependencies: packageConfig.dependencies,
       devDependencies: packageConfig.devDependencies,
       peerDependencies: packageConfig.peerDependencies,
+      config: packageConfig.config,
       internalDependencyPackageNames: [],
       internalEnvPackageName: undefined,
     };
@@ -94,19 +87,6 @@ export async function readWorkspace(workspaceRoot: string): Promise<Workspace> {
   return { rootDir, configPath, config, components };
 }
 
-/** Resolve installed env packages while retaining references to canonical workspace components. */
-export async function resolveWorkspace(workspace: Workspace): Promise<WorkspaceContext> {
-  const envByComponent = await loadWorkspaceEnvContexts(workspace);
-  return {
-    workspace,
-    components: workspace.components.map((component) => {
-      const env = envByComponent.get(component.id);
-      if (!env) throw new BitLiteError(`env for component "${component.id}" was not loaded`);
-      return { component, env };
-    }),
-  };
-}
-
 export function selectWorkspaceComponents(workspace: Workspace, filters: readonly string[]) {
   const selected = filters.length === 0
     ? [...workspace.components]
@@ -115,45 +95,6 @@ export function selectWorkspaceComponents(workspace: Workspace, filters: readonl
     throw new BitLiteError(`--filter did not match any components: ${filters.join(", ")}`);
   }
   return selected;
-}
-
-export function groupWorkspaceComponentsByEnv(
-  context: WorkspaceContext,
-  selectedComponents: readonly WorkspaceComponent[]
-): WorkspaceEnvGroup[] {
-  const canonicalById = new Map(context.workspace.components.map((component) => [component.id, component]));
-  const selectedIds = new Set<string>();
-  for (const component of selectedComponents) {
-    const canonical = canonicalById.get(component.id);
-    if (canonical !== component) {
-      throw new BitLiteError(`selected component "${component.id}" is not the canonical workspace component`);
-    }
-    if (selectedIds.has(component.id)) throw new BitLiteError("selected components must not contain duplicate ids");
-    selectedIds.add(component.id);
-  }
-
-  const groups = new Map<string, WorkspaceEnvGroup>();
-  for (const componentContext of context.components) {
-    if (!selectedIds.has(componentContext.component.id)) continue;
-    const key = getSelectedEnvKey(componentContext.env.env);
-    const existing = groups.get(key);
-    if (existing) {
-      (existing.components as WorkspaceComponent[]).push(componentContext.component);
-    } else {
-      groups.set(key, { env: componentContext.env, components: [componentContext.component] });
-    }
-  }
-  return [...groups.values()].sort((left, right) =>
-    getSelectedEnvKey(left.env.env).localeCompare(getSelectedEnvKey(right.env.env))
-  );
-}
-
-export function getWorkspaceEnvs(context: WorkspaceContext) {
-  const envs = new Map<string, WorkspaceContext["components"][number]["env"]>();
-  for (const component of context.components) envs.set(getSelectedEnvKey(component.env.env), component.env);
-  return [...envs.values()].sort((left, right) =>
-    getSelectedEnvKey(left.env).localeCompare(getSelectedEnvKey(right.env))
-  );
 }
 
 function validateEnvDependencyVersions(component: WorkspaceComponent) {
@@ -198,6 +139,7 @@ async function readComponentPackageConfig(rootDir: string, componentId: string):
   }
   return {
     kind,
+    config: parsed,
     dependencies: readDependencyMap(parsed.dependencies, `${componentConfigFileName} dependencies for component "${componentId}"`),
     devDependencies: readDependencyMap(parsed.devDependencies, `${componentConfigFileName} devDependencies for component "${componentId}"`),
     peerDependencies: readDependencyMap(parsed.peerDependencies, `${componentConfigFileName} peerDependencies for component "${componentId}"`),

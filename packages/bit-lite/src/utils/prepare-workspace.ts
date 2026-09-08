@@ -1,4 +1,5 @@
-import { readWorkspace, resolveWorkspace } from "bit-lite-context";
+import { readWorkspace } from "bit-lite-context";
+import { resolveWorkspace } from "bit-lite-env-resolution";
 import { linkComponentPackages } from "../commands/link.js";
 import { compileComponentPackages } from "../commands/compile.js";
 

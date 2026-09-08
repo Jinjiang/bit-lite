@@ -2,7 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ParsedCliArgs, WorkspaceComponent } from "bit-lite-context";
+import type { WorkspaceComponent } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
 import type { DependencyInstallProgressEvent } from "bit-lite-deps";
 import type { InstallReporter, InstallProgressStream } from "./install-reporter.js";
 

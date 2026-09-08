@@ -1,12 +1,8 @@
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type {
-  EnvContext,
-  ParsedCliArgs,
-  Workspace,
-  WorkspaceComponent,
-  WorkspaceContext,
-} from "bit-lite-context";
+import type { Workspace, WorkspaceComponent } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { EnvContext, WorkspaceContext } from "bit-lite-env-resolution";
 import { prepareResolvedCommandSelection } from "./command-selection.js";
 
 describe("resolved command selection", () => {

@@ -1,7 +1,5 @@
 import { isWorkspaceProtocolSpec } from "bit-lite-context";
 import { isRecord } from "bit-lite-utils";
-import { readJsonFile } from "bit-lite-utils/node";
-import path from "node:path";
 import type { PackageRef, WorkspaceComponent } from "bit-lite-context";
 import { BitLiteError } from "./errors.js";
 
@@ -44,26 +42,6 @@ export type ProjectedComponentConfig = {
   [key: string]: unknown;
 };
 
-/** Reads the authored file the projection is derived from. */
-export async function readComponentConfigFile(
-  component: WorkspaceComponent
-): Promise<Record<string, unknown>> {
-  const configPath = path.join(component.rootDir, componentConfigFileName);
-  const parsed = await readJsonFile(configPath, {
-    mapParseError: (error) =>
-      new BitLiteError(
-        `failed parsing ${componentConfigFileName} for component "${component.id}": ` +
-          `${error instanceof Error ? error.message : String(error)}`
-      ),
-  });
-  if (!isRecord(parsed)) {
-    throw new BitLiteError(
-      `${componentConfigFileName} for component "${component.id}" must be an object`
-    );
-  }
-  return parsed;
-}
-
 /**
  * Builds the recorded form. Unknown fields are preserved so a projection never
  * silently drops metadata a later change adds to the authored file.
@@ -101,11 +79,15 @@ export function serializeProjectedComponentConfig(
   return Buffer.from(`${JSON.stringify(projected, null, 2)}\n`, "utf8");
 }
 
-export async function projectComponentConfigBytes(
-  input: ProjectComponentInput
-): Promise<Uint8Array> {
-  const authored = await readComponentConfigFile(input.component);
-  return serializeProjectedComponentConfig(projectComponentConfig(authored, input));
+/**
+ * The authored record comes from the workspace model, which parsed `.comp.json`
+ * when it read the component. Projecting is therefore a pure transformation
+ * with no filesystem access of its own.
+ */
+export function projectComponentConfigBytes(input: ProjectComponentInput): Uint8Array {
+  return serializeProjectedComponentConfig(
+    projectComponentConfig(input.component.config, input)
+  );
 }
 
 function resolveDependencyRecord(

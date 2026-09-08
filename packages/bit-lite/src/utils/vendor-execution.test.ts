@@ -2,14 +2,9 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type {
-  EnvContext,
-  PackageLocation,
-  ParsedCliArgs,
-  Workspace,
-  WorkspaceComponent,
-  WorkspaceEnvGroup,
-} from "bit-lite-context";
+import type { Workspace, WorkspaceComponent } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { EnvContext, PackageLocation, WorkspaceEnvGroup } from "bit-lite-env-resolution";
 import type { ResolvedCommandSelection } from "./command-selection.js";
 import type { JsonObject, JsonValue } from "bit-lite-vendors";
 import {

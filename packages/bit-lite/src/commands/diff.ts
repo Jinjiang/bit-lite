@@ -18,7 +18,8 @@ import {
   type GitObjectId,
   type TreeFileEntry,
 } from "bit-lite-history";
-import type { ParsedCliArgs, WorkspaceComponent } from "bit-lite-context";
+import type { WorkspaceComponent } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
 import { BitLiteError } from "../utils/errors.js";
 import { readFlagOption, readTextOption } from "../utils/command-options.js";
 import { componentConfigFileName } from "../utils/component-projection.js";

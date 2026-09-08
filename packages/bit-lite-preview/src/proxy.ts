@@ -8,9 +8,9 @@ import {
   sendHtml,
   sendJson,
 } from "bit-lite-proxy";
-import { getSelectedEnvKey } from "bit-lite-context";
+import { getSelectedEnvKey } from "bit-lite-env-resolution";
 import { escapeHtml, formatError } from "bit-lite-utils";
-import type { SelectedEnvIdentity } from "bit-lite-context";
+import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
 import type { ProxyEndpoint, ProxyRoute } from "bit-lite-proxy";
 import type { PreparedPreviewComponent } from "./preparation.js";
 

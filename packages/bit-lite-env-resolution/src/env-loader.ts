@@ -20,17 +20,15 @@ import type {
   EnvServiceConfigMap,
   SupportedEnvServiceName,
 } from "bit-lite-env";
-import { isWorkspaceProtocolSpec } from "./config.js";
+import { isWorkspaceProtocolSpec } from "bit-lite-context";
+import type { PackageRef, Workspace, WorkspaceComponent } from "bit-lite-context";
 import type {
   EnvContext,
   PackageLocation,
-  PackageRef,
   ResolvedService,
   ResolvedServices,
-  Workspace,
-  WorkspaceComponent,
-} from "./types/index.js";
-import { BitLiteError } from "./utils/errors.js";
+} from "./types.js";
+import { BitLiteError } from "bit-lite-context";
 
 type PackageManifest = {
   name: string;

@@ -1,7 +1,8 @@
 import path from "node:path";
 import yargsParser from "yargs-parser";
 import { BitLiteError } from "./utils/errors.js";
-import type { CliArguments, CliOptionScalar, CliOptionValue, ParsedCliArgs } from "./types/index.js";
+import type { ParsedCliArgs } from "./cli-args-types.js";
+import type { CliArguments, CliOptionScalar, CliOptionValue } from "bit-lite-utils";
 
 type ParsedArgv = ReturnType<typeof yargsParser>;
 
@@ -22,19 +23,6 @@ const parserOptions = {
 } satisfies Parameters<typeof yargsParser>[1];
 
 const globalOptionNames = new Set(["help", "workspace", "filter"]);
-
-export function parseCliArguments(argv: string[]): CliArguments {
-  validateBooleanOptionValues(argv);
-  const parsed = parseArgv(argv);
-  const positional = parsed._.map(String);
-  if (positional.length > 0) throw unsupportedPositionals(positional);
-
-  return {
-    raw: [...argv],
-    options: readOptions(parsed),
-    passthrough: readPassthrough(parsed),
-  };
-}
 
 function validateBooleanOptionValues(argv: readonly string[]) {
   for (const value of argv) {

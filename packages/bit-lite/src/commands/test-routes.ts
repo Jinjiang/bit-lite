@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { sendHtml, sendJson, sendText } from "bit-lite-proxy";
 import type { ProxyRoute } from "bit-lite-proxy";
-import type { SelectedEnvIdentity } from "bit-lite-context";
+import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
 import type { TestComponentResult, TestWatchContribution } from "./test.js";
 
 const testPageHtml = readFileSync(new URL("../assets/start-test.html", import.meta.url), "utf8");

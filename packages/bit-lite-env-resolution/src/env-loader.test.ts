@@ -7,7 +7,7 @@ import {
   loadWorkspaceEnvContexts,
   resolveEnvModuleSpecifier,
 } from "./env-loader.js";
-import { readWorkspace } from "./workspace.js";
+import { readWorkspace } from "bit-lite-context";
 
 describe("JSON env package loading", () => {
   it("loads external inheritance with shallow config merge and whole-service replacement", async () => {

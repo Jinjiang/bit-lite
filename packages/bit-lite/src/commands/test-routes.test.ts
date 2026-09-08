@@ -13,13 +13,8 @@ import {
 } from "./test.js";
 import type { CompileWatchContribution } from "./compile.js";
 import type { ResolvedCommandSelection } from "../utils/command-selection.js";
-import type {
-  EnvContext,
-  SelectedEnvIdentity,
-  Workspace,
-  WorkspaceComponent,
-  WorkspaceEnvGroup,
-} from "bit-lite-context";
+import type { Workspace, WorkspaceComponent } from "bit-lite-context";
+import type { EnvContext, SelectedEnvIdentity, WorkspaceEnvGroup } from "bit-lite-env-resolution";
 import type { ProxyEndpoint } from "bit-lite-proxy";
 import type { VendorContext, VendorTask } from "bit-lite-vendors";
 

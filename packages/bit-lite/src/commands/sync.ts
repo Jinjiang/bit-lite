@@ -1,5 +1,6 @@
 import { readWorkspace } from "bit-lite-context";
-import type { CliOptionValue, ParsedCliArgs } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { CliOptionValue } from "bit-lite-utils";
 import {
   openComponentHistoryStore,
   syncComponentHistory,
