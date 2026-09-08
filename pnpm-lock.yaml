@@ -151,6 +151,9 @@ importers:
       bit-lite-proxy:
         specifier: workspace:*
         version: link:../bit-lite-proxy
+      bit-lite-terminal:
+        specifier: workspace:*
+        version: link:../bit-lite-terminal
       bit-lite-utils:
         specifier: workspace:*
         version: link:../bit-lite-utils
@@ -164,9 +167,6 @@ importers:
       '@types/node':
         specifier: ^25.9.1
         version: 25.9.4
-      bit-lite-terminal:
-        specifier: workspace:*
-        version: link:../bit-lite-terminal
       demo-config:
         specifier: workspace:*
         version: link:../demo-config

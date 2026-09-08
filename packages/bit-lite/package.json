@@ -26,13 +26,13 @@
     "bit-lite-history": "workspace:*",
     "bit-lite-preview": "workspace:*",
     "bit-lite-proxy": "workspace:*",
+    "bit-lite-terminal": "workspace:*",
     "bit-lite-utils": "workspace:*",
     "bit-lite-vendors": "workspace:*"
   },
   "devDependencies": {
     "@mdx-js/loader": "^3.1.1",
     "@types/node": "^25.9.1",
-    "bit-lite-terminal": "workspace:*",
     "demo-config": "workspace:*",
     "demo-vendors": "workspace:*",
     "swc-loader": "^0.2.6",

@@ -130,4 +130,9 @@ export type {
   GitAvailability,
   OpenComponentHistoryStoreOptions,
 } from "./store.js";
-export type { ComponentTagResult, ComponentTagStatus, ComponentVersionRef } from "./tags.js";
+export type {
+  ComponentTagResult,
+  ComponentTagStatus,
+  ComponentVersionIncrement,
+  ComponentVersionRef,
+} from "./tags.js";

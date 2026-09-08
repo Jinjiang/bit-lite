@@ -79,6 +79,7 @@ Commands:
   sync    exchange component histories and tags with [--remote <url>]
   tag     assign immutable versions to the selected components' snaps,
           incrementing each component's patch by default
+          [--interactive, choose each component's version before anything is written]
           [--version <x.y.z>, one component only] [--message <text>] [--dry-run] [--json]
   test    run the configured test service
   watch   alias for compile --watch
