@@ -38,6 +38,29 @@ describe("deriveNextComponentVersion", () => {
     // "0.10.0" sorts below "0.9.0" as text but above it as a version.
     expect(deriveNextComponentVersion(["0.9.0", "0.10.0"])).toBe("0.10.1");
   });
+
+  it("applies a requested increment to the highest assigned version", () => {
+    expect(deriveNextComponentVersion(["0.2.3"], "patch")).toBe("0.2.4");
+    expect(deriveNextComponentVersion(["0.2.3"], "minor")).toBe("0.3.0");
+    expect(deriveNextComponentVersion(["0.2.3"], "major")).toBe("1.0.0");
+  });
+
+  it("derives a first version from the requested increment rather than always 0.0.1", () => {
+    expect(deriveNextComponentVersion([], "patch")).toBe("0.0.1");
+    expect(deriveNextComponentVersion([], "minor")).toBe("0.1.0");
+    expect(deriveNextComponentVersion([], "major")).toBe("1.0.0");
+  });
+
+  it("increments the patch when no increment is requested", () => {
+    // The default is what every caller predating per-component increments gets.
+    expect(deriveNextComponentVersion(["1.4.2"])).toBe(deriveNextComponentVersion(["1.4.2"], "patch"));
+    expect(deriveNextComponentVersion([])).toBe(deriveNextComponentVersion([], "patch"));
+  });
+
+  it("takes the highest version as the base whichever increment is requested", () => {
+    expect(deriveNextComponentVersion(["0.9.0", "0.10.0"], "minor")).toBe("0.11.0");
+    expect(deriveNextComponentVersion(["1.0.0", "0.9.9"], "major")).toBe("2.0.0");
+  });
 });
 
 describe("listComponentVersions", () => {

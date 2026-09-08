@@ -137,24 +137,36 @@ export async function readVersionAtSnap(
   return versions.at(-1);
 }
 
+/** The increments a caller may ask for. Anything else is an explicit version. */
+export type ComponentVersionIncrement = "patch" | "minor" | "major";
+
 /**
- * The next version for a component: one patch past the highest it already
- * carries, or `0.0.1` for its first.
+ * The next version for a component: the requested increment applied to the
+ * highest version it already carries.
  *
  * Patch is the default because it is the only increment that can be chosen
  * without knowing what changed. Choosing minor or major is a decision about
- * intent, which belongs to the user rather than to a derivation.
+ * intent, which belongs to the user rather than to a derivation, so it arrives
+ * here as an argument rather than being inferred.
+ *
+ * A component with nothing assigned yet derives from `0.0.0`, which makes its
+ * first version a function of the same choice: `0.0.1`, `0.1.0`, or `1.0.0`.
+ * Special-casing the first version to `0.0.1` would silently discard an
+ * increment the user asked for.
  */
-export function deriveNextComponentVersion(assignedVersions: readonly string[]): string {
+export function deriveNextComponentVersion(
+  assignedVersions: readonly string[],
+  increment: ComponentVersionIncrement = "patch"
+): string {
   const highest = assignedVersions.reduce<string | undefined>(
     (best, version) => (best === undefined || semver.gt(version, best) ? version : best),
     undefined
   );
-  if (highest === undefined) return "0.0.1";
+  const base = highest ?? "0.0.0";
 
-  const next = semver.inc(highest, "patch");
+  const next = semver.inc(base, increment);
   if (next === null) {
-    throw new ComponentHistoryError(`cannot derive a version after "${highest}"`);
+    throw new ComponentHistoryError(`cannot derive a version after "${base}"`);
   }
   return next;
 }
