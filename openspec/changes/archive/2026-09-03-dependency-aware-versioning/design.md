@@ -24,6 +24,7 @@ The recording commands must also stay independent of install state. `runSnapComm
 **Non-Goals:**
 
 - `log`, `diff`, and `status`. They are the companion `component-history-inspection` change, and this change deliberately ships without them.
+- An interactive version picker. `tag` derives a patch increment per component; choosing minor or major, or setting a per-component version, is a presentation layer over the same derivation and can be added without changing it.
 - Reproducing a component from a snap: checkout, import, export, and fork remain absent.
 - Dependency inference. `.comp.json` dependency records stay authored.
 - Moving the env reference out of `bit-lite.json`. `.comp.json` is expected to become fully derived state, so authored configuration should not be pushed into it, and the schema change is not worth its blast radius.
@@ -134,7 +135,7 @@ The skip propagates correctly on its own. A skipped dependency keeps the version
 
 The base for the increment comes from the component's existing version tags in the store, not from its version anchor: after a snap the anchor holds a snap identifier, which is not a semantic version and carries no ordering. Existing tags are real semantic versions, so taking the maximum is meaningful.
 
-`--version` survives as an override for the single-component case, and is refused when the selection resolves to more than one component, because one explicit number cannot describe several components. Choosing minor or major increments, or a per-component version, is a presentation problem over this same derivation; an interactive selection flag can be added later without changing any of it.
+`--version` survives as an override for the single-component case, and is refused when the selection resolves to more than one component, because one explicit number cannot describe several components. Choosing minor or major increments, or a per-component version, is a presentation problem over this same derivation. See Non-Goals.
 
 Alternatives considered: keeping `tag` single-component and resolving a dependency's version from its tags across invocations. Rejected because it forces a rule for "which tag counts" when a snap carries several, and because it silently depends on the user having tagged strictly bottom-up in separate commands.
 
@@ -170,7 +171,7 @@ Committed bytes never equal disk bytes, so the history layer needs a way to subs
 
 Because every anchor lives in one file, write-back is a single update that can be written to a temporary file and renamed into place, so a crash cannot leave some components' anchors updated and others' stale. The anchors are in any case a repairable mirror of the canonical refs rather than a source of truth, so a failed write-back costs a rerun and nothing else.
 
-Dependency versions are resolved from the versions settled earlier in this same run, falling back to the store's canonical head refs. They are **not** read from the anchors, which go stale after a `sync` fast-forward.
+Dependency versions are resolved from the versions settled earlier in this same run, falling back to the store's canonical head refs. They are **not** read from the anchors. A selected component's anchor is about to be overwritten, and is already wrong whenever that component changed: if `lib/math` sits at `0.0.1`, its source is edited, and `snap lib/math ui/button` runs, `lib/math` takes a new snap with no tag, so its version is `0.0.0-g<new oid>`. Reading the anchor would have `ui/button` record `lib.math@0.0.1` — a version whose content is not what `ui/button` was just built and tested against. Since that path must consult the store, both paths do, which avoids maintaining two rules for one question. Resolution then also works when anchors are missing or stale, as in a fresh clone.
 
 ### 11. The history layer stays workspace-agnostic
 
