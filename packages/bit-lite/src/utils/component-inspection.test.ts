@@ -6,7 +6,7 @@ import { openComponentHistoryStore, type ComponentHistoryStore } from "bit-lite-
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runSnapCommand, type SnapReport } from "../commands/snap.js";
 import { inspectWorkspace, type WorkspaceInspection } from "./component-inspection.js";
-import type { ParsedCliArgs } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
 
 // Real Git subprocesses against real repositories.
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });

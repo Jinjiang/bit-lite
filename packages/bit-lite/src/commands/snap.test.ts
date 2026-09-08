@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ParsedCliArgs } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
 import {
   createGitRunner,
   resolveComponentStorePath,

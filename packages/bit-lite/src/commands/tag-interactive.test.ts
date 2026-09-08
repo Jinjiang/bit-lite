@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ParsedCliArgs } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
 import { openComponentHistoryStore } from "bit-lite-history";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runSnapCommand } from "./snap.js";

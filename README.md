@@ -301,7 +301,8 @@ See the [`bit-lite` package documentation](./packages/bit-lite/README.md) for co
 | Package | Role |
 | --- | --- |
 | [`bit-lite`](./packages/bit-lite/README.md) | CLI entry point and command implementations |
-| [`bit-lite-context`](./packages/bit-lite-context/README.md) | Workspace, component, argument, and environment resolution |
+| [`bit-lite-context`](./packages/bit-lite-context/README.md) | The base workspace model: `bit-lite.json`, component metadata, the dependency graph, and selection — everything readable before anything is installed |
+| [`bit-lite-env-resolution`](./packages/bit-lite-env-resolution/README.md) | The resolved phase: env package loading, inheritance, effective services, and the views derived from them |
 | [`bit-lite-env`](./packages/bit-lite-env/README.md) | Environment schema and inheritance |
 | [`bit-lite-compiler`](./packages/bit-lite-compiler/README.md) | Compile-vendor contracts |
 | [`bit-lite-vendors`](./packages/bit-lite-vendors/README.md) | Vendor runners and task lifecycle |

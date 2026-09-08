@@ -1,7 +1,4 @@
-import {
-  getSelectedEnvKey,
-  resolveVendorSpecifier,
-} from "bit-lite-context";
+import { getSelectedEnvKey, resolveVendorSpecifier } from "bit-lite-env-resolution";
 import {
   createVendorContext,
   createWatchVendorTasks,
@@ -9,15 +6,9 @@ import {
   stopVendorTasks,
 } from "bit-lite-vendors";
 import { throwCombinedErrors } from "bit-lite-utils";
-import type {
-  CliArguments,
-  CliOptionValue,
-  EnvContext,
-  PackageLocation,
-  Workspace,
-  WorkspaceComponent,
-  WorkspaceEnvGroup,
-} from "bit-lite-context";
+import type { Workspace, WorkspaceComponent } from "bit-lite-context";
+import type { CliArguments, CliOptionValue } from "bit-lite-utils";
+import type { EnvContext, PackageLocation, WorkspaceEnvGroup } from "bit-lite-env-resolution";
 import type {
   JsonObject,
   JsonValue,

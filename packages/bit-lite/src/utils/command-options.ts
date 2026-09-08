@@ -1,4 +1,4 @@
-import type { CliOptionValue } from "bit-lite-context";
+import type { CliOptionValue } from "bit-lite-utils";
 import { BitLiteError } from "./errors.js";
 
 /**

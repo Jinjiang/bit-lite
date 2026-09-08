@@ -1,11 +1,6 @@
 import path from "node:path";
-import {
-  getComponentPrerequisitePackageNames,
-  layerComponentsByPrerequisites,
-  loadEnvForComponent,
-  readWorkspace,
-  selectWorkspaceComponents,
-} from "bit-lite-context";
+import { getComponentPrerequisitePackageNames, layerComponentsByPrerequisites, readWorkspace, selectWorkspaceComponents } from "bit-lite-context";
+import { loadEnvForComponent } from "bit-lite-env-resolution";
 import {
   isCompilerVendorModule,
   isCompileRunResult,
@@ -16,13 +11,10 @@ import type {
   CompileWatchResult,
 } from "bit-lite-compiler";
 import { superviseVendorTasks } from "bit-lite-vendors";
-import type {
-  CliArguments,
-  EnvContext,
-  ParsedCliArgs,
-  Workspace,
-  WorkspaceComponent,
-} from "bit-lite-context";
+import type { Workspace, WorkspaceComponent } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { CliArguments } from "bit-lite-utils";
+import type { EnvContext } from "bit-lite-env-resolution";
 import type {
   VendorTask,
   VendorTaskStartOptions,

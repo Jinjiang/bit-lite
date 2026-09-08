@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import type { ParsedCliArgs, WorkspaceComponent } from "bit-lite-context";
+import type { WorkspaceComponent } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
 import { readWorkspace } from "bit-lite-context";
 import { discoverPnpmWorkspacePackages, installDependencyProjects, type DependencyProject } from "bit-lite-deps";
 import { BitLiteError } from "../utils/errors.js";

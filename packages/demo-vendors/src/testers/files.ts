@@ -1,5 +1,6 @@
-import { findComponentFileTargets, findComponentFiles } from "bit-lite-context";
-import type { ComponentFileTarget, WorkspaceComponent } from "bit-lite-context";
+import { findComponentFileTargets, findComponentFiles } from "bit-lite-vendors";
+import type { WorkspaceComponent } from "bit-lite-context";
+import type { ComponentFileTarget } from "bit-lite-vendors";
 
 export const TEST_FILE_PATTERNS = ["**/*.test.*", "**/*.spec.*"] as const;
 

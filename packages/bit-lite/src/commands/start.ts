@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { getSelectedEnvKey } from "bit-lite-context";
+import { getSelectedEnvKey } from "bit-lite-env-resolution";
 import { ProxyServer, sendHtml, sendJson, sendText } from "bit-lite-proxy";
 import {
   formatError,
@@ -8,7 +8,8 @@ import {
   throwCombinedErrors,
 } from "bit-lite-utils";
 import { superviseVendorTasks } from "bit-lite-vendors";
-import type { ParsedCliArgs, SelectedEnvIdentity } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
 import type { ProxyEndpoint, ProxyRoute } from "bit-lite-proxy";
 import type { PreviewProxyComponent, PreviewProxyManifest } from "bit-lite-preview/node";
 import type { VendorTask } from "bit-lite-vendors";

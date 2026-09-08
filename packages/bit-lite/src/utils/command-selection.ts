@@ -1,14 +1,8 @@
-import {
-  groupWorkspaceComponentsByEnv,
-  selectWorkspaceComponents,
-} from "bit-lite-context";
-import type {
-  ParsedCliArgs,
-  Workspace,
-  WorkspaceComponent,
-  WorkspaceContext,
-  WorkspaceEnvGroup,
-} from "bit-lite-context";
+import { selectWorkspaceComponents } from "bit-lite-context";
+import { groupWorkspaceComponentsByEnv } from "bit-lite-env-resolution";
+import type { Workspace, WorkspaceComponent } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { WorkspaceContext, WorkspaceEnvGroup } from "bit-lite-env-resolution";
 import { BitLiteError } from "./errors.js";
 import { prepareWorkspaceForEnvLoading } from "./prepare-workspace.js";
 

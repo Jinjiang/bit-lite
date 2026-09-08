@@ -1,3 +1,17 @@
+/**
+ * Shapes for the arguments a command was given. They live here rather than with
+ * the CLI because they cross the vendor worker boundary as part of
+ * `VendorContext`: the CLI produces them and vendors consume them, and neither
+ * package should depend on the other to name them.
+ */
+export type CliOptionScalar = string | number | boolean;
+export type CliOptionValue = CliOptionScalar | CliOptionScalar[];
+export type CliArguments = {
+  raw: string[];
+  options: Record<string, CliOptionValue>;
+  passthrough: string[];
+};
+
 export type JsonPrimitive = null | boolean | number | string;
 export type JsonValue = JsonPrimitive | JsonValue[] | JsonObject;
 export type JsonObject = { [key: string]: JsonValue };

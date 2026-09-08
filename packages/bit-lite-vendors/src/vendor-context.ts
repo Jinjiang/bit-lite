@@ -1,9 +1,6 @@
-import type {
-  CliArguments,
-  EnvContext,
-  PackageLocation,
-  Workspace,
-} from "bit-lite-context";
+import type { Workspace } from "bit-lite-context";
+import type { CliArguments } from "bit-lite-utils";
+import type { EnvContext, PackageLocation } from "bit-lite-env-resolution";
 import type { VendorContext } from "./types/index.js";
 
 /**

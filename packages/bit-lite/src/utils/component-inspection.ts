@@ -174,7 +174,7 @@ export async function computeProjectedWorkingState(
   component: WorkspaceComponent,
   resolveVersion: ComponentVersionLookup
 ): Promise<ComponentWorkingState> {
-  const configBytes = await projectComponentConfigBytes({ component, resolveVersion });
+  const configBytes = projectComponentConfigBytes({ component, resolveVersion });
   const snapshot = await readComponentSnapshot({
     componentId: component.id,
     rootDir: component.rootDir,

@@ -1,19 +1,15 @@
 import { EventEmitter } from "node:events";
-import { parseCliArguments } from "bit-lite-context";
 import { RawOutputBuffer } from "bit-lite-terminal";
 import { describe, expect, it, vi } from "vitest";
+import type { CliArguments } from "bit-lite-utils";
 import {
   createWatchVendorTasks,
   runVendorTasks,
   stopVendorTasks,
   superviseVendorTasks,
 } from "bit-lite-vendors";
-import type {
-  SelectedEnvIdentity,
-  Workspace,
-  WorkspaceComponent,
-  WorkspaceComponentConfig,
-} from "bit-lite-context";
+import type { Workspace, WorkspaceComponent, WorkspaceComponentConfig } from "bit-lite-context";
+import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
 import type { JsonObject, VendorContext } from "./types/index.js";
 import type { ManagedTerminalInputStream } from "bit-lite-terminal";
 import type { VendorTask, VendorTaskRunResult, VendorTaskStartOptions } from "bit-lite-vendors";
@@ -694,11 +690,25 @@ class FakeOutput extends EventEmitter {
   }
 }
 
+/**
+ * The fixtures pass bare boolean flags, optionally followed by `--` and vendor
+ * passthrough, so splitting on that separator is all they need.
+ */
+function cliArgumentsFrom(rawArgs: readonly string[]): CliArguments {
+  const separator = rawArgs.indexOf("--");
+  const flags = separator === -1 ? rawArgs : rawArgs.slice(0, separator);
+  return {
+    raw: [...rawArgs],
+    options: Object.fromEntries(flags.map((flag) => [flag.replace(/^--/, ""), true])),
+    passthrough: separator === -1 ? [] : [...rawArgs.slice(separator + 1)],
+  };
+}
+
 function createVendorContext(workspace: Workspace, rawArgs: string[]): VendorContext {
   return {
     version: 1,
     workspace,
-    args: parseCliArguments(rawArgs),
+    args: cliArgumentsFrom(rawArgs),
     env: selectedEnv("fixture-env"),
     service: {
       name: "test",

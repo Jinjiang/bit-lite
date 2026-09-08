@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { WorkspaceComponent } from "bit-lite-context";
 import {
   projectComponentConfig,
+  projectComponentConfigBytes,
   serializeProjectedComponentConfig,
 } from "./component-projection.js";
 
@@ -149,6 +150,23 @@ describe("component config projection", () => {
     );
   });
 
+  it("projects from the record the workspace model already parsed", () => {
+    const bytes = projectComponentConfigBytes({
+      component: component({
+        config: { dependencies: { "@scope/lib.math": "workspace:*" }, custom: 1 },
+        dependencies: { "@scope/lib.math": "workspace:*" },
+      }),
+      resolveVersion,
+    });
+
+    // No filesystem access: the authored record travels on the component.
+    expect(JSON.parse(Buffer.from(bytes).toString("utf8"))).toEqual({
+      custom: 1,
+      dependencies: { "@scope/lib.math": "0.0.0-gc4b8e12" },
+      env: { packageName: "demo-env-node", version: "0.0.0" },
+    });
+  });
+
   it("serializes as indented JSON ending in a newline", () => {
     const bytes = serializeProjectedComponentConfig(
       projectComponentConfig({}, { component: component(), resolveVersion })
@@ -174,6 +192,7 @@ function component(overrides: Partial<WorkspaceComponent> = {}): WorkspaceCompon
     dependencies: {},
     devDependencies: {},
     peerDependencies: {},
+    config: {},
     internalDependencyPackageNames: [],
     internalEnvPackageName: undefined,
     ...overrides,

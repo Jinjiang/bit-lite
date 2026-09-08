@@ -1,4 +1,4 @@
-import { resolveServiceSpecifier } from "bit-lite-context";
+import { resolveServiceSpecifier } from "bit-lite-env-resolution";
 import type { JsonObject, VendorContext } from "bit-lite-vendors";
 
 export type TestVendorConfig = {

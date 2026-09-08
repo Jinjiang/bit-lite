@@ -2,11 +2,11 @@ import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { parseCliArguments } from "bit-lite-context";
 import { ProxyServer } from "bit-lite-proxy";
 import { stopVendorTasks } from "bit-lite-vendors";
 import { describe, expect, it, vi } from "vitest";
-import type { Workspace, WorkspaceComponent, WorkspaceEnvGroup } from "bit-lite-context";
+import type { Workspace, WorkspaceComponent } from "bit-lite-context";
+import type { WorkspaceEnvGroup } from "bit-lite-env-resolution";
 import type { ResolvedCommandSelection } from "../utils/command-selection.js";
 import { createPreviewCommandContribution } from "./preview.js";
 import { createStartSourceCatalog } from "./start-source.js";
@@ -241,7 +241,7 @@ async function createSelection(
       components: [component],
     };
   });
-  const args = parseCliArguments(["--lazy"]);
+  const args = { raw: ["--lazy"], options: { lazy: true }, passthrough: [] };
   return {
     parsed: {
       command: "preview",

@@ -1,28 +1,10 @@
 # bit-lite-context
 
-`bit-lite-context` turns files and CLI arguments into the normalized workspace data consumed by Bit Lite commands.
+`bit-lite-context` turns workspace files into the normalized component data consumed by Bit Lite commands.
 
-## Processing stages
+It is deliberately the *base* phase of workspace preparation: everything here is readable before anything is installed. Resolving a component's env needs installation, linking, and materialization to have happened first, so it lives in `bit-lite-env-resolution` instead. Keeping the two in separate packages is what makes the separation `workspace-context-model` requires structural rather than conventional — a command that must stay independent of installed packages cannot reach env resolution, because this package does not depend on it.
 
-### 1. Parse arguments
-
-`parseArgs` separates global options, command options, component filters, and arguments after `--`.
-
-```ts
-import { parseArgs } from "bit-lite-context";
-
-const parsed = parseArgs([
-  "test",
-  "--workspace",
-  "./workspace",
-  "--filter",
-  "ui/*",
-  "--",
-  "--coverage",
-]);
-```
-
-### 2. Read the workspace
+## Reading a workspace
 
 `readWorkspace` validates `bit-lite.json`, reads each materialized `.comp.json` record, locates entry files, and records internal dependency edges.
 
@@ -36,29 +18,11 @@ This stage does not import environment packages. The returned `Workspace` is saf
 
 In the current prototype, fixtures provide `.comp.json` directly because the higher-level command that should generate component metadata is not implemented. The record is intended to be inspectable, read-only state rather than a long-term user-authored configuration file.
 
-### 3. Resolve environments
-
-`resolveWorkspace` loads installed env packages, follows their inheritance, and records the source package for every selected service.
-
-```ts
-import {
-  groupWorkspaceComponentsByEnv,
-  resolveWorkspace,
-} from "bit-lite-context";
-
-const context = await resolveWorkspace(workspace);
-const groups = groupWorkspaceComponentsByEnv(context);
-```
-
-For commands that resolve environments one component at a time, use `loadEnvForComponent`.
-
 ## Other public helpers
 
 - `selectWorkspaceComponents`: apply component ID/path filters.
-- `orderWorkspaceComponents`: topologically order local component dependencies.
-- `findComponentFiles` and `findComponentFileTargets`: discover files for a service.
-- `resolveEnvModuleSpecifier`: locate an env package.
-- `resolveServiceSpecifier` and `resolveVendorSpecifier`: resolve configuration and vendor modules relative to their declaring package.
+- `orderComponentsByPrerequisites` and `layerComponentsByPrerequisites`: order components so every component follows the workspace dependencies and env it needs.
+- `writeComponentVersions`: write recorded version anchors back to `bit-lite.json`.
 - `matchPattern`: match the workspace's simple component patterns.
 - `validateConfig`: validate a parsed `bit-lite.json` value.
 

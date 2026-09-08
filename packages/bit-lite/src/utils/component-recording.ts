@@ -126,7 +126,7 @@ export async function prepareRecording(
     }
 
     const contentOverrides = new Map([
-      [componentConfigFileName, await projectComponentConfigBytes({ component, resolveVersion })],
+      [componentConfigFileName, projectComponentConfigBytes({ component, resolveVersion })],
     ]);
     const snap = await prepareComponentSnap(store, {
       componentId: component.id,
@@ -182,7 +182,7 @@ async function resolveUnselectedPrerequisite(
   }
 
   const contentOverrides = new Map([
-    [componentConfigFileName, await projectComponentConfigBytes({ component, resolveVersion })],
+    [componentConfigFileName, projectComponentConfigBytes({ component, resolveVersion })],
   ]);
   const snap = await prepareComponentSnap(store, {
     componentId: component.id,

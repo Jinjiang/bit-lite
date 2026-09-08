@@ -1,7 +1,6 @@
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { parseCliArguments } from "bit-lite-context";
 import { PreviewProxyServer, findAvailablePort, preparePreviewEnv } from "bit-lite-preview/node";
 import startVitePreviewVendor from "demo-vendors/previewers/vite";
 import startWebpackPreviewVendor from "demo-vendors/previewers/webpack";
@@ -246,7 +245,7 @@ function createHarness(
           config: { components: [] },
           components: [],
         },
-        args: parseCliArguments([]),
+        args: { raw: [], options: {}, passthrough: [] },
         env,
         service: {
           name: "preview",

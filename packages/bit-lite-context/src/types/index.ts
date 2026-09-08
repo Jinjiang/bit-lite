@@ -1,25 +1,3 @@
-import type {
-  EnvServiceConfigMap,
-  JsonObject,
-  SupportedEnvServiceName,
-} from "bit-lite-env";
-
-export type CliOptionScalar = string | number | boolean;
-export type CliOptionValue = CliOptionScalar | CliOptionScalar[];
-export type CliArguments = {
-  raw: string[];
-  options: Record<string, CliOptionValue>;
-  passthrough: string[];
-};
-
-export type ParsedCliArgs = {
-  command: string | undefined;
-  args: CliArguments;
-  workspaceRoot: string;
-  componentFilters: string[];
-  help: boolean;
-};
-
 /** Package requirement from workspace config; `version` may be a range or protocol such as `^1.0.0` or `workspace:*`. */
 export type PackageRef = {
   packageName: string;
@@ -62,6 +40,13 @@ export type WorkspaceComponent = {
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
   peerDependencies: Record<string, string>;
+  /**
+   * The component's parsed `.comp.json` record, exactly as written. The fields
+   * above are derived from it; this is kept so a consumer needing the authored
+   * form — including fields this model does not interpret — does not parse the
+   * same file a second time.
+   */
+  config: Record<string, unknown>;
   internalDependencyPackageNames: string[];
   internalEnvPackageName: string | undefined;
 };
@@ -71,57 +56,5 @@ export type Workspace = {
   rootDir: string;
   configPath: string;
   config: WorkspaceConfig;
-  components: readonly WorkspaceComponent[];
-};
-
-/** Resolved package identity; `version` is the concrete version read from the installed package manifest. */
-export type PackageIdentity = {
-  packageName: string;
-  version: string;
-};
-
-export type PackageLocation = {
-  identity: PackageIdentity;
-  rootDir: string;
-  entryFile: string;
-};
-
-export type SelectedEnvIdentity = {
-  packageName: string;
-  requestedVersion: string;
-  installedVersion: string;
-};
-
-export type ResolvedService<Name extends SupportedEnvServiceName = SupportedEnvServiceName> = {
-  name: Name;
-  definition: EnvServiceConfigMap[Name];
-  source: PackageLocation;
-};
-
-export type ResolvedServices = {
-  [Name in SupportedEnvServiceName]?: ResolvedService<Name>;
-};
-
-/** Resolved env information retained only by parent-side orchestration. */
-export type EnvContext = {
-  env: SelectedEnvIdentity;
-  package: PackageLocation;
-  config: JsonObject | undefined;
-  services: ResolvedServices;
-  inheritance: readonly PackageIdentity[];
-};
-
-export type ComponentContext = {
-  component: WorkspaceComponent;
-  env: EnvContext;
-};
-
-export type WorkspaceContext = {
-  workspace: Workspace;
-  components: readonly ComponentContext[];
-};
-
-export type WorkspaceEnvGroup = {
-  env: EnvContext;
   components: readonly WorkspaceComponent[];
 };

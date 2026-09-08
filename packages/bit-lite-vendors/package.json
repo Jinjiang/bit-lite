@@ -27,6 +27,7 @@
   "dependencies": {
     "bit-lite-context": "workspace:*",
     "bit-lite-env": "workspace:*",
+    "bit-lite-env-resolution": "workspace:*",
     "bit-lite-terminal": "workspace:*",
     "bit-lite-utils": "workspace:*"
   },

@@ -1,4 +1,4 @@
-import type { CliArguments } from "bit-lite-context";
+import type { CliArguments } from "bit-lite-utils";
 import type { JsonObject, VendorDefinition, VendorStartResult, VendorRuntime } from "bit-lite-vendors";
 
 export type BazXResult = {

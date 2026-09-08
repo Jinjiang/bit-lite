@@ -1,10 +1,7 @@
 import { readWorkspace, selectWorkspaceComponents } from "bit-lite-context";
-import type {
-  CliOptionValue,
-  ParsedCliArgs,
-  Workspace,
-  WorkspaceComponent,
-} from "bit-lite-context";
+import type { Workspace, WorkspaceComponent } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { CliOptionValue } from "bit-lite-utils";
 import {
   abbreviateComponentVersion,
   assertComponentVersion,

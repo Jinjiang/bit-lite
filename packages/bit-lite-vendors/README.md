@@ -80,3 +80,10 @@ pnpm --filter bit-lite-vendors test
 ```
 
 [`demo-vendors`](../demo-vendors/README.md) contains working test, preview, and compiler vendors.
+
+## Component file discovery
+
+`findComponentFiles` and `findComponentFileTargets` match a component's files against
+the workspace's simple patterns. They live here rather than with the workspace model
+because their only consumers are vendors deciding which files to act on, which makes
+them part of the vendor contract.

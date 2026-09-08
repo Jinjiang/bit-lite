@@ -1,5 +1,6 @@
 import { isRecord } from "bit-lite-utils";
-import type { PackageRef, SelectedEnvIdentity } from "./types/index.js";
+import type { PackageRef } from "bit-lite-context";
+import type { SelectedEnvIdentity } from "./types.js";
 
 export function getSelectedEnvKey(
   env: Pick<SelectedEnvIdentity, "packageName" | "requestedVersion">

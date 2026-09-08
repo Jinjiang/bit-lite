@@ -8,7 +8,7 @@ import {
 } from "bit-lite-utils";
 import { isInteractiveTerminal } from "bit-lite-utils/node";
 import { ManagedTerminal, RawOutputBuffer } from "bit-lite-terminal";
-import { getSelectedEnvKey } from "bit-lite-context";
+import { getSelectedEnvKey } from "bit-lite-env-resolution";
 import type {
   WorkspaceComponent,
 } from "bit-lite-context";
