@@ -140,7 +140,7 @@ function env(packageName: string): EnvContext {
     entryFile: path.join("/workspace/node_modules", packageName, "index.json"),
   };
   return {
-    env: { packageName, requestedVersion: "1.0.0", installedVersion: "1.0.0" },
+    identity: { packageName, requestedVersion: "1.0.0", installedVersion: "1.0.0" },
     package: location,
     config: undefined,
     services: {},

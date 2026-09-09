@@ -1,4 +1,4 @@
-import { readFile, realpath, stat } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -8,27 +8,33 @@ import {
   validateEnvDefinition,
 } from "bit-lite-env";
 import {
+  BitLiteError,
+  formatError,
   isFileUrl,
   isRecord,
   readDefaultExport,
   readStringRecord,
 } from "bit-lite-utils";
-import { isFile, isNodeErrorCode } from "bit-lite-utils/node";
+import { isDirectory, isFile, isNodeErrorCode } from "bit-lite-utils/node";
 import type {
   CompiledEnvDefinition,
   EnvDefinition,
   EnvServiceConfigMap,
   SupportedEnvServiceName,
 } from "bit-lite-env";
-import { isWorkspaceProtocolSpec } from "bit-lite-context";
+import {
+  getComponentDependencyDirectory,
+  getLinkedPackageDirectory,
+  isWorkspaceProtocolSpec,
+} from "bit-lite-context";
 import type { PackageRef, Workspace, WorkspaceComponent } from "bit-lite-context";
+import { getPackageRefEnvKey } from "./env-identity.js";
 import type {
   EnvContext,
   PackageLocation,
   ResolvedService,
   ResolvedServices,
 } from "./types.js";
-import { BitLiteError } from "bit-lite-utils";
 
 type PackageManifest = {
   name: string;
@@ -59,51 +65,45 @@ export async function loadEnvForComponent(
     const resolved = await resolveSelectedEnv(component, workspace);
     return await loadResolvedEnv(component.env, resolved, state, []);
   } catch (error) {
-    throw contextualError(error, component.env, [component.id], "load");
+    throw contextualError(error, component.env, [component.id]);
   }
 }
 
+/**
+ * Loads every component's env. A failure names every component that selected
+ * the same env, because that is who the failure is about — resolution happens
+ * per component only because each one resolves through its own dependency
+ * project.
+ */
 export async function loadWorkspaceEnvContexts(workspace: Workspace) {
   const cache = new Map<string, Promise<EnvContext>>();
   const result = new Map<string, EnvContext>();
-  const groups = new Map<string, WorkspaceComponent[]>();
+  const componentIdsByEnv = new Map<string, string[]>();
   for (const component of workspace.components) {
-    const key = `${component.env.packageName}\0${component.env.version}`;
-    const group = groups.get(key) ?? [];
-    group.push(component);
-    groups.set(key, group);
+    const key = getPackageRefEnvKey(component.env);
+    componentIdsByEnv.set(key, [...(componentIdsByEnv.get(key) ?? []), component.id]);
   }
+
   for (const component of workspace.components) {
-    const key = `${component.env.packageName}\0${component.env.version}`;
-    const affected = groups.get(key) ?? [component];
     try {
       const resolved = await resolveSelectedEnv(component, workspace);
-      const env = await loadResolvedEnv(component.env, resolved, { workspace, cache }, []);
-      result.set(component.id, env);
+      result.set(
+        component.id,
+        await loadResolvedEnv(component.env, resolved, { workspace, cache }, [])
+      );
     } catch (error) {
-      throw contextualError(error, component.env, affected.map((selected) => selected.id), "load");
+      const affected = componentIdsByEnv.get(getPackageRefEnvKey(component.env)) ?? [component.id];
+      throw contextualError(error, component.env, affected);
     }
   }
   return result;
 }
 
-export async function resolveEnvModuleSpecifier(options: {
-  specifier: string;
-  service: Pick<ResolvedService, "source">;
-  workspaceRoot: string;
-  field: string;
-  selectedEnv: string;
-}) {
-  return resolveServiceSpecifier({
-    specifier: options.specifier,
-    source: options.service.source,
-    workspaceRoot: options.workspaceRoot,
-    field: options.field,
-    selectedEnv: options.selectedEnv,
-  });
-}
-
-/** Resolve a module using only the serializable service origin and workspace root. */
+/**
+ * Resolves a module named by an env service, using only the serializable
+ * service origin and the workspace root — so a vendor worker can resolve the
+ * same specifier the parent would.
+ */
 export async function resolveServiceSpecifier(options: {
   specifier: string;
   source: PackageLocation;
@@ -151,15 +151,15 @@ export async function resolveServiceSpecifier(options: {
 
 export async function resolveVendorSpecifier(options: {
   specifier: string;
-  service: Pick<ResolvedService, "source">;
+  source: PackageLocation;
   workspaceRoot: string;
   selectedEnv: string;
   serviceName: string;
 }) {
   if (isAbsoluteNonFileUrl(options.specifier)) return options.specifier;
-  const resolved = await resolveEnvModuleSpecifier({
+  const resolved = await resolveServiceSpecifier({
     specifier: options.specifier,
-    service: options.service,
+    source: options.source,
     workspaceRoot: options.workspaceRoot,
     field: `${options.serviceName} vendor`,
     selectedEnv: options.selectedEnv,
@@ -181,17 +181,20 @@ async function resolveSelectedEnv(component: WorkspaceComponent, workspace: Work
     if (!target || target.kind !== "env") {
       throw new BitLiteError(`local env component "${component.env.packageName}" is unavailable`);
     }
-    const packageDir = generatedPackageDirectory(workspace.rootDir, target.packageName);
+    const packageDir = getLinkedPackageDirectory(workspace.rootDir, target.packageName);
     return resolvePackageFromDirectory(packageDir, target.packageName);
   }
 
-  const dependencyProject = componentDependencyDirectory(workspace.rootDir, component.packageName);
+  const dependencyProject = getComponentDependencyDirectory(
+    workspace.rootDir,
+    component.packageName
+  );
   const directPackageDirectory = path.join(
     dependencyProject,
     "node_modules",
     ...component.env.packageName.split("/")
   );
-  if (!(await isDirectoryOrSymlink(directPackageDirectory))) {
+  if (!(await isDirectory(directPackageDirectory))) {
     throw new BitLiteError(
       `external env "${component.env.packageName}@${component.env.version}" is not installed in component ` +
       `development context ${dependencyProject}`
@@ -256,8 +259,7 @@ async function buildLoadedEnv(
   try {
     parsed = JSON.parse(await readFile(canonicalEntry, "utf8")) as unknown;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new BitLiteError(`failed parsing env JSON "${canonicalEntry}": ${message}`);
+    throw new BitLiteError(`failed parsing env JSON "${canonicalEntry}": ${formatError(error)}`);
   }
   if (isCompiledEnvDefinition(parsed)) {
     const definition = validateCompiledEnvDefinition(parsed, resolved.manifest.name);
@@ -301,7 +303,7 @@ async function buildLoadedEnv(
     : undefined;
 
   return {
-    env: {
+    identity: {
       packageName: definition.name,
       requestedVersion: ref.version,
       installedVersion: resolved.manifest.version,
@@ -336,7 +338,7 @@ async function buildCompiledEnvContext(
   }
 
   return {
-    env: {
+    identity: {
       packageName: definition.name,
       requestedVersion: ref.version,
       installedVersion: resolved.manifest.version,
@@ -390,7 +392,7 @@ async function resolveDeclaredDependency(
   } catch (error) {
     throw new BitLiteError(
       `compiled env ${label} dependency path failed at "${current.manifest.name}" -> ` +
-      `"${packageName}": ${error instanceof Error ? error.message : String(error)}`
+      `"${packageName}": ${formatError(error)}`
     );
   }
 }
@@ -418,8 +420,8 @@ function createServiceOrigins(definition: EnvDefinition, source: PackageLocation
 }
 
 async function resolvePackageFromContext(packageName: string, contextDir: string) {
-  const directPackageDirectory = path.join(contextDir, "node_modules", ...packageName.split("/"));
-  if (!(await isDirectoryOrSymlink(directPackageDirectory))) {
+  const directPackageDirectory = getLinkedPackageDirectory(contextDir, packageName);
+  if (!(await isDirectory(directPackageDirectory))) {
     throw new BitLiteError(
       `could not resolve env package "${packageName}" from declared dependency context ${contextDir}; ` +
       `attempted ${directPackageDirectory}`
@@ -430,12 +432,7 @@ async function resolvePackageFromContext(packageName: string, contextDir: string
 
 async function resolvePackageFromDirectory(packageDir: string, packageName: string) {
   const raw = await readPackageJson(path.join(packageDir, "package.json"));
-  const entry = readDefaultExport(raw, {
-    createMissingExportError: () =>
-      new BitLiteError(
-        `env package "${packageName}" does not define a default package export`
-      ),
-  });
+  const entry = readDefaultExport(raw, `env package "${packageName}"`);
   return resolvePackageFromEntry(path.resolve(packageDir, entry), packageName);
 }
 
@@ -512,19 +509,11 @@ function compareVersions(left: [number, number, number], right: [number, number,
   return 0;
 }
 
-function contextualError(error: unknown, ref: PackageRef, componentIds: string[], phase: string) {
-  const message = error instanceof Error ? error.message : String(error);
+function contextualError(error: unknown, ref: PackageRef, componentIds: readonly string[]) {
   return new BitLiteError(
-    `failed to ${phase} env "${ref.packageName}@${ref.version}" for components ${componentIds.join(", ")}: ${message}`
+    `failed to load env "${ref.packageName}@${ref.version}" for components ` +
+    `${componentIds.join(", ")}: ${formatError(error)}`
   );
-}
-
-function componentDependencyDirectory(workspaceRoot: string, packageName: string) {
-  return path.join(workspaceRoot, ".bit-lite", "deps", "components", ...packageName.split("/"));
-}
-
-function generatedPackageDirectory(workspaceRoot: string, packageName: string) {
-  return path.join(workspaceRoot, "node_modules", ...packageName.split("/"));
 }
 
 async function resolveFileCandidate(candidate: string) {
@@ -532,12 +521,4 @@ async function resolveFileCandidate(candidate: string) {
     if (await isFile(filePath)) return filePath;
   }
   return undefined;
-}
-
-async function isDirectoryOrSymlink(filePath: string) {
-  try {
-    return (await stat(filePath)).isDirectory();
-  } catch {
-    return false;
-  }
 }

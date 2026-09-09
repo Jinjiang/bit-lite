@@ -18,16 +18,13 @@ export async function findComponentFiles(
 
   const files = await collectFiles(component.rootDir, {
     ignoredDirectories: ignoredDirs,
-    missingDirectory: "ignore",
-    traversal: "parallel",
+    allowMissing: true,
   });
 
-  return files
-    .filter((file) => {
-      const relativePath = toPosixPath(path.relative(component.rootDir, file));
-      return patterns.some((pattern) => matchPattern(relativePath, pattern));
-    })
-    .sort();
+  return files.filter((file) => {
+    const relativePath = toPosixPath(path.relative(component.rootDir, file));
+    return patterns.some((pattern) => matchPattern(relativePath, pattern));
+  });
 }
 
 export async function findComponentFileTargets(

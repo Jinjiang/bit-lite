@@ -1,5 +1,5 @@
-import { isRecord, readPackageName } from "bit-lite-utils";
-import { supportedEnvServiceNames } from "./types/index.js";
+import { BitLiteError, isRecord, readPackageName } from "bit-lite-utils";
+import { compiledEnvFormatVersion, supportedEnvServiceNames } from "./types/index.js";
 import type {
   CompiledEnvDefinition,
   CompiledEnvServiceOrigin,
@@ -7,46 +7,29 @@ import type {
   EnvServiceConfigMap,
   EnvServicesConfig,
   JsonObject,
-  JsonValue,
-  PreviewServiceConfig,
   SupportedEnvServiceName,
-  TestServiceConfig,
 } from "./types/index.js";
-import { compiledEnvFormatVersion } from "./types/index.js";
-
-export class BitLiteEnvConfigError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "BitLiteEnvConfigError";
-  }
-}
 
 export function isSupportedEnvServiceName(value: string): value is SupportedEnvServiceName {
   return supportedEnvServiceNames.includes(value as SupportedEnvServiceName);
 }
 
 export function validateEnvDefinition(value: unknown, expectedPackageName?: string): EnvDefinition {
-  if (!isRecord(value)) throw new BitLiteEnvConfigError("env definition must be an object");
-  rejectUnknownFields(value, ["name", "extends", "services", "config"], "env definition");
+  const record = readObject(value, "env definition");
+  rejectUnknownFields(record, ["name", "extends", "services", "config"], "env definition");
 
-  const name = readEnvPackageName(value.name, 'env definition field "name"');
-  if (expectedPackageName !== undefined && name !== expectedPackageName) {
-    throw new BitLiteEnvConfigError(
-      `env definition name mismatch: expected "${expectedPackageName}" but received "${name}"`
-    );
+  const name = readEnvName(record.name, 'env definition field "name"', expectedPackageName);
+  const parent = record.extends === undefined
+    ? undefined
+    : readPackageName(record.extends, 'env definition field "extends"');
+  if (record.services === undefined) {
+    throw new BitLiteError('env definition field "services" must be an object');
   }
 
-  const parent = value.extends === undefined
+  const services = validateEnvServicesConfig(record.services);
+  const config = record.config === undefined
     ? undefined
-    : readEnvPackageName(value.extends, 'env definition field "extends"');
-  if (value.services === undefined) {
-    throw new BitLiteEnvConfigError('env definition field "services" must be an object');
-  }
-
-  const services = validateEnvServicesConfig(value.services);
-  const config = value.config === undefined
-    ? undefined
-    : validateJsonObject(value.config, 'env definition field "config"');
+    : validateJsonObject(record.config, 'env definition field "config"');
 
   return {
     name,
@@ -56,6 +39,11 @@ export function validateEnvDefinition(value: unknown, expectedPackageName?: stri
   };
 }
 
+/**
+ * Tells a compiled env from a source one by the only field a source definition
+ * never has. Loading depends on the distinction: a source definition still
+ * needs its inheritance resolved, a compiled one is ready to read.
+ */
 export function isCompiledEnvDefinition(value: unknown): value is CompiledEnvDefinition {
   return isRecord(value) && value.formatVersion !== undefined;
 }
@@ -64,52 +52,36 @@ export function validateCompiledEnvDefinition(
   value: unknown,
   expectedPackageName?: string
 ): CompiledEnvDefinition {
-  if (!isRecord(value)) throw new BitLiteEnvConfigError("compiled env definition must be an object");
+  const record = readObject(value, "compiled env definition");
   rejectUnknownFields(
-    value,
+    record,
     ["formatVersion", "name", "services", "config", "inheritance", "serviceOrigins"],
     "compiled env definition"
   );
-  if (value.formatVersion !== compiledEnvFormatVersion) {
-    throw new BitLiteEnvConfigError(
-      `compiled env format version must be ${compiledEnvFormatVersion}; received ${String(value.formatVersion)}`
+  if (record.formatVersion !== compiledEnvFormatVersion) {
+    throw new BitLiteError(
+      `compiled env format version must be ${compiledEnvFormatVersion}; received ${String(record.formatVersion)}`
     );
   }
-  const name = readEnvPackageName(value.name, 'compiled env definition field "name"');
-  if (expectedPackageName !== undefined && name !== expectedPackageName) {
-    throw new BitLiteEnvConfigError(
-      `env definition name mismatch: expected "${expectedPackageName}" but received "${name}"`
-    );
-  }
-  const services = validateEnvServicesConfig(value.services);
-  const config = value.config === undefined
+
+  const name = readEnvName(
+    record.name,
+    'compiled env definition field "name"',
+    expectedPackageName
+  );
+  const services = validateEnvServicesConfig(record.services);
+  const config = record.config === undefined
     ? undefined
-    : validateJsonObject(value.config, 'compiled env definition field "config"');
+    : validateJsonObject(record.config, 'compiled env definition field "config"');
+
   const inheritance = readPackageNameArray(
-    value.inheritance,
+    record.inheritance,
     'compiled env definition field "inheritance"'
   );
-  if (inheritance.length === 0 || inheritance.at(-1) !== name) {
-    throw new BitLiteEnvConfigError(
+  if (inheritance.at(-1) !== name) {
+    throw new BitLiteError(
       `compiled env definition inheritance must end with selected env "${name}"`
     );
-  }
-  if (!isRecord(value.serviceOrigins)) {
-    throw new BitLiteEnvConfigError('compiled env definition field "serviceOrigins" must be an object');
-  }
-  const serviceOrigins: CompiledEnvDefinition["serviceOrigins"] = {};
-  for (const [serviceName, origin] of Object.entries(value.serviceOrigins)) {
-    if (!isSupportedEnvServiceName(serviceName) || services[serviceName] === undefined) {
-      throw new BitLiteEnvConfigError(
-        `compiled env service origin "${serviceName}" does not match a configured service`
-      );
-    }
-    serviceOrigins[serviceName] = validateCompiledServiceOrigin(serviceName, origin);
-  }
-  for (const serviceName of Object.keys(services) as SupportedEnvServiceName[]) {
-    if (serviceOrigins[serviceName] === undefined) {
-      throw new BitLiteEnvConfigError(`compiled env service "${serviceName}" must define an origin`);
-    }
   }
 
   return {
@@ -118,32 +90,26 @@ export function validateCompiledEnvDefinition(
     services,
     ...(config ? { config } : {}),
     inheritance,
-    serviceOrigins,
+    serviceOrigins: validateServiceOrigins(record.serviceOrigins, services),
   };
 }
 
 export function validateEnvServicesConfig(value: unknown): EnvServicesConfig {
-  if (!isRecord(value)) throw new BitLiteEnvConfigError('env definition field "services" must be an object');
+  const record = readObject(value, 'env definition field "services"');
 
   const services: EnvServicesConfig = {};
-  for (const [serviceName, serviceConfig] of Object.entries(value)) {
+  for (const [serviceName, serviceConfig] of Object.entries(record)) {
     if (!isSupportedEnvServiceName(serviceName)) {
-      throw new BitLiteEnvConfigError(
+      throw new BitLiteError(
         `env service "${serviceName}" is not supported; expected one of ${supportedEnvServiceNames.join(", ")}`
       );
     }
-
-    switch (serviceName) {
-      case "test":
-        services.test = validateEnvServiceConfig(serviceName, serviceConfig);
-        break;
-      case "preview":
-        services.preview = validateEnvServiceConfig(serviceName, serviceConfig);
-        break;
-      case "compile":
-        services.compile = validateEnvServiceConfig(serviceName, serviceConfig);
-        break;
-    }
+    // One assignment for every service: the map's value type is keyed by the
+    // same name the validator is given, which no per-service branch can state
+    // any better.
+    (services as Record<SupportedEnvServiceName, EnvServiceConfigMap[SupportedEnvServiceName]>)[
+      serviceName
+    ] = validateEnvServiceConfig(serviceName, serviceConfig);
   }
   return services;
 }
@@ -152,141 +118,158 @@ export function validateEnvServiceConfig<ServiceName extends SupportedEnvService
   serviceName: ServiceName,
   value: unknown
 ): EnvServiceConfigMap[ServiceName] {
-  if (!isRecord(value)) {
-    throw new BitLiteEnvConfigError(`env service "${serviceName}" must be an object`);
-  }
-  rejectUnknownFields(value, ["vendor", "config"], `env service "${serviceName}"`);
+  const record = readObject(value, `env service "${serviceName}"`);
+  rejectUnknownFields(record, ["vendor", "config"], `env service "${serviceName}"`);
 
-  if (typeof value.vendor !== "string" || value.vendor.trim().length === 0) {
-    throw new BitLiteEnvConfigError(`env service "${serviceName}" must define a non-empty vendor`);
+  if (typeof record.vendor !== "string" || record.vendor.trim().length === 0) {
+    throw new BitLiteError(`env service "${serviceName}" must define a non-empty vendor`);
   }
-  if (serviceName === "preview" && value.config === undefined) {
-    throw new BitLiteEnvConfigError(`env service "${serviceName}" must define field "config"`);
+  if (serviceName === "preview" && record.config === undefined) {
+    throw new BitLiteError(`env service "${serviceName}" must define field "config"`);
   }
 
-  const config = value.config === undefined
+  const config = record.config === undefined
     ? undefined
-    : validateServiceOptions(serviceName, value.config);
+    : validateServiceOptions(serviceName, record.config);
   return {
-    vendor: value.vendor,
+    vendor: record.vendor,
     ...(config ? { config } : {}),
   } as EnvServiceConfigMap[ServiceName];
 }
 
-function validateServiceOptions(
-  serviceName: SupportedEnvServiceName,
-  value: unknown
-): JsonObject {
+/**
+ * The fields Bit Lite reads out of a service's configuration. Everything else
+ * is passed to the vendor untouched, so only these are constrained.
+ */
+function validateServiceOptions(serviceName: SupportedEnvServiceName, value: unknown): JsonObject {
   const config = validateJsonObject(value, `env service "${serviceName}" field "config"`);
+  const field = (name: string) => `env service "${serviceName}" field "config.${name}"`;
+
   switch (serviceName) {
     case "test":
-      requireOptionalString(config, serviceName, "configFile");
-      requireOptionalString(config, serviceName, "shard");
-      requireOptionalInteger(config, serviceName, "retries");
-      requireOptionalBoolean(config, serviceName, "coverage");
-      return config as TestServiceConfig;
+      expectType(config.configFile, "string", field("configFile"), { optional: true });
+      expectType(config.shard, "string", field("shard"), { optional: true });
+      expectNonNegativeInteger(config.retries, field("retries"));
+      expectType(config.coverage, "boolean", field("coverage"), { optional: true });
+      return config;
     case "preview":
-      requireString(config, serviceName, "configFile");
-      requireOptionalNonEmptyString(config, serviceName, "mounter");
-      requireOptionalNonEmptyString(config, serviceName, "docsTemplate");
-      return config as PreviewServiceConfig;
+      expectNonEmptyString(config.configFile, field("configFile"));
+      if (config.mounter !== undefined) expectNonEmptyString(config.mounter, field("mounter"));
+      if (config.docsTemplate !== undefined) {
+        expectNonEmptyString(config.docsTemplate, field("docsTemplate"));
+      }
+      return config;
     case "compile":
       return config;
   }
 }
 
+function validateServiceOrigins(
+  value: unknown,
+  services: EnvServicesConfig
+): CompiledEnvDefinition["serviceOrigins"] {
+  const record = readObject(value, 'compiled env definition field "serviceOrigins"');
+  const origins: CompiledEnvDefinition["serviceOrigins"] = {};
+
+  for (const [serviceName, origin] of Object.entries(record)) {
+    if (!isSupportedEnvServiceName(serviceName) || services[serviceName] === undefined) {
+      throw new BitLiteError(
+        `compiled env service origin "${serviceName}" does not match a configured service`
+      );
+    }
+    origins[serviceName] = validateServiceOrigin(serviceName, origin);
+  }
+  for (const serviceName of Object.keys(services) as SupportedEnvServiceName[]) {
+    if (origins[serviceName] === undefined) {
+      throw new BitLiteError(`compiled env service "${serviceName}" must define an origin`);
+    }
+  }
+  return origins;
+}
+
+function validateServiceOrigin(serviceName: string, value: unknown): CompiledEnvServiceOrigin {
+  const label = `compiled env service origin "${serviceName}"`;
+  const record = readObject(value, label);
+  rejectUnknownFields(record, ["dependencyPath"], label);
+  return {
+    dependencyPath: readPackageNameArray(record.dependencyPath, `${label} field "dependencyPath"`),
+  };
+}
+
+/**
+ * A JSON object with no cycles and no non-finite numbers, so writing it back
+ * out cannot fail or silently change what it says.
+ */
 function validateJsonObject(value: unknown, label: string): JsonObject {
-  if (!isRecord(value)) throw new BitLiteEnvConfigError(`${label} must be a JSON object`);
+  readObject(value, label);
   validateJsonValue(value, label, new Set<object>());
   return value as JsonObject;
 }
 
-function validateJsonValue(value: unknown, label: string, stack: Set<object>): asserts value is JsonValue {
+function validateJsonValue(value: unknown, label: string, seen: Set<object>): void {
   if (value === null || typeof value === "string" || typeof value === "boolean") return;
   if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new BitLiteEnvConfigError(`${label} must contain only finite numbers`);
+    if (!Number.isFinite(value)) throw new BitLiteError(`${label} must contain only finite numbers`);
     return;
   }
   if (typeof value !== "object") {
-    throw new BitLiteEnvConfigError(`${label} must be recursively JSON-safe`);
+    throw new BitLiteError(`${label} must be recursively JSON-safe`);
   }
-  if (stack.has(value)) throw new BitLiteEnvConfigError(`${label} must not contain circular values`);
-  stack.add(value);
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => validateJsonValue(item, `${label}[${index}]`, stack));
-  } else {
-    for (const [key, item] of Object.entries(value)) {
-      validateJsonValue(item, `${label}.${key}`, stack);
-    }
-  }
-  stack.delete(value);
+  if (seen.has(value)) throw new BitLiteError(`${label} must not contain circular values`);
+  seen.add(value);
+  const entries = Array.isArray(value)
+    ? value.map((item, index) => [`${label}[${index}]`, item] as const)
+    : Object.entries(value).map(([key, item]) => [`${label}.${key}`, item] as const);
+  for (const [itemLabel, item] of entries) validateJsonValue(item, itemLabel, seen);
+  seen.delete(value);
 }
 
-function readEnvPackageName(value: unknown, label: string) {
-  return readPackageName(value, {
-    createError: () =>
-      new BitLiteEnvConfigError(`${label} must be a valid npm package name`),
-  });
+function readObject(value: unknown, label: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new BitLiteError(`${label} must be an object`);
+  return value;
+}
+
+function readEnvName(value: unknown, label: string, expectedPackageName: string | undefined) {
+  const name = readPackageName(value, label);
+  if (expectedPackageName !== undefined && name !== expectedPackageName) {
+    throw new BitLiteError(
+      `env definition name mismatch: expected "${expectedPackageName}" but received "${name}"`
+    );
+  }
+  return name;
 }
 
 function readPackageNameArray(value: unknown, label: string) {
-  if (!Array.isArray(value)) throw new BitLiteEnvConfigError(`${label} must be an array`);
-  return value.map((item, index) =>
-    readEnvPackageName(item, `${label}[${index}]`)
-  );
+  if (!Array.isArray(value)) throw new BitLiteError(`${label} must be an array`);
+  return value.map((item, index) => readPackageName(item, `${label}[${index}]`));
 }
 
-function validateCompiledServiceOrigin(
-  serviceName: string,
-  value: unknown
-): CompiledEnvServiceOrigin {
-  if (!isRecord(value)) {
-    throw new BitLiteEnvConfigError(`compiled env service origin "${serviceName}" must be an object`);
-  }
-  rejectUnknownFields(value, ["dependencyPath"], `compiled env service origin "${serviceName}"`);
-  return {
-    dependencyPath: readPackageNameArray(
-      value.dependencyPath,
-      `compiled env service origin "${serviceName}" field "dependencyPath"`
-    ),
-  };
+function expectType(
+  value: unknown,
+  type: "string" | "boolean",
+  label: string,
+  options: { optional?: boolean } = {}
+) {
+  if (options.optional === true && value === undefined) return;
+  if (typeof value !== type) throw new BitLiteError(`${label} must be a ${type}`);
 }
 
-function requireString(value: JsonObject, serviceName: string, field: string) {
-  if (typeof value[field] !== "string" || value[field].length === 0) {
-    throw new BitLiteEnvConfigError(
-      `env service "${serviceName}" field "config.${field}" must be a non-empty string`
-    );
+function expectNonEmptyString(value: unknown, label: string) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new BitLiteError(`${label} must be a non-empty string`);
   }
 }
 
-function requireOptionalString(value: JsonObject, serviceName: string, field: string) {
-  if (value[field] !== undefined && typeof value[field] !== "string") {
-    throw new BitLiteEnvConfigError(`env service "${serviceName}" field "config.${field}" must be a string`);
-  }
-}
-
-function requireOptionalNonEmptyString(value: JsonObject, serviceName: string, field: string) {
-  if (value[field] !== undefined) requireString(value, serviceName, field);
-}
-
-function requireOptionalBoolean(value: JsonObject, serviceName: string, field: string) {
-  if (value[field] !== undefined && typeof value[field] !== "boolean") {
-    throw new BitLiteEnvConfigError(`env service "${serviceName}" field "config.${field}" must be a boolean`);
-  }
-}
-
-function requireOptionalInteger(value: JsonObject, serviceName: string, field: string) {
-  if (value[field] !== undefined && (!Number.isInteger(value[field]) || (value[field] as number) < 0)) {
-    throw new BitLiteEnvConfigError(
-      `env service "${serviceName}" field "config.${field}" must be a non-negative integer`
-    );
+function expectNonNegativeInteger(value: unknown, label: string) {
+  if (value === undefined) return;
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new BitLiteError(`${label} must be a non-negative integer`);
   }
 }
 
 function rejectUnknownFields(value: Record<string, unknown>, allowed: string[], label: string) {
   const allowedSet = new Set(allowed);
   for (const field of Object.keys(value)) {
-    if (!allowedSet.has(field)) throw new BitLiteEnvConfigError(`${label} field "${field}" is not supported`);
+    if (!allowedSet.has(field)) throw new BitLiteError(`${label} field "${field}" is not supported`);
   }
 }

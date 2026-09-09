@@ -48,7 +48,7 @@ export default async function startVitestVendor(
     void runWatch().catch((error) => {
       runtime.postMessage({
         type: "error",
-        message: formatError(error, "object-message-aware"),
+        message: formatError(error),
       });
       finish("error");
     });
@@ -220,7 +220,7 @@ function applyVitestModuleResult(result: MutableComponentResult, module: TestMod
       result.stats.failed += 1;
       result.errors.push(
         ...(test.result().errors ?? []).map((error) =>
-          formatError(error, "object-message-aware")
+          formatError(error)
         )
       );
     } else {
@@ -232,7 +232,7 @@ function applyVitestModuleResult(result: MutableComponentResult, module: TestMod
   if (moduleErrors.length > 0) {
     result.errors.push(
       ...moduleErrors.map((error) =>
-        formatError(error, "object-message-aware")
+        formatError(error)
       )
     );
     if (tests.length === 0) {

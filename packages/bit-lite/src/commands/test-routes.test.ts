@@ -454,7 +454,7 @@ function createEnv(): EnvContext {
     entryFile: "/workspace/parent-env/index.json",
   };
   return {
-    env: selectedEnv("child-env"),
+    identity: selectedEnv("child-env"),
     package: childLocation,
     config: undefined,
     services: {

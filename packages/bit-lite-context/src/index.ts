@@ -12,6 +12,13 @@ export {
 } from "./config.js";
 export { matchPattern } from "./utils/patterns.js";
 export { readWorkspace, selectWorkspaceComponents } from "./workspace.js";
+export {
+  generatedStateDirectoryName,
+  getComponentDependencyDirectory,
+  getDependencyInstallRoot,
+  getGeneratedStateDirectory,
+  getLinkedPackageDirectory,
+} from "./workspace-paths.js";
 export type {
   ComponentKind,
   PackageRef,

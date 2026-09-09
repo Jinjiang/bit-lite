@@ -1,10 +1,9 @@
 import { access, lstat } from "node:fs/promises";
 import path from "node:path";
-import { isRecord, sortStringRecord } from "bit-lite-utils";
+import { BitLiteError, isRecord, sortStringRecord } from "bit-lite-utils";
 import { isNodeErrorCode, readJsonFile } from "bit-lite-utils/node";
 import { assertPackageName, CONFIG_FILE, isWorkspaceProtocolSpec, loadConfig } from "./config.js";
 import type { ComponentKind, Workspace, WorkspaceComponent } from "./types/index.js";
-import { BitLiteError } from "bit-lite-utils";
 import { toPosixPath } from "./utils/path-utils.js";
 import { matchPattern } from "./utils/patterns.js";
 
@@ -116,20 +115,15 @@ function validateEnvDependencyVersions(component: WorkspaceComponent) {
 
 async function readComponentPackageConfig(rootDir: string, componentId: string): Promise<ComponentPackageConfig> {
   const configPath = path.join(rootDir, componentConfigFileName);
-  const errorPrefix = `failed parsing ${componentConfigFileName} for component "${componentId}"`;
-  const parsed = await readJsonFile(configPath, {
-    mapReadError: (error) =>
-      isNodeErrorCode(error, "ENOENT") &&
-      path.basename(configPath) === componentConfigFileName
-        ? new BitLiteError(
-            `component is missing ${componentConfigFileName}: ${configPath}`
-          )
-        : error,
-    mapParseError: (error) =>
-      new BitLiteError(
-        `${errorPrefix}: ${error instanceof Error ? error.message : String(error)}`
-      ),
-  });
+  let parsed: unknown;
+  try {
+    parsed = await readJsonFile(configPath);
+  } catch (error) {
+    if (isNodeErrorCode(error, "ENOENT")) {
+      throw new BitLiteError(`component is missing ${componentConfigFileName}: ${configPath}`);
+    }
+    throw error;
+  }
   if (!isRecord(parsed)) {
     throw new BitLiteError(`${componentConfigFileName} for component "${componentId}" must be an object`);
   }

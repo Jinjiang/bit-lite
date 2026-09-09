@@ -390,7 +390,7 @@ function createSelection(
 ): ResolvedCommandSelection {
   const groups = services.map((configured, index) => ({
     env: {
-      env: {
+      identity: {
         packageName: `child-${index}`,
         requestedVersion: "workspace:*",
         installedVersion: "0.0.0",

@@ -1,10 +1,6 @@
-export type JsonPrimitive = string | number | boolean | null;
+import type { JsonObject } from "bit-lite-utils";
 
-export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
-
-export type JsonObject = {
-  [key: string]: JsonValue;
-};
+export type { JsonObject, JsonPrimitive, JsonValue } from "bit-lite-utils";
 
 export const supportedEnvServiceNames = ["test", "preview", "compile"] as const;
 
@@ -38,14 +34,16 @@ export type EnvServiceConfigMap = {
 
 export type EnvServicesConfig = Partial<EnvServiceConfigMap>;
 
-export type SourceEnvDefinition = {
+/**
+ * An env as its author writes it: one `extends` link and the services it adds
+ * or replaces. Compiling resolves the chain into the flattened form below.
+ */
+export type EnvDefinition = {
   name: string;
   extends?: string;
   services: EnvServicesConfig;
   config?: JsonObject;
 };
-
-export type EnvDefinition = SourceEnvDefinition;
 
 export const compiledEnvFormatVersion = 1 as const;
 
@@ -54,6 +52,11 @@ export type CompiledEnvServiceOrigin = {
   dependencyPath: string[];
 };
 
+/**
+ * An env after inheritance has been materialized: every service the env offers,
+ * with the package that declared it named, so runtime resolution reads static
+ * data instead of walking the chain again.
+ */
 export type CompiledEnvDefinition = {
   formatVersion: typeof compiledEnvFormatVersion;
   name: string;

@@ -70,14 +70,14 @@ async function startVitePreviewServer(
   try {
     return await startOnPort(runtime.server.preferredPort);
   } catch (error) {
-    if (!isPortUnavailableError(error, "recursive")) throw error;
+    if (!isPortUnavailableError(error)) throw error;
   }
 
   for (let port = runtime.server.fallbackStartPort; port <= 65535; port += 1) {
     try {
       return await startOnPort(port);
     } catch (error) {
-      if (!isPortUnavailableError(error, "recursive")) throw error;
+      if (!isPortUnavailableError(error)) throw error;
     }
   }
   throw new Error(`No available preview port found at or after ${runtime.server.fallbackStartPort}`);

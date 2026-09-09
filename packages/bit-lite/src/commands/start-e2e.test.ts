@@ -29,9 +29,9 @@ describe("start end-to-end", () => {
     try {
       expect(selection.groups).toHaveLength(2);
       const previewGroup = selection.groups.find(
-        (group) => group.env.env.packageName === "@fixture/env-child"
+        (group) => group.env.identity.packageName === "@fixture/env-child"
       );
-      expect(previewGroup?.env.env).toEqual({
+      expect(previewGroup?.env.identity).toEqual({
         packageName: "@fixture/env-child",
         requestedVersion: "1.0.0",
         installedVersion: "1.0.0",

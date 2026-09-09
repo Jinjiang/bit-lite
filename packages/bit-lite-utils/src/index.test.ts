@@ -1,15 +1,19 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
+  countOf,
   createComponentFileMap,
   escapeHtml,
   formatError,
+  formatErrorStack,
   formatExitCode,
   isFileUrl,
   isJsonObject,
+  isJsonSerializable,
   isJsonValue,
   isPortUnavailableError,
   isRecord,
+  pluralize,
   readDefaultExport,
   readHost,
   readPackageName,
@@ -42,26 +46,29 @@ describe("record utilities", () => {
     expect(readStringRecord(undefined)).toEqual({});
   });
 
-  it("sorts records without mutating the input", () => {
+  it("sorts records by code point without mutating the input", () => {
     const input = { z: "last", a: "first" };
     expect(sortStringRecord(input)).toEqual({ a: "first", z: "last" });
     expect(Object.keys(input)).toEqual(["z", "a"]);
+    expect(Object.keys(sortStringRecord({ "a-b": "", "a.b": "", "aa": "" }))).toEqual([
+      "a-b",
+      "a.b",
+      "aa",
+    ]);
   });
 });
 
 describe("JSON utilities", () => {
-  it("validates finite JSON recursively by default", () => {
+  it("validates finite JSON recursively", () => {
     expect(isJsonValue({ items: [null, true, 1, "value"] })).toBe(true);
     expect(isJsonObject({ value: Number.NaN })).toBe(false);
     expect(isJsonValue([Number.POSITIVE_INFINITY])).toBe(false);
+    expect(isJsonObject([])).toBe(false);
   });
 
-  it("can preserve consumers that accept non-finite numbers", () => {
-    const options = { numberPolicy: "allow-non-finite" } as const;
-    expect(isJsonValue({ values: [Number.NaN, Number.POSITIVE_INFINITY] }, options)).toBe(
-      true
-    );
-    expect(isJsonObject({ value: Number.NEGATIVE_INFINITY }, options)).toBe(true);
+  it("separately recognizes values that merely survive serialization", () => {
+    expect(isJsonSerializable({ values: [Number.NaN, Number.POSITIVE_INFINITY] })).toBe(true);
+    expect(isJsonSerializable({ value: () => undefined })).toBe(false);
   });
 });
 
@@ -82,6 +89,14 @@ describe("string and URL utilities", () => {
     expect(isFileUrl("file:///tmp/example.ts")).toBe(true);
     expect(isFileUrl("https://example.com")).toBe(false);
     expect(isFileUrl("not a URL")).toBe(false);
+  });
+
+  it("counts with the matching noun form", () => {
+    expect(pluralize(1, "component")).toBe("component");
+    expect(pluralize(0, "component")).toBe("components");
+    expect(countOf(1, "component package")).toBe("1 component package");
+    expect(countOf(2, "component package")).toBe("2 component packages");
+    expect(countOf(2, "entry", "entries")).toBe("2 entries");
   });
 });
 
@@ -109,118 +124,89 @@ describe("generic result utilities", () => {
     expect(formatExitCode(undefined)).toBe("unknown");
   });
 
-  it("retains or deduplicates repeated errors explicitly", () => {
+  it("collapses repeated failures into one report", () => {
     const error = new Error("failure");
+    expect(() => throwCombinedErrors([], "none")).not.toThrow();
+    expect(() => throwCombinedErrors([error, error], "repeated")).toThrow(error);
+
+    const other = new Error("other");
     try {
-      throwCombinedErrors([error, error], "retained");
+      throwCombinedErrors([error, other, error], "combined");
       expect.unreachable();
     } catch (caught) {
       expect(caught).toBeInstanceOf(AggregateError);
-      expect((caught as AggregateError).errors).toEqual([error, error]);
+      expect((caught as AggregateError).errors).toEqual([error, other]);
     }
-    expect(() =>
-      throwCombinedErrors([error, error], "deduplicated", "deduplicate")
-    ).toThrow(error);
   });
 });
 
 describe("error formatting", () => {
-  it("supports message-only and stack-preferred policies", () => {
-    const error = new Error("failure");
-    expect(formatError(error, "message-only")).toBe("failure");
-    expect(formatError(error, "stack-preferred")).toContain("Error: failure");
+  it("shows the message, reading foreign objects that carry one", () => {
+    expect(formatError(new Error("failure"))).toBe("failure");
+    expect(formatError({ message: "structured failure" })).toBe("structured failure");
+    expect(formatError(42)).toBe("42");
   });
 
-  it("supports object-message-aware formatting", () => {
-    expect(formatError({ message: "structured failure" }, "object-message-aware")).toBe(
-      "structured failure"
-    );
-    expect(formatError(42, "object-message-aware")).toBe("42");
+  it("prefers a stack when there is one", () => {
+    expect(formatErrorStack(new Error("failure"))).toContain("Error: failure");
+    expect(formatErrorStack({ message: "structured failure" })).toBe("structured failure");
   });
 });
 
 describe("host and port readers", () => {
-  it("reads hosts with caller-owned fallbacks and errors", () => {
-    const options = {
-      fallback: "127.0.0.1",
-      createError: () => new TypeError("invalid host"),
-    };
-    expect(readHost(undefined, options)).toBe("127.0.0.1");
-    expect(readHost("localhost", options)).toBe("localhost");
-    expect(() => readHost("", options)).toThrow(new TypeError("invalid host"));
+  it("reads hosts against a fallback", () => {
+    expect(readHost(undefined, "--host", "127.0.0.1")).toBe("127.0.0.1");
+    expect(readHost("localhost", "--host", "127.0.0.1")).toBe("localhost");
+    expect(() => readHost("", "--host", "127.0.0.1")).toThrow("--host requires a host name");
   });
 
-  it("reads CLI numbers and numeric strings", () => {
-    const options = {
-      fallback: 3000,
-      acceptNumericString: true,
-      createError: () => new RangeError("invalid port"),
-    };
-    expect(readPort(undefined, options)).toBe(3000);
-    expect(readPort(4000, options)).toBe(4000);
-    expect(readPort("5000", options)).toBe(5000);
-    expect(() => readPort("0", options)).toThrow(new RangeError("invalid port"));
+  it("reads numbers and their decimal spelling", () => {
+    expect(readPort(undefined, "--port", 3000)).toBe(3000);
+    expect(readPort(4000, "--port", 3000)).toBe(4000);
+    expect(readPort("5000", "--port", 3000)).toBe(5000);
+    expect(() => readPort("0", "--port", 3000)).toThrow(
+      "--port requires a port number between 1 and 65535"
+    );
   });
 
-  it("can require a runtime integer", () => {
-    const options = {
-      createError: () => new Error("runtime port required"),
-    };
-    expect(readPort(65535, options)).toBe(65535);
-    expect(() => readPort("3000", options)).toThrow("runtime port required");
-    expect(() => readPort(undefined, options)).toThrow("runtime port required");
+  it("requires a value when there is no fallback", () => {
+    expect(readPort(65535, "runtime port")).toBe(65535);
+    expect(() => readPort(undefined, "runtime port")).toThrow("runtime port requires a port");
   });
 });
 
 describe("port availability errors", () => {
-  it("supports code-only matching", () => {
-    const error = Object.assign(new Error("busy"), { code: "EADDRINUSE" });
-    expect(isPortUnavailableError(error)).toBe(true);
-    expect(isPortUnavailableError(new Error("Port 3000 is already in use"))).toBe(false);
-  });
-
-  it("supports recursive code, message, and cause matching", () => {
+  it("matches a code, a message, or anything a failure wraps", () => {
     const cause = Object.assign(new Error("busy"), { code: "EADDRINUSE" });
-    expect(
-      isPortUnavailableError(new Error("wrapper", { cause }), "recursive")
-    ).toBe(true);
-    expect(
-      isPortUnavailableError(new Error("Port 3000 is already in use"), "recursive")
-    ).toBe(true);
+    expect(isPortUnavailableError(cause)).toBe(true);
+    expect(isPortUnavailableError(new Error("wrapper", { cause }))).toBe(true);
+    expect(isPortUnavailableError(new Error("Port 3000 is already in use"))).toBe(true);
+    expect(isPortUnavailableError(new Error("unrelated"))).toBe(false);
+    expect(isPortUnavailableError("EADDRINUSE")).toBe(false);
   });
 });
 
 describe("package manifest utilities", () => {
   it("resolves root export conditions before main", () => {
-    const createMissingExportError = () => new Error("missing export");
     expect(
       readDefaultExport(
         { exports: { ".": { import: "./import.js" } }, main: "./main.js" },
-        { createMissingExportError }
+        "package"
       )
     ).toBe("./import.js");
-    expect(
-      readDefaultExport(
-        { exports: { ".": { custom: "./custom.js" } } },
-        { conditions: ["custom"], createMissingExportError }
-      )
-    ).toBe("./custom.js");
-    expect(() =>
-      readDefaultExport({}, { createMissingExportError })
-    ).toThrow("missing export");
+    expect(readDefaultExport({ exports: "./only.js" }, "package")).toBe("./only.js");
+    expect(readDefaultExport({ main: "./main.js" }, "package")).toBe("./main.js");
+    expect(() => readDefaultExport({}, 'env package "x"')).toThrow(
+      'env package "x" does not define a default package export'
+    );
   });
 
-  it("validates package names with caller-owned error policies", () => {
-    const createError = (reason: string) => new TypeError(reason);
-    expect(readPackageName("@scope/name", { createError })).toBe("@scope/name");
-    expect(() => readPackageName("", { createError })).toThrow(
-      "invalid-package-name"
-    );
-    expect(() =>
-      readPackageName("", { invalidTypeReason: "required-string", createError })
-    ).toThrow("required-string");
-    expect(() => readPackageName("INVALID", { createError })).toThrow(
-      "invalid-package-name"
+  it("distinguishes a missing name from an invalid one", () => {
+    expect(readPackageName("@scope/name", "field")).toBe("@scope/name");
+    expect(() => readPackageName("", "field")).toThrow("field must be a non-empty string");
+    expect(() => readPackageName(42, "field")).toThrow("field must be a non-empty string");
+    expect(() => readPackageName("INVALID", "field")).toThrow(
+      "field must be a valid npm package name"
     );
   });
 });

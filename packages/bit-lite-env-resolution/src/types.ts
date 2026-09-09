@@ -33,9 +33,14 @@ export type ResolvedServices = {
   [Name in SupportedEnvServiceName]?: ResolvedService<Name>;
 };
 
-/** Resolved env information retained only by parent-side orchestration. */
+/**
+ * Resolved env information retained only by parent-side orchestration.
+ *
+ * `identity` is what crosses the vendor boundary; everything else here is
+ * resolution state that stays on this side of it.
+ */
 export type EnvContext = {
-  env: SelectedEnvIdentity;
+  identity: SelectedEnvIdentity;
   package: PackageLocation;
   config: JsonObject | undefined;
   services: ResolvedServices;

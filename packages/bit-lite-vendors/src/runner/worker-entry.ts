@@ -1,20 +1,20 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { installWorkerTtyShim, isTerminalResizeMessage, setTerminalSize } from "bit-lite-terminal";
-import { formatError } from "bit-lite-utils";
+import { formatErrorStack } from "bit-lite-utils";
+import { importRunnerTarget } from "./index.js";
 import {
   isWorkerRunnerShutdownMessage,
   WORKER_RUNNER_START_RESULT_MESSAGE_TYPE,
 } from "./worker-protocol.js";
 import type {
   RunnerStartResult,
-  RunnerParentMessageListener,
+  RunnerMessageListener,
   RunnerRuntime,
-  RunnerTargetModule,
   WorkerRunnerData,
 } from "./index.js";
 
 const data = workerData as WorkerRunnerData;
-const parentMessageListeners = new Set<RunnerParentMessageListener<unknown>>();
+const parentMessageListeners = new Set<RunnerMessageListener<unknown>>();
 let runnerStartResult: RunnerStartResult | void;
 let runnerStarted = false;
 let shutdownRequested = false;
@@ -51,17 +51,7 @@ parentPort?.on("message", (message) => {
 });
 
 try {
-  const runnerModule = (await import(data.moduleUrl)) as RunnerTargetModule<
-    unknown,
-    unknown,
-    unknown
-  >;
-  const startRunnerTarget = runnerModule.default;
-
-  if (typeof startRunnerTarget !== "function") {
-    throw new Error("Runner target module must default export a StartRunnerTarget function.");
-  }
-
+  const startRunnerTarget = await importRunnerTarget<unknown, unknown, unknown>(data.moduleUrl);
   runnerStartResult = await startRunnerTarget(runtime);
   runnerStarted = true;
   if (shutdownRequested) {
@@ -74,7 +64,7 @@ try {
 } catch (error) {
   runtime.postMessage({
     type: "error",
-    message: formatError(error, "stack-preferred"),
+    message: formatErrorStack(error),
   });
   console.error(error);
   process.exit(1);

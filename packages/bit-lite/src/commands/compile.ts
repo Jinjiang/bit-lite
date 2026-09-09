@@ -1,5 +1,11 @@
 import path from "node:path";
-import { getComponentPrerequisitePackageNames, layerComponentsByPrerequisites, readWorkspace, selectWorkspaceComponents } from "bit-lite-context";
+import {
+  getComponentPrerequisitePackageNames,
+  getLinkedPackageDirectory,
+  layerComponentsByPrerequisites,
+  readWorkspace,
+  selectWorkspaceComponents,
+} from "bit-lite-context";
 import { loadEnvForComponent } from "bit-lite-env-resolution";
 import {
   isCompilerVendorModule,
@@ -19,7 +25,7 @@ import type {
   VendorTask,
   VendorTaskStartOptions,
 } from "bit-lite-vendors";
-import { BitLiteError } from "bit-lite-utils";
+import { BitLiteError, countOf } from "bit-lite-utils";
 import {
   createVendorWatchExecution,
   defineVendorExecution,
@@ -32,7 +38,7 @@ import type {
   VendorExecutionPlan,
 } from "../utils/vendor-execution.js";
 import type { ResolvedCommandSelection } from "../utils/command-selection.js";
-import { getPackageDirectory, linkComponentPackages } from "./link.js";
+import { linkComponentPackages } from "./link.js";
 import type { WatchCommandContribution } from "../utils/watch-contribution.js";
 import { readFlagOption } from "../utils/command-options.js";
 import { assertNoSwallowedComponents } from "../utils/command-selection.js";
@@ -255,7 +261,9 @@ export async function compileComponentPackages(
     const details = failures
       .map(({ component, error }) => `- ${component.id} (${component.packageName}): ${error.message}`)
       .join("\n");
-    throw new BitLiteError(`Compilation failed for ${failures.length} component package(s):\n${details}`);
+    throw new BitLiteError(
+      `Compilation failed for ${countOf(failures.length, "component package")}:\n${details}`
+    );
   }
   return completed;
 }
@@ -308,11 +316,11 @@ export async function prepareCompileVendorTaskOptions(
   const service = getResolvedService(env, "compile");
   if (!service) {
     throw new BitLiteError(
-      `compile component "${component.id}" selected env "${env.env.packageName}" ` +
+      `compile component "${component.id}" selected env "${env.identity.packageName}" ` +
       "does not define services.compile"
     );
   }
-  const distDir = path.join(getPackageDirectory(workspace.rootDir, component.packageName), "dist");
+  const distDir = path.join(getLinkedPackageDirectory(workspace.rootDir, component.packageName), "dist");
   return prepareResolvedServiceTaskOptions({
     workspace,
     args,
@@ -334,6 +342,6 @@ function compileUnitId(component: WorkspaceComponent) {
 }
 
 function printCompiledComponents(components: WorkspaceComponent[]) {
-  console.log(`Compiled ${components.length} component package${components.length === 1 ? "" : "s"}.`);
+  console.log(`Compiled ${countOf(components.length, "component package")}.`);
   for (const component of components) console.log(`- ${component.packageName}`);
 }
