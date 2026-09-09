@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { TextDecoder } from "node:util";
-import { sendHtml, sendJson, sendText } from "bit-lite-proxy";
+import { getOnly, sendHtml, sendJson, sendText } from "bit-lite-proxy";
 import { toPosixPath } from "bit-lite-utils/node";
 import { generatedStateDirectoryName } from "bit-lite-context";
 import type { WorkspaceComponent } from "bit-lite-context";
@@ -100,8 +100,7 @@ export function createStartSourceRoutes(catalog: StartSourceCatalog): ProxyRoute
     {
       id: "start:source-page",
       matches: (url) => url.pathname === "/source",
-      handleHttp(request, response, { url }) {
-        if (!allowGet(request.method, response)) return;
+      handleHttp: getOnly((_request, response, { url }) => {
         const componentId = url.searchParams.get("component");
         if (!componentId) {
           sendText(response, 400, "A component query parameter is required");
@@ -112,13 +111,12 @@ export function createStartSourceRoutes(catalog: StartSourceCatalog): ProxyRoute
           return;
         }
         sendHtml(response, 200, startSourceHtml);
-      },
+      }),
     },
     {
       id: "start:source-files",
       matches: (url) => url.pathname === "/__bit-lite/source-files.json",
-      async handleHttp(request, response, { url }) {
-        if (!allowGet(request.method, response)) return;
+      handleHttp: getOnly(async (_request, response, { url }) => {
         const componentId = url.searchParams.get("component");
         if (!componentId) {
           sendJson(response, { error: "A component query parameter is required" }, 400);
@@ -134,13 +132,12 @@ export function createStartSourceRoutes(catalog: StartSourceCatalog): ProxyRoute
         } catch {
           sendJson(response, { error: "Component source is unavailable" }, 404);
         }
-      },
+      }),
     },
     {
       id: "start:source-file",
       matches: (url) => url.pathname === "/__bit-lite/source-file.json",
-      async handleHttp(request, response, { url }) {
-        if (!allowGet(request.method, response)) return;
+      handleHttp: getOnly(async (_request, response, { url }) => {
         const componentId = url.searchParams.get("component");
         if (!componentId) {
           sendJson(response, { error: "A component query parameter is required" }, 400);
@@ -164,7 +161,7 @@ export function createStartSourceRoutes(catalog: StartSourceCatalog): ProxyRoute
             : "Source file was not found";
           sendJson(response, { error: message }, 404);
         }
-      },
+      }),
     },
   ];
 }
@@ -351,10 +348,3 @@ function isPathInside(root: string, candidate: string) {
   return relative.length > 0 && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
 
-
-function allowGet(method: string | undefined, response: Parameters<typeof sendText>[0]) {
-  if (method === "GET") return true;
-  response.setHeader("allow", "GET");
-  sendText(response, 405, "Method not allowed");
-  return false;
-}

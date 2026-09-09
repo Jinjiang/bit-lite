@@ -151,6 +151,22 @@ export async function findAvailablePort(host: string, startPort: number) {
   throw new Error(`No available port found at or after ${startPort}`);
 }
 
+/**
+ * Restricts a route to GET, answering anything else with 405 and the `allow`
+ * header a client needs. Every page and JSON endpoint Bit Lite serves is a
+ * read, so the rule is stated once here rather than at the top of each handler.
+ */
+export function getOnly(handle: ProxyRoute["handleHttp"]): ProxyRoute["handleHttp"] {
+  return (request, response, context) => {
+    if (request.method !== "GET") {
+      response.setHeader("allow", "GET");
+      sendText(response, 405, "Method not allowed");
+      return;
+    }
+    return handle(request, response, context);
+  };
+}
+
 export function sendJson(response: ServerResponse, value: unknown, status = 200) {
   response.statusCode = status;
   response.setHeader("content-type", "application/json; charset=utf-8");

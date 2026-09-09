@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { getSelectedEnvKey } from "bit-lite-env-resolution";
-import { ProxyServer, sendHtml, sendJson, sendText } from "bit-lite-proxy";
+import { getOnly, ProxyServer, sendHtml, sendJson } from "bit-lite-proxy";
 import { formatError, throwCombinedErrors } from "bit-lite-utils";
 import { superviseVendorTasks } from "bit-lite-vendors";
 import type { ParsedCliArgs } from "../cli-args-types.js";
@@ -236,26 +236,16 @@ export function createStartRoutes(
     {
       id: "start:shell",
       matches: (url) => url.pathname === "/",
-      handleHttp(request, response) {
-        if (request.method !== "GET") {
-          response.setHeader("allow", "GET");
-          sendText(response, 405, "Method not allowed");
-          return;
-        }
+      handleHttp: getOnly((_request, response) => {
         sendHtml(response, 200, startShellHtml);
-      },
+      }),
     },
     {
       id: "start:manifest",
       matches: (url) => url.pathname === "/__bit-lite/manifest.json",
-      handleHttp(request, response) {
-        if (request.method !== "GET") {
-          response.setHeader("allow", "GET");
-          sendText(response, 405, "Method not allowed");
-          return;
-        }
+      handleHttp: getOnly((_request, response) => {
         sendJson(response, createStartManifest(proxy, preview, test, options));
-      },
+      }),
     },
     ...createStartSourceRoutes(sourceCatalog),
   ];

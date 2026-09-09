@@ -1,13 +1,18 @@
+import { BitLiteError } from "bit-lite-utils";
+
 /**
  * What: marks an error as coming from component history logic instead of a raw
  * system or JavaScript failure.
  *
  * Where: throw this from store discovery, ref encoding, snapshot capture, and
- * Git invocation when the message should be shown directly to a user.
+ * Git invocation when the message should be shown directly to a user. It is a
+ * `BitLiteError` so a command shows the message rather than a stack trace,
+ * and named so this layer's failures stay recognizable inside it.
  */
-export class ComponentHistoryError extends Error {
+export class ComponentHistoryError extends BitLiteError {
   constructor(message: string, options?: { cause: unknown }) {
-    super(message, options);
+    super(message);
+    if (options !== undefined) this.cause = options.cause;
     this.name = "ComponentHistoryError";
   }
 }
