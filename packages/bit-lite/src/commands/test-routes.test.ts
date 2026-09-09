@@ -372,7 +372,8 @@ function createSelection(componentIds: string[]): ResolvedCommandSelection {
       args: { raw: ["start"], options: {}, passthrough: [] },
       workspaceRoot: fixture.workspace.rootDir,
       componentFilters: [],
-      help: false,
+      help: { kind: "none" },
+      consumedBareWords: [],
     },
     context: {
       workspace: fixture.workspace,

@@ -2,9 +2,10 @@ import type { CliOptionValue } from "bit-lite-utils";
 import { BitLiteError } from "bit-lite-utils";
 
 /**
- * Option readers shared by the recording commands, so `snap` and `tag` accept
- * `--dry-run`, `--json`, and `--message` with identical spellings and identical
- * diagnostics.
+ * Option readers shared by every command, so a flag reads the same way and
+ * fails the same way wherever it appears. The parser has already rejected a
+ * non-boolean `=value` for any declared flag, so the throw here covers only an
+ * option that reached a command without being declared.
  */
 
 export function readFlagOption(value: CliOptionValue | undefined, label: string): boolean {
@@ -15,7 +16,7 @@ export function readFlagOption(value: CliOptionValue | undefined, label: string)
   if (Array.isArray(value) && value.every((item) => typeof item === "boolean")) {
     return value.some(Boolean);
   }
-  throw new BitLiteError(`${label} does not take a value`);
+  throw new BitLiteError(`${label} requires a boolean value`);
 }
 
 export function readTextOption(

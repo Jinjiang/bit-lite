@@ -80,7 +80,8 @@ function parsed(workspaceRoot: string, componentFilters: string[] = []): ParsedC
     command: "snap",
     workspaceRoot,
     componentFilters,
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
     args: {
       raw: ["snap", ...componentFilters.flatMap((filter) => ["--filter", filter])],
       options: componentFilters.length > 0 ? { filter: componentFilters } : {},

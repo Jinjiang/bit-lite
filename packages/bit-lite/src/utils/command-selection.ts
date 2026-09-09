@@ -37,6 +37,26 @@ export type ResolvedCommandSelection = {
   groups: readonly WorkspaceEnvGroup[];
 };
 
+/**
+ * An undeclared option takes the bare word after it, which is right for a
+ * vendor option and its value and wrong when that word was a component. The
+ * parser cannot tell those apart — it would have to know the vendor's options —
+ * but here the registered component IDs are known, so an exact match is a
+ * strong enough signal to stop and ask rather than run with nothing selected.
+ */
+export function assertNoSwallowedComponents(parsed: ParsedCliArgs, workspace: Workspace) {
+  if (parsed.consumedBareWords.length === 0) return;
+  const registered = new Set(workspace.components.map((component) => component.id));
+  for (const { option, value } of parsed.consumedBareWords) {
+    if (!registered.has(value)) continue;
+    throw new BitLiteError(
+      `${option} consumed "${value}", which is a registered component. ` +
+        `Write ${option}=<value> if that is the option's value, ` +
+        `or move ${value} before ${option} if it is a component to select.`
+    );
+  }
+}
+
 type PrepareWorkspaceForEnvLoading = typeof prepareWorkspaceForEnvLoading;
 
 export async function prepareResolvedCommandSelection(
@@ -44,6 +64,7 @@ export async function prepareResolvedCommandSelection(
   prepareWorkspace: PrepareWorkspaceForEnvLoading = prepareWorkspaceForEnvLoading
 ): Promise<ResolvedCommandSelection> {
   const { context } = await prepareWorkspace(parsed.workspaceRoot);
+  assertNoSwallowedComponents(parsed, context.workspace);
   const components = selectWorkspaceComponents(context.workspace, parsed.componentFilters);
   const groups = groupWorkspaceComponentsByEnv(context, components);
 

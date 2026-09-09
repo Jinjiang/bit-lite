@@ -34,6 +34,8 @@ import type {
 import type { ResolvedCommandSelection } from "../utils/command-selection.js";
 import { getPackageDirectory, linkComponentPackages } from "./link.js";
 import type { WatchCommandContribution } from "../utils/watch-contribution.js";
+import { readFlagOption } from "../utils/command-options.js";
+import { assertNoSwallowedComponents } from "../utils/command-selection.js";
 
 export { isCompileRunResult } from "bit-lite-compiler";
 export type { CompileVendorInput, CompileVendorRuntime } from "bit-lite-compiler";
@@ -107,10 +109,11 @@ const compileVendorExecution = defineVendorExecution<
 
 export async function runCompileCommand(parsed: ParsedCliArgs) {
   const workspace = await readWorkspace(parsed.workspaceRoot);
+  assertNoSwallowedComponents(parsed, workspace);
   await linkComponentPackages(workspace);
   const selectedIds = selectWorkspaceComponents(workspace, parsed.componentFilters)
     .map((component) => component.id);
-  if (parsed.args.options.watch === true) {
+  if (readFlagOption(parsed.args.options.watch, "--watch")) {
     const contribution = await createCompileWatchContribution(
       workspace,
       selectedIds,

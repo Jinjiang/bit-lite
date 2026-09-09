@@ -78,7 +78,8 @@ function parsedTag(
     command: "tag",
     workspaceRoot,
     componentFilters,
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
     args: {
       raw: ["tag"],
       options: version === undefined ? {} : { version },
@@ -92,7 +93,8 @@ function parsedSnap(workspaceRoot: string): ParsedCliArgs {
     command: "snap",
     workspaceRoot,
     componentFilters: [],
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
     args: { raw: ["snap"], options: {}, passthrough: [] },
   };
 }

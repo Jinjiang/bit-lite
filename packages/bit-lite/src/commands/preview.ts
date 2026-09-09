@@ -43,6 +43,7 @@ import type {
   PlannedUnit,
 } from "../utils/vendor-execution.js";
 import type { WatchCommandContribution } from "../utils/watch-contribution.js";
+import { readFlagOption } from "../utils/command-options.js";
 
 export type PreviewVendorRuntime = PreviewPreparedRuntime;
 export type PreviewServiceResult = JsonObject & { mode: "serve"; port: number };
@@ -470,7 +471,5 @@ export function readPreviewPort(value: CliOptionValue | undefined, optionName: s
 }
 
 export function readPreviewLazy(value: CliOptionValue | undefined) {
-  if (value === undefined) return false;
-  if (typeof value === "boolean") return value;
-  throw new BitLiteError("--lazy requires a boolean value");
+  return readFlagOption(value, "--lazy");
 }

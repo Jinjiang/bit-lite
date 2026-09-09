@@ -248,7 +248,8 @@ async function createSelection(
       args,
       workspaceRoot,
       componentFilters: [],
-      help: false,
+      help: { kind: "none" },
+      consumedBareWords: [],
     },
     context: {
       workspace,

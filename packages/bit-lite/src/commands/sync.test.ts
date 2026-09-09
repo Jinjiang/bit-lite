@@ -74,7 +74,8 @@ function parsedSync(workspaceRoot: string, remote?: string | string[]): ParsedCl
     command: "sync",
     workspaceRoot,
     componentFilters: [],
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
     args: {
       raw: ["sync"],
       options: remote === undefined ? {} : { remote },
@@ -88,7 +89,8 @@ function parsedSnap(workspaceRoot: string): ParsedCliArgs {
     command: "snap",
     workspaceRoot,
     componentFilters: [],
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
     args: { raw: ["snap"], options: {}, passthrough: [] },
   };
 }

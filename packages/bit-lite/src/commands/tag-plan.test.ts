@@ -165,7 +165,8 @@ function parsed(
     command,
     workspaceRoot,
     componentFilters: [],
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
     args: { raw: [command], options: options as never, passthrough: [] },
   };
 }

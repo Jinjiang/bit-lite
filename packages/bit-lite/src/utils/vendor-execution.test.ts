@@ -466,7 +466,8 @@ function createSelection(groups: WorkspaceEnvGroup[]): ResolvedCommandSelection 
     args: { raw: ["test"], options: {}, passthrough: [] },
     workspaceRoot: workspace.rootDir,
     componentFilters: [],
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
   };
   return {
     parsed,

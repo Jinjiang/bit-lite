@@ -276,7 +276,8 @@ function parsed(workspaceRoot: string, compile = false): ParsedCliArgs {
     command: "install",
     workspaceRoot,
     componentFilters: [],
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
     args: {
       raw: compile ? ["install", "--compile"] : ["install"],
       options: compile ? { compile: true } : {},

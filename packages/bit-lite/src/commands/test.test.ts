@@ -209,7 +209,8 @@ function createParsedTestArgs(
     },
     workspaceRoot,
     componentFilters: [],
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
   };
 }
 

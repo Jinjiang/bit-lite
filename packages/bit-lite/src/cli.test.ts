@@ -60,8 +60,21 @@ describe("watch command", () => {
       },
       workspaceRoot: path.resolve("demo-workspace"),
       componentFilters: ["components/a", "components/b"],
-      help: false,
+      help: { kind: "none" },
+      // --custom is not declared by watch, so the parser notes the word it took.
+      // Nothing after -- is scanned, so the vendor payload is not a candidate.
+      consumedBareWords: [{ option: "--custom", value: "value" }],
     });
+  });
+
+  it("selects positionally the way the command it aliases does", async () => {
+    expect(await runCli(["watch", "ui/button"])).toBe(0);
+
+    const parsed = mocks.compile.mock.calls[0]?.[0];
+    expect(parsed?.componentFilters).toEqual(["ui/button"]);
+    expect(parsed?.args.options.watch).toBe(true);
+    // The alias clones rather than mutates, so nothing positional reaches a vendor.
+    expect(parsed?.args).not.toHaveProperty("positional");
   });
 
   it("accepts redundant --watch without invoking the compile runner twice", async () => {
@@ -86,7 +99,8 @@ describe("watch command", () => {
       },
       workspaceRoot: "/workspace",
       componentFilters: ["components/**"],
-      help: false,
+      help: { kind: "none" },
+      consumedBareWords: [],
     };
     const before = structuredClone(source);
 
@@ -107,7 +121,16 @@ describe("watch command", () => {
   it("lists watch as a compile-watch alias in help", async () => {
     expect(await runCli(["--help"])).toBe(0);
     expect(vi.mocked(console.log).mock.calls.flat().join("\n"))
-      .toContain("watch   alias for compile --watch");
+      .toContain("alias for compile --watch");
+  });
+
+  it("explains the alias in watch's own help without running compile", async () => {
+    expect(await runCli(["watch", "--help"])).toBe(0);
+    const help = vi.mocked(console.log).mock.calls.flat().join("\n");
+    expect(help).toContain("bit-lite watch [component-pattern...]");
+    expect(help).toContain("Runs compile with --watch");
+    expect(help).toContain("--no-watch conflicts");
+    expect(help).toContain("-w is --workspace, not a watch flag");
   });
 });
 
@@ -126,7 +149,8 @@ describe("snap command", () => {
       },
       workspaceRoot: path.resolve("demo-workspace"),
       componentFilters: ["ui/**", "lib/math"],
-      help: false,
+      help: { kind: "none" },
+      consumedBareWords: [],
     });
   });
 
@@ -140,7 +164,7 @@ describe("snap command", () => {
   it("lists snap in help", async () => {
     expect(await runCli(["--help"])).toBe(0);
     expect(vi.mocked(console.log).mock.calls.flat().join("\n")).toContain(
-      "snap    record selected components in the component history store"
+      "record selected components in the component history store"
     );
   });
 
@@ -166,7 +190,8 @@ describe("tag command", () => {
       },
       workspaceRoot: path.resolve("demo-workspace"),
       componentFilters: ["ui/button"],
-      help: false,
+      help: { kind: "none" },
+      consumedBareWords: [],
     });
   });
 
@@ -177,20 +202,32 @@ describe("tag command", () => {
     expect(console.error).toHaveBeenCalledWith("component versions are immutable");
   });
 
-  it("lists tag in help", async () => {
+  it("summarizes tag in the command list without expanding its options", async () => {
     expect(await runCli(["--help"])).toBe(0);
     const help = vi.mocked(console.log).mock.calls.flat().join("\n");
-    expect(help).toContain("tag     assign immutable versions to the selected components' snaps");
-    expect(help).toContain("incrementing each component's patch by default");
-    expect(help).toContain("[--version <x.y.z>, one component only]");
+    expect(help).toContain("assign immutable versions to the selected components' snaps");
+    // The list stays scannable; the options belong to the command's own help.
+    expect(help).not.toContain("--version <x.y.z>");
   });
 
-  it("lists the shared recording options for snap and tag in help", async () => {
-    expect(await runCli(["--help"])).toBe(0);
+  it("details tag's own options in its help", async () => {
+    expect(await runCli(["tag", "-h"])).toBe(0);
     const help = vi.mocked(console.log).mock.calls.flat().join("\n");
-    expect(help).toContain("snap    record selected components in the component history store");
-    // Both recording commands advertise the same three options.
-    expect(help.match(/\[--message <text>\] \[--dry-run\] \[--json\]/g)).toHaveLength(2);
+    expect(help).toContain("--version <x.y.z>");
+    expect(help).toContain("one component only");
+    expect(help).toContain("--interactive");
+    expect(help).toContain("patch by default");
+  });
+
+  it("gives snap and tag the same three recording options in their own help", async () => {
+    for (const command of ["snap", "tag"]) {
+      vi.mocked(console.log).mockClear();
+      expect(await runCli([command, "--help"])).toBe(0);
+      const help = vi.mocked(console.log).mock.calls.flat().join("\n");
+      expect(help).toContain("--message <text>");
+      expect(help).toContain("--dry-run");
+      expect(help).toContain("--json");
+    }
   });
 });
 
@@ -209,7 +246,8 @@ describe("sync command", () => {
       },
       workspaceRoot: path.resolve("demo-workspace"),
       componentFilters: [],
-      help: false,
+      help: { kind: "none" },
+      consumedBareWords: [],
     });
   });
 
@@ -228,7 +266,7 @@ describe("sync command", () => {
   it("lists sync in help", async () => {
     expect(await runCli(["--help"])).toBe(0);
     expect(vi.mocked(console.log).mock.calls.flat().join("\n")).toContain(
-      "sync    exchange component histories and tags with [--remote <url>]"
+      "exchange component histories and tags with a remote"
     );
   });
 });

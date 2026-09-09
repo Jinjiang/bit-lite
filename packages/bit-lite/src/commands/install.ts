@@ -17,6 +17,7 @@ import {
   createInstallReporter,
   type InstallReporter,
 } from "./install-reporter.js";
+import { readFlagOption } from "../utils/command-options.js";
 
 type DependencyManifest = {
   name: string;
@@ -49,7 +50,7 @@ export async function runInstallCommand(
       throw error;
     }
 
-    const shouldCompile = readCompileOption(parsed.args.options.compile);
+    const shouldCompile = readFlagOption(parsed.args.options.compile, "--compile");
     reporter.start(
       `Preparing dependencies for ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}`
     );
@@ -115,12 +116,6 @@ export async function runInstallCommand(
   } finally {
     reporter.close();
   }
-}
-
-function readCompileOption(value: ParsedCliArgs["args"]["options"][string] | undefined) {
-  if (value === undefined || value === false) return false;
-  if (value === true) return true;
-  throw new BitLiteError("--compile does not accept a value");
 }
 
 async function createDependencyProjects(workspaceRoot: string, components: readonly WorkspaceComponent[]) {
