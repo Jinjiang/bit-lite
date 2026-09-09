@@ -120,17 +120,21 @@ export async function createComponentCommit(
 }
 
 /**
- * Guards the two invariants a component history depends on: every commit is
- * linear, and a parent always belongs to the same component. A malformed store
- * is reported rather than repaired.
+ * Walks a component's history from one commit back to its root, newest first,
+ * checking the two invariants that make it a component history: every commit
+ * has at most one parent, and no commit repeats. A malformed store is reported
+ * rather than repaired.
+ *
+ * Every reader of a history goes through here, so validation cannot be skipped
+ * by whichever caller happens to only want the commits.
  */
-export async function assertLinearComponentHistory(
+export async function* walkComponentHistory(
   store: ComponentHistoryStore,
   componentId: string,
-  headId: GitObjectId
-): Promise<void> {
+  from: GitObjectId
+): AsyncGenerator<ComponentCommit> {
   const seen = new Set<string>();
-  let current: GitObjectId | undefined = headId;
+  let current: GitObjectId | undefined = from;
 
   while (current !== undefined) {
     if (seen.has(current.hex)) {
@@ -140,13 +144,26 @@ export async function assertLinearComponentHistory(
     }
     seen.add(current.hex);
 
-    const commit: ComponentCommit = await readComponentCommit(store, current);
+    const commit = await readComponentCommit(store, current);
     if (commit.parentIds.length > 1) {
       throw new ComponentHistoryError(
-        `component "${componentId}" commit ${formatObjectId(current)} has ${commit.parentIds.length} parents, but component history must be linear`
+        `component "${componentId}" commit ${formatObjectId(current)} has ` +
+          `${commit.parentIds.length} parents, but component history must be linear`
       );
     }
+    yield commit;
     current = commit.parentIds[0];
+  }
+}
+
+/** Reads a whole history for its invariants alone, keeping nothing. */
+export async function assertLinearComponentHistory(
+  store: ComponentHistoryStore,
+  componentId: string,
+  headId: GitObjectId
+): Promise<void> {
+  for await (const _commit of walkComponentHistory(store, componentId, headId)) {
+    // Walking is the check.
   }
 }
 
