@@ -1,6 +1,6 @@
 import { getSelectedEnvKey, resolveServiceSpecifier } from "bit-lite-env-resolution";
 import { ProxyServer } from "bit-lite-proxy";
-import { BitLiteError, formatError, isJsonObject, throwCombinedErrors } from "bit-lite-utils";
+import { BitLiteError, formatError, isJsonObject } from "bit-lite-utils";
 import { superviseVendorTasks } from "bit-lite-vendors";
 import {
   createPreviewPresentationRoutes,
@@ -36,7 +36,7 @@ import type {
 } from "../utils/vendor-execution.js";
 import type { WatchCommandContribution } from "../utils/watch-contribution.js";
 import { readFlagOption, readHostOption, readPortOption } from "../utils/command-options.js";
-import { disposeAll, once } from "../utils/disposal.js";
+import { disposeAll, once, runThenDispose } from "../utils/disposal.js";
 import { printNoTasks } from "../utils/no-tasks.js";
 
 export type PreviewVendorRuntime = PreviewPreparedRuntime;
@@ -115,34 +115,34 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
     ])
   );
 
-  const failures: unknown[] = [];
-  try {
-    const proxy = await proxyServer.start(host, proxyPort);
-    contribution = await createPreviewCommandContribution(selection, { proxy, host, activationMode });
+  await runThenDispose(
+    "Preview command failed",
+    async () => {
+      const proxy = await proxyServer.start(host, proxyPort);
+      contribution = await createPreviewCommandContribution(selection, {
+        proxy,
+        host,
+        activationMode,
+      });
 
-    proxyServer.addRoutes(createPreviewPresentationRoutes(contribution.state));
-    proxyServer.addRoutes(contribution.routes);
+      proxyServer.addRoutes(createPreviewPresentationRoutes(contribution.state));
+      proxyServer.addRoutes(contribution.routes);
 
-    if (contribution.tasks.length === 0) {
-      throw new BitLiteError(
-        `Preview preparation failed for every selected env${describeEnvFailures(contribution.preparationFailures)}`
-      );
-    }
+      if (contribution.tasks.length === 0) {
+        throw new BitLiteError(
+          "Preview preparation failed for every selected env" +
+            describeEnvFailures(contribution.preparationFailures)
+        );
+      }
 
-    console.log(`Preview: ${proxyServer.origin}`);
-    await superviseVendorTasks(contribution.tasks, {
-      title: () => `Preview: ${proxyServer.origin}`,
-      dispose: disposeResources,
-    });
-  } catch (error) {
-    failures.push(error);
-  }
-  try {
-    await disposeResources();
-  } catch (error) {
-    failures.push(error);
-  }
-  throwCombinedErrors(failures, "Preview command failed");
+      console.log(`Preview: ${proxyServer.origin}`);
+      await superviseVendorTasks(contribution.tasks, {
+        title: () => `Preview: ${proxyServer.origin}`,
+        dispose: disposeResources,
+      });
+    },
+    disposeResources
+  );
 }
 
 /** Names every env whose preview could not be prepared, for one summary line. */

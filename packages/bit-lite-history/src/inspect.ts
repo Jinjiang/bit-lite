@@ -1,6 +1,5 @@
-import { readComponentCommit, readComponentHead, type ComponentCommit } from "./commits.js";
-import { ComponentHistoryError } from "./errors.js";
-import { formatObjectId, type GitObjectId } from "./object-id.js";
+import { readComponentHead, walkComponentHistory, type ComponentCommit } from "./commits.js";
+import type { GitObjectId } from "./object-id.js";
 import type { ComponentHistoryStore } from "./store.js";
 import { listComponentVersionRefs } from "./tags.js";
 
@@ -41,27 +40,10 @@ export async function readComponentHistory(
 
   const versionsBySnap = await readVersionsBySnap(store, componentId);
   const entries: ComponentHistoryEntry[] = [];
-  const seen = new Set<string>();
-  let current: GitObjectId | undefined = head;
 
-  while (current !== undefined) {
-    if (options.limit !== undefined && entries.length >= options.limit) break;
-    if (seen.has(current.hex)) {
-      throw new ComponentHistoryError(
-        `component "${componentId}" history contains a cycle at ${formatObjectId(current)}`
-      );
-    }
-    seen.add(current.hex);
-
-    const commit: ComponentCommit = await readComponentCommit(store, current);
-    if (commit.parentIds.length > 1) {
-      throw new ComponentHistoryError(
-        `component "${componentId}" commit ${formatObjectId(current)} has ` +
-          `${commit.parentIds.length} parents, but component history must be linear`
-      );
-    }
+  for await (const commit of walkComponentHistory(store, componentId, head)) {
     entries.push({ commit, versions: versionsBySnap.get(commit.id.hex) ?? [] });
-    current = commit.parentIds[0];
+    if (options.limit !== undefined && entries.length >= options.limit) break;
   }
 
   return entries;

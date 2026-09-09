@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { getSelectedEnvKey } from "bit-lite-env-resolution";
 import { getOnly, ProxyServer, sendHtml, sendJson } from "bit-lite-proxy";
-import { formatError, throwCombinedErrors } from "bit-lite-utils";
+import { formatError } from "bit-lite-utils";
 import { superviseVendorTasks } from "bit-lite-vendors";
 import type { ParsedCliArgs } from "../cli-args-types.js";
 import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
@@ -10,7 +10,7 @@ import type { PreviewProxyComponent, PreviewProxyManifest } from "bit-lite-previ
 import type { VendorTask } from "bit-lite-vendors";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
 import { readHostOption, readPortOption } from "../utils/command-options.js";
-import { disposeAll, once } from "../utils/disposal.js";
+import { disposeAll, once, runThenDispose } from "../utils/disposal.js";
 import type { ResolvedCommandSelection } from "../utils/command-selection.js";
 import {
   createCompileWatchContribution,
@@ -101,49 +101,47 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
     ])
   );
 
-  const failures: unknown[] = [];
-  try {
-    compile = await createCompileWatchContribution(
-      selection.context.workspace,
-      compileRootIds,
-      selection.parsed.args
-    );
-    await compile.ready();
+  await runThenDispose(
+    "bit-lite start failed and cleanup also failed",
+    async () => {
+      // Compile is readied before anything is served, so the first request
+      // reaches components that have already been built once.
+      compile = await createCompileWatchContribution(
+        selection.context.workspace,
+        compileRootIds,
+        selection.parsed.args
+      );
+      await compile.ready();
 
-    const endpoint = await proxyServer.start(host, port);
-    proxyStarted = true;
-    preview = await createPreviewCommandContribution(selection, { proxy: endpoint, host, activationMode });
-    test = await createTestWatchContribution(selection);
+      const endpoint = await proxyServer.start(host, port);
+      proxyStarted = true;
+      preview = await createPreviewCommandContribution(selection, {
+        proxy: endpoint,
+        host,
+        activationMode,
+      });
+      test = await createTestWatchContribution(selection);
 
-    proxyServer.addRoutes(createStartRoutes(
-      endpoint,
-      preview,
-      test,
-      sourceCatalog,
-      { selection, compile }
-    ));
-    proxyServer.addRoutes(preview.routes);
-    proxyServer.addRoutes(test.routes);
+      proxyServer.addRoutes(
+        createStartRoutes(endpoint, preview, test, sourceCatalog, { selection, compile })
+      );
+      proxyServer.addRoutes(preview.routes);
+      proxyServer.addRoutes(test.routes);
 
-    const tasks = [...compile.tasks, ...preview.tasks, ...test.tasks] as VendorTask[];
-    if (tasks.length === 0) {
-      printNoStartTasks(selection, preview);
-    } else {
+      const tasks = [...compile.tasks, ...preview.tasks, ...test.tasks] as VendorTask[];
+      if (tasks.length === 0) {
+        printNoStartTasks(selection, preview);
+        return;
+      }
+
       console.log(`Start: ${endpoint.origin}`);
       await superviseVendorTasks(tasks, {
         title: () => `Start: ${endpoint.origin}`,
         dispose: disposeResources,
       });
-    }
-  } catch (error) {
-    failures.push(error);
-  }
-  try {
-    await disposeResources();
-  } catch (error) {
-    failures.push(error);
-  }
-  throwCombinedErrors(failures, "bit-lite start failed and cleanup also failed");
+    },
+    disposeResources
+  );
 }
 
 export function createStartManifest(

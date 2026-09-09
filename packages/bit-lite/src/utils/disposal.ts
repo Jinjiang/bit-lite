@@ -35,3 +35,31 @@ export function once<Result>(run: () => Promise<Result>): () => Promise<Result> 
   let pending: Promise<Result> | undefined;
   return () => (pending ??= run());
 }
+
+/**
+ * Runs a session and releases its resources afterwards, whether or not it
+ * succeeded, reporting everything that failed in either.
+ *
+ * A watch session ends for one of three reasons — it finished, it failed, or a
+ * signal asked it to stop — and the resources must be released in all three.
+ * Letting the body's failure escape before disposal is what leaves a proxy
+ * listening and worker threads alive after a failed start.
+ */
+export async function runThenDispose(
+  message: string,
+  run: () => Promise<void>,
+  dispose: () => Promise<void>
+): Promise<void> {
+  const failures: unknown[] = [];
+  try {
+    await run();
+  } catch (error) {
+    failures.push(error);
+  }
+  try {
+    await dispose();
+  } catch (error) {
+    failures.push(error);
+  }
+  throwCombinedErrors(failures, message);
+}
