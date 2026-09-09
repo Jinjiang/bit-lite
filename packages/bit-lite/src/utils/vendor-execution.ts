@@ -63,7 +63,6 @@ export type VendorExecutionDefinition<
   Prepared = undefined,
   RunResult = never,
   EventResult extends JsonValue = JsonValue,
-  InputMessage extends JsonValue = JsonValue,
 > = {
   serviceId: string;
   label: string;
@@ -92,7 +91,7 @@ export type VendorExecutionDefinition<
     ): void | Promise<void>;
     onResult?(
       result: EventResult,
-      task: VendorWatchTask<EventResult, InputMessage>,
+      task: VendorWatchTask<EventResult>,
       unit: PlannedUnit<Unit>,
       context: Context
     ): void;
@@ -101,18 +100,13 @@ export type VendorExecutionDefinition<
   } | undefined;
 };
 
-export type VendorRunOutcome<
-  Unit,
-  Prepared,
-  RunResult,
-  InputMessage extends JsonValue = JsonValue,
-> =
+export type VendorRunOutcome<Unit, Prepared, RunResult> =
   | {
       status: "successful";
       unit: PlannedUnit<Unit>;
       prepared: PreparedVendorUnit<Prepared>;
       result: VendorTaskRunResult<RunResult>;
-      task: VendorTask<RunResult, JsonValue, InputMessage>;
+      task: VendorTask<RunResult>;
     }
   | {
       status: "failed";
@@ -125,56 +119,35 @@ export type VendorRunOutcome<
       blockedBy: string[];
     };
 
-export type VendorRunExecution<
-  Unit,
-  Prepared,
-  RunResult,
-  InputMessage extends JsonValue = JsonValue,
-> = {
+export type VendorRunExecution<Unit, Prepared, RunResult> = {
   plan: VendorExecutionPlan<Unit>;
   args: ImmutableCliArguments;
-  outcomes: VendorRunOutcome<Unit, Prepared, RunResult, InputMessage>[];
+  outcomes: VendorRunOutcome<Unit, Prepared, RunResult>[];
 };
 
-export type PreparedVendorWatchUnit<
-  Unit,
-  Prepared,
-  EventResult extends JsonValue,
-  InputMessage extends JsonValue,
-> = {
+export type PreparedVendorWatchUnit<Unit, Prepared, EventResult extends JsonValue> = {
   unit: PlannedUnit<Unit>;
   prepared: PreparedVendorUnit<Prepared>;
-  task: VendorWatchTask<EventResult, InputMessage>;
+  task: VendorWatchTask<EventResult>;
 };
 
-export type ReadyVendorWatchUnit<
-  Unit,
-  Prepared,
-  EventResult extends JsonValue,
-  InputMessage extends JsonValue,
-> = PreparedVendorWatchUnit<Unit, Prepared, EventResult, InputMessage> & {
-  result: EventResult;
-};
+export type ReadyVendorWatchUnit<Unit, Prepared, EventResult extends JsonValue> =
+  PreparedVendorWatchUnit<Unit, Prepared, EventResult> & { result: EventResult };
 
 export type VendorWatchPreparationFailure<Unit> = {
   unit: PlannedUnit<Unit>;
   error: Error;
 };
 
-export type VendorWatchExecution<
-  Unit,
-  Prepared,
-  EventResult extends JsonValue,
-  InputMessage extends JsonValue,
-> = {
+export type VendorWatchExecution<Unit, Prepared, EventResult extends JsonValue> = {
   plan: VendorExecutionPlan<Unit>;
   args: ImmutableCliArguments;
-  preparedUnits: PreparedVendorWatchUnit<Unit, Prepared, EventResult, InputMessage>[];
+  preparedUnits: PreparedVendorWatchUnit<Unit, Prepared, EventResult>[];
   preparationFailures: VendorWatchPreparationFailure<Unit>[];
-  tasks: VendorWatchTask<EventResult, InputMessage>[];
+  tasks: VendorWatchTask<EventResult>[];
   ensureUnitReady(
     unitId: string
-  ): Promise<ReadyVendorWatchUnit<Unit, Prepared, EventResult, InputMessage>>;
+  ): Promise<ReadyVendorWatchUnit<Unit, Prepared, EventResult>>;
   dispose(): Promise<void>;
 };
 
@@ -253,16 +226,8 @@ export function defineVendorExecution<
   Prepared = undefined,
   RunResult = never,
   EventResult extends JsonValue = JsonValue,
-  InputMessage extends JsonValue = JsonValue,
 >(
-  definition: VendorExecutionDefinition<
-    Unit,
-    Context,
-    Prepared,
-    RunResult,
-    EventResult,
-    InputMessage
-  >
+  definition: VendorExecutionDefinition<Unit, Context, Prepared, RunResult, EventResult>
 ) {
   assertServiceId(definition.serviceId);
   if (!definition.run && !definition.watch) {
@@ -323,20 +288,12 @@ export async function runVendorExecutionPlan<
   Prepared,
   RunResult,
   EventResult extends JsonValue = JsonValue,
-  InputMessage extends JsonValue = JsonValue,
 >(options: {
   plan: VendorExecutionPlan<Unit>;
-  definition: VendorExecutionDefinition<
-    Unit,
-    Context,
-    Prepared,
-    RunResult,
-    EventResult,
-    InputMessage
-  >;
+  definition: VendorExecutionDefinition<Unit, Context, Prepared, RunResult, EventResult>;
   context: Context;
   args: CliArguments;
-}): Promise<VendorRunExecution<Unit, Prepared, RunResult, InputMessage>> {
+}): Promise<VendorRunExecution<Unit, Prepared, RunResult>> {
   const definition = defineVendorExecution(options.definition);
   const plan = validateVendorExecutionPlan(options.plan);
   if (!definition.run) {
@@ -344,11 +301,8 @@ export async function runVendorExecutionPlan<
   }
   const run = definition.run;
   const args = createEffectiveVendorArguments(options.args, "run");
-  const outcomes: VendorRunOutcome<Unit, Prepared, RunResult, InputMessage>[] = [];
-  const outcomeById = new Map<
-    string,
-    VendorRunOutcome<Unit, Prepared, RunResult, InputMessage>
-  >();
+  const outcomes: VendorRunOutcome<Unit, Prepared, RunResult>[] = [];
+  const outcomeById = new Map<string, VendorRunOutcome<Unit, Prepared, RunResult>>();
 
   for (const layer of plan.layers) {
     const layerOutcomes = await Promise.all(layer.map(async (unit) => {
@@ -367,8 +321,8 @@ export async function runVendorExecutionPlan<
           mode: "run",
           context: options.context,
         });
-        let executedTask: VendorTask<RunResult, JsonValue, InputMessage> | undefined;
-        const [result] = await runVendorTasks<RunResult, InputMessage>(
+        let executedTask: VendorTask<RunResult> | undefined;
+        const [result] = await runVendorTasks<RunResult>(
           [prepared.taskOptions],
           {
             serviceId: definition.serviceId,
@@ -406,20 +360,12 @@ export async function createVendorWatchExecution<
   Prepared,
   RunResult,
   EventResult extends JsonValue,
-  InputMessage extends JsonValue = JsonValue,
 >(options: {
   plan: VendorExecutionPlan<Unit>;
-  definition: VendorExecutionDefinition<
-    Unit,
-    Context,
-    Prepared,
-    RunResult,
-    EventResult,
-    InputMessage
-  >;
+  definition: VendorExecutionDefinition<Unit, Context, Prepared, RunResult, EventResult>;
   context: Context;
   args: CliArguments;
-}): Promise<VendorWatchExecution<Unit, Prepared, EventResult, InputMessage>> {
+}): Promise<VendorWatchExecution<Unit, Prepared, EventResult>> {
   const definition = defineVendorExecution(options.definition);
   const plan = validateVendorExecutionPlan(options.plan);
   if (!definition.watch) {
@@ -433,24 +379,21 @@ export async function createVendorWatchExecution<
     );
   }
   const args = createEffectiveVendorArguments(options.args, "watch");
-  const preparedUnits: PreparedVendorWatchUnit<Unit, Prepared, EventResult, InputMessage>[] = [];
+  const preparedUnits: PreparedVendorWatchUnit<Unit, Prepared, EventResult>[] = [];
   const preparationFailures: VendorWatchPreparationFailure<Unit>[] = [];
-  const tasks: VendorWatchTask<EventResult, InputMessage>[] = [];
+  const tasks: VendorWatchTask<EventResult>[] = [];
   const preparedForCleanup: Array<{
     unit: PlannedUnit<Unit>;
     prepared: PreparedVendorUnit<Prepared>;
   }> = [];
-  const preparedUnitById = new Map<
-    string,
-    PreparedVendorWatchUnit<Unit, Prepared, EventResult, InputMessage>
-  >();
+  const preparedUnitById = new Map<string, PreparedVendorWatchUnit<Unit, Prepared, EventResult>>();
   const readinessByUnitId = new Map<
     string,
-    Promise<ReadyVendorWatchUnit<Unit, Prepared, EventResult, InputMessage>>
+    Promise<ReadyVendorWatchUnit<Unit, Prepared, EventResult>>
   >();
   let disposed = false;
 
-  const execution: VendorWatchExecution<Unit, Prepared, EventResult, InputMessage> = {
+  const execution: VendorWatchExecution<Unit, Prepared, EventResult> = {
     plan,
     args,
     preparedUnits,
@@ -553,7 +496,7 @@ export async function createVendorWatchExecution<
 
       const creation = await Promise.all(successful.map(async (item) => {
         try {
-          const [task] = await createWatchVendorTasks<EventResult, InputMessage>(
+          const [task] = await createWatchVendorTasks<EventResult>(
             [item.prepared.taskOptions],
             {
               serviceId: definition.serviceId,
@@ -564,7 +507,7 @@ export async function createVendorWatchExecution<
                 ? {
                     onResult: (
                       result: EventResult,
-                      task: VendorWatchTask<EventResult, InputMessage>
+                      task: VendorWatchTask<EventResult>
                     ) => watch.onResult?.(result, task, item.unit, options.context),
                   }
                 : {}),

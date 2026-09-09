@@ -46,9 +46,15 @@ Worker threads do not inherit a complete terminal environment. These helpers rep
 - `readTerminalSize`: reads the parent terminal dimensions.
 - `bindTerminalResize`: sends resize messages to a worker.
 - `isTerminalResizeMessage` and `setTerminalSize`: validate and apply those messages.
-- `writeTerminalOutput`: write a worker output chunk to the selected parent stream.
 
 In non-interactive environments, callers can skip `ManagedTerminal` and consume vendor state and output directly.
+
+## Module layout
+
+The three concerns are independent and live in separate modules: `terminal-size.ts`
+(dimensions and the resize message), `worker-tty.ts` (the shim), and
+`managed-terminal.ts` (the supervising screen), with `raw-output.ts` holding the
+bounded buffer both the screen and the tasks use.
 
 ## Package development
 

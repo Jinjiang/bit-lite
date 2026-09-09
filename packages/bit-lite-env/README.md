@@ -65,7 +65,9 @@ The origin data is important because vendor and config module specifiers are res
 - `validateEnvServiceConfig`
 - `validateEnvServicesConfig`
 - `isSupportedEnvServiceName`
-- `BitLiteEnvConfigError`
+
+Invalid definitions raise `BitLiteError` from `bit-lite-utils`, so a command shows the
+message directly.
 
 ## Package development
 

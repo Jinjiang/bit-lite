@@ -68,7 +68,7 @@ const route = {
 - Repeated `start` calls return the existing endpoint.
 - `close()` destroys tracked connections before closing the server.
 
-Other exports include `findAvailablePort`, `encodeRouteSegment`, `sendHtml`, `sendJson`, and `sendText`.
+Other exports include `findAvailablePort`, `getOnly`, `sendHtml`, `sendJson`, and `sendText`.
 
 ## Package development
 

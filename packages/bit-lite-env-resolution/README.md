@@ -27,8 +27,7 @@ For commands that resolve environments one component at a time, use `loadEnvForC
 
 ## Other public helpers
 
-- `resolveEnvModuleSpecifier`: locate an env package.
-- `resolveServiceSpecifier` and `resolveVendorSpecifier`: resolve configuration and vendor modules relative to their declaring package.
+- `resolveServiceSpecifier` and `resolveVendorSpecifier`: resolve configuration and vendor modules relative to their declaring package, from the serializable service origin alone.
 - `getSelectedEnvKey`, `getPackageRefEnvKey`, and `isSelectedEnvIdentity`: identity helpers for a selected env.
 - `getWorkspaceEnvs`: the unique env contexts a resolved workspace uses.
 
