@@ -283,10 +283,6 @@ export function findCommandDeclaration(name: string): CommandDeclaration | undef
   return byName.get(name);
 }
 
-export function commandNames(): readonly string[] {
-  return declarations.map((declaration) => declaration.name);
-}
-
 /**
  * A command's own options together with the globals that apply to it. Command
  * options win on a name collision, which no command currently has and the

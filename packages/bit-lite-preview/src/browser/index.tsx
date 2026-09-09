@@ -225,7 +225,7 @@ export function startPreview(options: StartPreviewOptions): PreviewRuntimeContro
   }
 }
 
-export function renderDefaultOverview(props: PreviewOverviewProps): ReactNode {
+function renderDefaultOverview(props: PreviewOverviewProps): ReactNode {
   const demoItems = props.compositions.map((composition) =>
     createElement(
       "li",

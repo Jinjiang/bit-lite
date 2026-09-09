@@ -1,7 +1,7 @@
 import http from "node:http";
 import net from "node:net";
-import { formatError } from "bit-lite-utils";
-import { listen, sendHtml } from "bit-lite-utils/node";
+import { formatError, isPortUnavailableError } from "bit-lite-utils";
+import { isNodeErrorCode, listen, sendHtml } from "bit-lite-utils/node";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import type { Duplex } from "node:stream";
@@ -138,15 +138,17 @@ export class ProxyServer {
   }
 }
 
+/**
+ * Reports a port nothing is listening on, without holding it. Only a caller
+ * that must hand the number to something else — a vendor that will do its own
+ * binding — needs this; a server of our own uses `start`, which keeps the port
+ * it finds instead of racing for it.
+ */
 export async function findAvailablePort(host: string, startPort: number) {
   for (let port = startPort; port <= 65535; port += 1) {
     if (await canListen(host, port)) return port;
   }
   throw new Error(`No available port found at or after ${startPort}`);
-}
-
-export function encodeRouteSegment(value: string) {
-  return encodeURIComponent(value);
 }
 
 export function sendJson(response: ServerResponse, value: unknown, status = 200) {
@@ -252,6 +254,11 @@ function writeUpgradeHeaders(request: IncomingMessage, targetHost: string, socke
   if (!wroteHost) socket.write(`Host: ${targetHost}\r\n`);
 }
 
-function isAddressInUse(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error && (error.code === "EADDRINUSE" || error.code === "EACCES");
+/**
+ * Whether this port is simply unavailable to us, so the scan should move on.
+ * `EACCES` counts: a port we are not allowed to bind is as unusable as one
+ * already taken, and both are answered by trying the next one.
+ */
+function isAddressInUse(error: unknown): boolean {
+  return isPortUnavailableError(error) || isNodeErrorCode(error, "EACCES");
 }

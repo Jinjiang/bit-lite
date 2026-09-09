@@ -1,5 +1,5 @@
 import { isWorkspaceProtocolSpec } from "bit-lite-context";
-import { isRecord } from "bit-lite-utils";
+import { isRecord, sortRecordKeys } from "bit-lite-utils";
 import type { PackageRef, WorkspaceComponent } from "bit-lite-context";
 import { BitLiteError } from "bit-lite-utils";
 
@@ -66,7 +66,7 @@ export function projectComponentConfig(
 
   projected.env = resolveEnvReference(component, resolveVersion);
 
-  return sortObjectKeys(projected) as ProjectedComponentConfig;
+  return sortRecordKeys(projected) as ProjectedComponentConfig;
 }
 
 /**
@@ -108,7 +108,7 @@ function resolveDependencyRecord(
       ? requireResolvedVersion(component, packageName, resolveVersion)
       : version;
   }
-  return sortObjectKeys(resolved) as Record<string, string>;
+  return sortRecordKeys(resolved);
 }
 
 /**
@@ -142,10 +142,4 @@ function requireResolvedVersion(
     );
   }
   return version;
-}
-
-function sortObjectKeys(value: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(value).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-  );
 }

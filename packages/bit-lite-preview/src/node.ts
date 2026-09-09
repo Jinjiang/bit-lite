@@ -6,19 +6,22 @@ export type {
   PreviewPackageAlias,
 } from "./types.js";
 export {
-  createPreparedOverviewRoute,
-  createPreviewEntrySource,
-  createPreviewHtml,
   derivePreviewCompositionName,
   discoverPreviewComponents,
-  preparePreviewEnv,
-  PreviewPreparationError,
-  resolvePreviewServiceConfig,
-} from "./preparation.js";
+} from "./component-discovery.js";
 export type {
   PreparedPreviewComponent,
   PreparedPreviewComposition,
   PreparedPreviewDocs,
+} from "./component-discovery.js";
+export { createPreviewEntrySource, createPreviewHtml } from "./entry-source.js";
+export { PreviewPreparationError } from "./errors.js";
+export {
+  createPreparedOverviewRoute,
+  preparePreviewEnv,
+  resolvePreviewServiceConfig,
+} from "./preparation.js";
+export type {
   PreparedPreviewEnv,
   PreviewServerRuntime,
   ResolvedPreviewServiceConfig,
@@ -26,8 +29,6 @@ export type {
 export {
   createPreviewPresentationRoutes,
   createPreviewServiceRoutes,
-  encodeRouteSegment,
-  findAvailablePort,
   PreviewProxyServer,
   PreviewProxyState,
 } from "./proxy.js";

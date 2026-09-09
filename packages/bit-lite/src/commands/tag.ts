@@ -340,7 +340,7 @@ export async function planTagRelease(input: PlanTagReleaseInput): Promise<TagRel
  * and the whole point of the check is to catch content that moved while the
  * user was deciding.
  */
-export function fingerprintTagPlan(
+function fingerprintTagPlan(
   entries: readonly TagPlanEntry[],
   prepared: readonly PreparedComponentSnap[]
 ): string {

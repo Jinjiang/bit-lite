@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { getSelectedEnvKey } from "bit-lite-env-resolution";
 import { ProxyServer, sendHtml, sendJson, sendText } from "bit-lite-proxy";
-import { formatError, readHost, readPort, throwCombinedErrors } from "bit-lite-utils";
+import { formatError, throwCombinedErrors } from "bit-lite-utils";
 import { superviseVendorTasks } from "bit-lite-vendors";
 import type { ParsedCliArgs } from "../cli-args-types.js";
 import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
@@ -9,6 +9,7 @@ import type { ProxyEndpoint, ProxyRoute } from "bit-lite-proxy";
 import type { PreviewProxyComponent, PreviewProxyManifest } from "bit-lite-preview/node";
 import type { VendorTask } from "bit-lite-vendors";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
+import { readHostOption, readPortOption } from "../utils/command-options.js";
 import { disposeAll, once } from "../utils/disposal.js";
 import type { ResolvedCommandSelection } from "../utils/command-selection.js";
 import {
@@ -30,8 +31,6 @@ import {
 import { createTestWatchContribution, type TestWatchContribution } from "./test.js";
 
 const startShellHtml = readFileSync(new URL("../assets/start-shell.html", import.meta.url), "utf8");
-const defaultHost = "127.0.0.1";
-const defaultPort = 4000;
 
 export type StartManifestComponent = {
   componentId: string;
@@ -81,8 +80,8 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
     return;
   }
 
-  const host = readHost(parsed.args.options.host, "--host", defaultHost);
-  const port = readPort(parsed.args.options.port, "--port", defaultPort);
+  const host = readHostOption(parsed.args.options.host);
+  const port = readPortOption(parsed.args.options.port);
   const activationMode = readPreviewLazy(parsed.args.options.lazy) ? "lazy" : "eager";
   const proxyServer = new ProxyServer();
   const sourceCatalog = createStartSourceCatalog(selection.components);

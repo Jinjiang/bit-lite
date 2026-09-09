@@ -31,7 +31,7 @@ export const noVersionDecisions: VersionDecisions = new Map();
  * three-number rule and the reserved snap-identifier namespace apply to an
  * interactively chosen version without a second set of rules to keep in step.
  */
-export function assertVersionDecision(decision: VersionDecision): VersionDecision {
+function assertVersionDecision(decision: VersionDecision): VersionDecision {
   if (decision.kind === "explicit") {
     return { kind: "explicit", version: assertComponentVersion(decision.version) };
   }
