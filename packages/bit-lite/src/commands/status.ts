@@ -15,19 +15,19 @@ import {
 } from "bit-lite-history";
 import type { WorkspaceComponent } from "bit-lite-context";
 import type { ParsedCliArgs } from "../cli-args-types.js";
-import { BitLiteError } from "../utils/errors.js";
+import { BitLiteError } from "bit-lite-utils";
 import { readFlagOption } from "../utils/command-options.js";
 import {
   compareComponentStates,
   inspectWorkspace,
   type InspectedComponent,
   type WorkspaceInspection,
-} from "../utils/component-inspection.js";
+} from "bit-lite-versioning";
 import {
   readRecordedComponentConfig,
   type DependencyChange,
   type EnvChange,
-} from "../utils/component-metadata-diff.js";
+} from "bit-lite-versioning";
 
 /**
  * What: reports where each selected component stands relative to the store.

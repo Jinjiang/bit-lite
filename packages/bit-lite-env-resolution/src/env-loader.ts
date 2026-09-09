@@ -28,7 +28,7 @@ import type {
   ResolvedService,
   ResolvedServices,
 } from "./types.js";
-import { BitLiteError } from "bit-lite-context";
+import { BitLiteError } from "bit-lite-utils";
 
 type PackageManifest = {
   name: string;

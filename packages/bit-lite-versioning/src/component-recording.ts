@@ -13,7 +13,7 @@ import {
   type PreparedComponentSnap,
 } from "bit-lite-history";
 import type { Workspace, WorkspaceComponent } from "bit-lite-context";
-import { BitLiteError } from "./errors.js";
+import { BitLiteError } from "bit-lite-utils";
 import { componentConfigFileName, projectComponentConfigBytes } from "./component-projection.js";
 
 /**

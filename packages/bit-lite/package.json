@@ -30,6 +30,7 @@
     "bit-lite-terminal": "workspace:*",
     "bit-lite-utils": "workspace:*",
     "bit-lite-vendors": "workspace:*",
+    "bit-lite-versioning": "workspace:*",
     "yargs-parser": "^22.0.0"
   },
   "devDependencies": {

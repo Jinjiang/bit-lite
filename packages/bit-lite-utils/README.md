@@ -47,6 +47,19 @@ Keep a new helper in the root entry unless it imports a `node:*` module or depen
 
 Utilities should remain stateless and independent from Bit Lite workspace policy.
 
+## Shared error type
+
+`BitLiteError` marks an error as Bit Lite domain logic rather than a raw system
+failure, so a command shows its message instead of a stack trace. It lives here
+because three packages raise it and none should depend on another to name the
+type — two identical declarations already existed before this consolidation.
+
+## Patch formatting
+
+`formatPatch` serializes the difference between two component file sets as a
+unified diff. It has no dependencies of its own: it takes file sets and returns
+text.
+
 ## Package development
 
 ```bash

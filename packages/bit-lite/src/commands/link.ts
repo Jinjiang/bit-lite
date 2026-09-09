@@ -8,7 +8,7 @@ import { isRecord, sortStringRecord } from "bit-lite-utils";
 import { isNodeErrorCode, readJsonFile } from "bit-lite-utils/node";
 import type { PackageRef, Workspace, WorkspaceComponent } from "bit-lite-context";
 import type { ParsedCliArgs } from "../cli-args-types.js";
-import { BitLiteError } from "../utils/errors.js";
+import { BitLiteError } from "bit-lite-utils";
 
 export type { PackageRef, Workspace, WorkspaceComponent } from "bit-lite-context";
 export { isWorkspaceProtocolSpec, readWorkspace };

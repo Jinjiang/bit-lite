@@ -307,6 +307,7 @@ See the [`bit-lite` package documentation](./packages/bit-lite/README.md) for co
 | [`bit-lite-compiler`](./packages/bit-lite-compiler/README.md) | Compile-vendor contracts |
 | [`bit-lite-vendors`](./packages/bit-lite-vendors/README.md) | Vendor runners and task lifecycle |
 | [`bit-lite-deps`](./packages/bit-lite-deps/README.md) | Dependency installation through pnpm APIs |
+| [`bit-lite-versioning`](./packages/bit-lite-versioning/README.md) | Turns workspace state into recorded component content and compares two recorded states; sits between the workspace model and the store because it is the only layer needing both |
 | [`bit-lite-history`](./packages/bit-lite-history/README.md) | Git-backed component snaps, immutable tags, and remote synchronization |
 | [`bit-lite-preview`](./packages/bit-lite-preview/README.md) | Preview preparation, routing, and browser runtime |
 | [`bit-lite-proxy`](./packages/bit-lite-proxy/README.md) | HTTP and WebSocket routing |

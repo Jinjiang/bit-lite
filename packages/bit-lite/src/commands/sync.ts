@@ -6,7 +6,7 @@ import {
   syncComponentHistory,
   type SyncResult,
 } from "bit-lite-history";
-import { BitLiteError } from "../utils/errors.js";
+import { BitLiteError } from "bit-lite-utils";
 
 /**
  * What: synchronizes component histories and tags with the store's remote.

@@ -17,22 +17,20 @@ import {
   type ComponentTagResult,
   type PreparedComponentSnap,
 } from "bit-lite-history";
-import { compareComponentStates } from "../utils/component-inspection.js";
+import { BitLiteError } from "bit-lite-utils";
 import { selectVersions, type SelectionInputStream } from "./tag-selection.js";
-import {
-  attributeSnapChange,
-  type ChangeSource,
-  type DependencyChange,
-  type EnvChange,
-} from "../utils/component-metadata-diff.js";
-import { BitLiteError } from "../utils/errors.js";
 import { readFlagOption, readTextOption } from "../utils/command-options.js";
 import {
   prepareRecording,
   writeRecordedVersions,
   type PreparedRecording,
   type RecordingPolicy,
-} from "../utils/component-recording.js";
+  attributeSnapChange,
+  compareComponentStates,
+  type ChangeSource,
+  type DependencyChange,
+  type EnvChange,
+} from "bit-lite-versioning";
 import {
   applyVersionExclusions,
   assertVersionDecisions,
