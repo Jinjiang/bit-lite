@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { sendHtml, sendJson, sendText } from "bit-lite-proxy";
+import { getOnly, sendHtml, sendJson, sendText } from "bit-lite-proxy";
 import type { ProxyRoute } from "bit-lite-proxy";
 import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
 import type { TestComponentResult, TestWatchContribution } from "./test.js";
@@ -35,12 +35,7 @@ export function createTestResultRoutes(contribution: TestWatchContribution): Pro
     {
       id: "test:page",
       matches: (url) => url.pathname === "/tests",
-      handleHttp(request, response, { url }) {
-        if (request.method !== "GET") {
-          response.setHeader("allow", "GET");
-          sendText(response, 405, "Method not allowed");
-          return;
-        }
+      handleHttp: getOnly((_request, response, { url }) => {
         const componentId = url.searchParams.get("component");
         if (!componentId) {
           sendText(response, 400, "A component query parameter is required");
@@ -51,17 +46,12 @@ export function createTestResultRoutes(contribution: TestWatchContribution): Pro
           return;
         }
         sendHtml(response, 200, testPageHtml);
-      },
+      }),
     },
     {
       id: "test:result",
       matches: (url) => url.pathname === "/__bit-lite/test-results.json",
-      handleHttp(request, response, { url }) {
-        if (request.method !== "GET") {
-          response.setHeader("allow", "GET");
-          sendText(response, 405, "Method not allowed");
-          return;
-        }
+      handleHttp: getOnly((_request, response, { url }) => {
         const componentId = url.searchParams.get("component");
         if (!componentId) {
           sendJson(response, { error: "A component query parameter is required" }, 400);
@@ -73,7 +63,7 @@ export function createTestResultRoutes(contribution: TestWatchContribution): Pro
           return;
         }
         sendJson(response, snapshot);
-      },
+      }),
     },
   ];
 }

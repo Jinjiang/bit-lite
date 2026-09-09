@@ -1,5 +1,5 @@
-import { stat } from "node:fs/promises";
 import path from "node:path";
+import { isDirectory } from "bit-lite-utils/node";
 import { ComponentHistoryError } from "./errors.js";
 import {
   createGitRunner,
@@ -69,8 +69,7 @@ export async function openComponentHistoryStore(
   await checkGitAvailability(gitPath);
 
   const gitDir = resolveComponentStorePath(options.workspaceRoot);
-  const exists = await directoryExists(gitDir);
-  if (!exists) {
+  if (!(await isDirectory(gitDir))) {
     if (options.create === false) {
       throw new ComponentHistoryError(
         `no component history store at ${gitDir}; run "bit-lite snap" to create one`
@@ -101,7 +100,7 @@ async function assertBareRepository(run: GitRunner, gitDir: string): Promise<voi
     // A non-bare `git init` here puts the repository in `<gitDir>/.git` and
     // leaves `<gitDir>` itself a worktree, which is a different mistake from
     // an unrelated directory sitting at the store path.
-    if (await directoryExists(path.join(gitDir, ".git"))) {
+    if (await isDirectory(path.join(gitDir, ".git"))) {
       throw new ComponentHistoryError(
         `${gitDir} must be a bare Git repository, but it is a worktree containing .git`
       );
@@ -146,12 +145,4 @@ async function detectObjectFormats(
   });
   if (result.exitCode === 0) formats.push("sha256");
   return formats;
-}
-
-async function directoryExists(directory: string): Promise<boolean> {
-  try {
-    return (await stat(directory)).isDirectory();
-  } catch {
-    return false;
-  }
 }
