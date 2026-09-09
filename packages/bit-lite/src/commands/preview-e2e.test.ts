@@ -104,13 +104,13 @@ describe("prepared preview end-to-end", () => {
       expect(generatedEntry.match(new RegExp(variant.demoFile.replaceAll(".", "\\."), "g"))).toHaveLength(2);
       expect(generatedEntry).toContain('.then((module) => module["Primary"])');
       expect(generatedEntry).toContain('.then((module) => module["MySecondDemo"])');
-      proxy.updatePreparedComponents(env, prepared.runtime.server.basePath, prepared.components);
+      proxy.state.updatePreparedComponents(env, prepared.runtime.server.basePath, prepared.components);
       const harness = createHarness(env, prepared, workspaceRoot, component);
       const handle = await variant.startVendor(harness.runtime as never);
       stopVendor = () => handle.stop?.();
       const result = harness.messages.find((message) => message.type === "result");
       if (result?.type !== "result") throw new Error("preview vendor did not report its actual port");
-      proxy.updateServer(
+      proxy.state.updateServer(
         env,
         {
           origin: `http://127.0.0.1:${result.data.port}`,

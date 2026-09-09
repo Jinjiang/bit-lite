@@ -67,7 +67,7 @@ export type CreatePreviewCommandContributionOptions = {
 
 type PreviewStateWriter = Pick<
   PreviewProxyState,
-  "updatePreparedComponents" | "updatePreparationFailure" | "updatePortHints"
+  "updatePreparedComponents" | "updateFailure" | "updatePortHints"
 >;
 
 const serviceId = "preview";
@@ -222,7 +222,7 @@ export async function createPreviewCommandContribution(
       state.updateServer(env, server, task.vendor.id);
       return server;
     } catch (error) {
-      if (!disposed) state.updateActivationFailure(env, error);
+      if (!disposed) state.updateFailure(env, error);
       throw error;
     }
   };
@@ -304,7 +304,7 @@ async function preparePreviewUnit(options: {
       metadata: prepared,
     };
   } catch (error) {
-    state.updatePreparationFailure(group.env.identity, error);
+    state.updateFailure(group.env.identity, error);
     throw error;
   }
 }
@@ -324,7 +324,7 @@ async function finalizePreparedPreviewLayer(
   } catch (error) {
     for (const item of items) {
       if (item.prepared.metadata) {
-        context.state.updatePreparationFailure(item.prepared.metadata.env, error);
+        context.state.updateFailure(item.prepared.metadata.env, error);
       }
     }
     throw error;

@@ -109,16 +109,18 @@ export class PreviewProxyState {
     env.components = components.map((component) => createProxyComponent(basePath, component));
   }
 
-  updatePreparationFailure(envIdentity: SelectedEnvIdentity, error: unknown) {
+  /**
+   * Records that an env has no preview to serve. Preparing and activating fail
+   * into the same state on purpose: from a browser's side there is no
+   * difference between a preview that could not be built and one that could not
+   * be started, and the error itself says which happened.
+   */
+  updateFailure(envIdentity: SelectedEnvIdentity, error: unknown) {
     const env = this.#envs.get(getSelectedEnvKey(envIdentity));
     if (!env) return;
     env.status = "failed";
     env.error = formatError(error);
     delete env.server;
-  }
-
-  updateActivationFailure(envIdentity: SelectedEnvIdentity, error: unknown) {
-    this.updatePreparationFailure(envIdentity, error);
   }
 
   envs() {
@@ -220,6 +222,14 @@ export function createPreviewPresentationRoutes(state: PreviewProxyState): Proxy
   ];
 }
 
+/**
+ * A standalone preview endpoint: the shared proxy with the preview routes
+ * already registered, and the state they read exposed for the owner to update.
+ *
+ * `start` composes the same pieces itself, because it adds compile, test, and
+ * source routes to one proxy of its own — this is the assembly for a caller
+ * that wants previews and nothing else.
+ */
 export class PreviewProxyServer {
   #proxy = new ProxyServer();
   #state: PreviewProxyState;
@@ -236,6 +246,7 @@ export class PreviewProxyServer {
     return this.#proxy.origin;
   }
 
+  /** What the routes read. Callers update the previews through this. */
   get state() {
     return this.#state;
   }
@@ -246,33 +257,6 @@ export class PreviewProxyServer {
 
   close() {
     return this.#proxy.close();
-  }
-
-  updateTask(envIdentity: SelectedEnvIdentity, updates: Partial<Pick<PreviewEnvState, "taskId" | "vendor" | "status">>) {
-    this.#state.updateTask(envIdentity, updates);
-  }
-
-  updateServer(envIdentity: SelectedEnvIdentity, server: PreviewServerInfo, vendor: string) {
-    this.#state.updateServer(envIdentity, server, vendor);
-  }
-
-  updatePortHints(
-    envIdentity: SelectedEnvIdentity,
-    hints: Pick<PreviewEnvState, "preferredPort" | "fallbackStartPort">
-  ) {
-    this.#state.updatePortHints(envIdentity, hints);
-  }
-
-  updatePreparedComponents(envIdentity: SelectedEnvIdentity, basePath: string, components: PreparedPreviewComponent[]) {
-    this.#state.updatePreparedComponents(envIdentity, basePath, components);
-  }
-
-  updatePreparationFailure(envIdentity: SelectedEnvIdentity, error: unknown) {
-    this.#state.updatePreparationFailure(envIdentity, error);
-  }
-
-  updateActivationFailure(envIdentity: SelectedEnvIdentity, error: unknown) {
-    this.#state.updateActivationFailure(envIdentity, error);
   }
 
   manifest() {

@@ -1,6 +1,6 @@
 import path from "node:path";
 import yargsParser from "yargs-parser";
-import { BitLiteError } from "bit-lite-utils";
+import { BitLiteError, pluralize } from "bit-lite-utils";
 import {
   effectiveCommandOptions,
   findCommandDeclaration,
@@ -174,7 +174,7 @@ function assertOptionsAreKnown(
   const spellings = unknown.map(spell).join(", ");
   const known = Object.keys(options).map(spell).join(", ");
   throw new BitLiteError(
-    `Unrecognized option${unknown.length === 1 ? "" : "s"} for "${declaration.name}": ${spellings}. ` +
+    `Unrecognized ${pluralize(unknown.length, "option")} for "${declaration.name}": ${spellings}. ` +
       `${declaration.name} accepts ${known}.`
   );
 }

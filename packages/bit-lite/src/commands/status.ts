@@ -1,14 +1,11 @@
-import { stat } from "node:fs/promises";
 import { readWorkspace, selectWorkspaceComponents } from "bit-lite-context";
 import {
   abbreviateComponentVersion,
   componentTagRef,
   isAncestorCommit,
   isSnapVersion,
-  openComponentHistoryStore,
   parseSnapVersion,
   readTagTarget,
-  resolveComponentStorePath,
   type ComponentHistoryStore,
   type FileChange,
   type GitObjectId,
@@ -17,6 +14,7 @@ import type { WorkspaceComponent } from "bit-lite-context";
 import type { ParsedCliArgs } from "../cli-args-types.js";
 import { BitLiteError } from "bit-lite-utils";
 import { readFlagOption } from "../utils/command-options.js";
+import { openRecordedHistory } from "../utils/component-store.js";
 import {
   compareComponentStates,
   inspectWorkspace,
@@ -116,17 +114,13 @@ export async function runStatusCommand(
 
   // A workspace with no store is answered without opening one, which also
   // keeps `status` usable where Git is absent entirely.
-  const storePath = resolveComponentStorePath(workspace.rootDir);
-  if (!(await directoryExists(storePath))) {
+  const store = await openRecordedHistory(workspace.rootDir);
+  if (store === undefined) {
     const report = { storePath: undefined, components: components.map(neverRecordedStatus) };
     reporter.report(report);
     return report;
   }
 
-  const store = await openComponentHistoryStore({
-    workspaceRoot: workspace.rootDir,
-    create: false,
-  });
   const inspection = await inspectWorkspace(store, workspace);
 
   const statuses: ComponentStatus[] = [];
@@ -326,14 +320,6 @@ function readRecordedEnvVersion(recorded: Record<string, unknown>): string | und
   if (env === null || typeof env !== "object") return undefined;
   const version = (env as Record<string, unknown>).version;
   return typeof version === "string" ? version : undefined;
-}
-
-async function directoryExists(directory: string): Promise<boolean> {
-  try {
-    return (await stat(directory)).isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 export function createStatusReporter(

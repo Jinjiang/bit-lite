@@ -1,12 +1,12 @@
 import { readWorkspace } from "bit-lite-context";
 import type { ParsedCliArgs } from "../cli-args-types.js";
-import type { CliOptionValue } from "bit-lite-utils";
 import {
   openComponentHistoryStore,
   syncComponentHistory,
   type SyncResult,
 } from "bit-lite-history";
-import { BitLiteError } from "bit-lite-utils";
+import { BitLiteError, countOf } from "bit-lite-utils";
+import { readTextOption } from "../utils/command-options.js";
 
 /**
  * What: synchronizes component histories and tags with the store's remote.
@@ -30,7 +30,7 @@ export async function runSyncCommand(
   options: RunSyncCommandOptions = {}
 ): Promise<SyncResult> {
   const reporter = options.reporter ?? createSyncReporter();
-  const requestedUrl = readRemoteOption(parsed.args.options.remote);
+  const requestedUrl = readTextOption(parsed.args.options.remote, "--remote");
 
   const workspace = await readWorkspace(parsed.workspaceRoot);
   const store = await openComponentHistoryStore({ workspaceRoot: workspace.rootDir });
@@ -43,22 +43,12 @@ export async function runSyncCommand(
 
   if (result.conflicts.length > 0) {
     throw new BitLiteError(
-      `synchronization stopped with ${result.conflicts.length} conflict${result.conflicts.length === 1 ? "" : "s"}; no refs were changed`
+      `synchronization stopped with ${countOf(result.conflicts.length, "conflict")}; ` +
+        "no refs were changed"
     );
   }
 
   return result;
-}
-
-function readRemoteOption(value: CliOptionValue | undefined): string | undefined {
-  if (value === undefined) return undefined;
-  if (Array.isArray(value)) {
-    throw new BitLiteError("--remote accepts exactly one value");
-  }
-  if (typeof value !== "string" || value.length === 0) {
-    throw new BitLiteError("--remote requires a URL");
-  }
-  return value;
 }
 
 export function createSyncReporter(
