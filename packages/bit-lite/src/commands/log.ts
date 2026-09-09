@@ -13,13 +13,13 @@ import {
 import type { ParsedCliArgs } from "../cli-args-types.js";
 import { readFlagOption } from "../utils/command-options.js";
 import { selectSingleWorkspaceComponent } from "../utils/command-selection.js";
-import { compareComponentStates } from "../utils/component-inspection.js";
+import { compareComponentStates } from "bit-lite-versioning";
 import {
   attributeSnapChange,
   type ChangeSource,
   type DependencyChange,
   type EnvChange,
-} from "../utils/component-metadata-diff.js";
+} from "bit-lite-versioning";
 
 /**
  * What: lists one component's recorded history, saying why each version exists.

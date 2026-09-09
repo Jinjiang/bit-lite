@@ -20,14 +20,14 @@ import {
 } from "bit-lite-history";
 import type { WorkspaceComponent } from "bit-lite-context";
 import type { ParsedCliArgs } from "../cli-args-types.js";
-import { BitLiteError } from "../utils/errors.js";
+import { BitLiteError } from "bit-lite-utils";
 import { readFlagOption, readTextOption } from "../utils/command-options.js";
-import { componentConfigFileName } from "../utils/component-projection.js";
+import { componentConfigFileName } from "bit-lite-versioning";
 import {
   inspectWorkspace,
   type InspectedComponent,
-} from "../utils/component-inspection.js";
-import { formatPatch, type PatchComponent, type PatchFile } from "../utils/unified-diff.js";
+} from "bit-lite-versioning";
+import { formatPatch, type PatchComponent, type PatchFile } from "bit-lite-utils";
 
 /**
  * What: emits the line-by-line content difference of the selected components

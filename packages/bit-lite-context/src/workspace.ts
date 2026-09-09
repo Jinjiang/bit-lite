@@ -4,7 +4,7 @@ import { isRecord, sortStringRecord } from "bit-lite-utils";
 import { isNodeErrorCode, readJsonFile } from "bit-lite-utils/node";
 import { assertPackageName, CONFIG_FILE, isWorkspaceProtocolSpec, loadConfig } from "./config.js";
 import type { ComponentKind, Workspace, WorkspaceComponent } from "./types/index.js";
-import { BitLiteError } from "./utils/errors.js";
+import { BitLiteError } from "bit-lite-utils";
 import { toPosixPath } from "./utils/path-utils.js";
 import { matchPattern } from "./utils/patterns.js";
 

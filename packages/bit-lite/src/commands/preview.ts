@@ -8,7 +8,7 @@ import {
   throwCombinedErrors,
 } from "bit-lite-utils";
 import { superviseVendorTasks } from "bit-lite-vendors";
-import { BitLiteError } from "../utils/errors.js";
+import { BitLiteError } from "bit-lite-utils";
 import {
   createPreviewPresentationRoutes,
   createPreviewServiceRoutes,

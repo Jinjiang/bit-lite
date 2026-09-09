@@ -144,6 +144,9 @@ importers:
       bit-lite-vendors:
         specifier: workspace:*
         version: link:../bit-lite-vendors
+      bit-lite-versioning:
+        specifier: workspace:*
+        version: link:../bit-lite-versioning
       yargs-parser:
         specifier: ^22.0.0
         version: 22.0.0
@@ -390,6 +393,28 @@ importers:
       bit-lite-terminal:
         specifier: workspace:*
         version: link:../bit-lite-terminal
+      bit-lite-utils:
+        specifier: workspace:*
+        version: link:../bit-lite-utils
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.4
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.8
+        version: 4.1.9(@types/node@25.9.4)(jsdom@29.1.1)(vite@8.1.2(@types/node@25.9.4)(esbuild@0.28.1)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))
+
+  packages/bit-lite-versioning:
+    dependencies:
+      bit-lite-context:
+        specifier: workspace:*
+        version: link:../bit-lite-context
+      bit-lite-history:
+        specifier: workspace:*
+        version: link:../bit-lite-history
       bit-lite-utils:
         specifier: workspace:*
         version: link:../bit-lite-utils

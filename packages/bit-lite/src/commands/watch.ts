@@ -1,5 +1,5 @@
 import type { ParsedCliArgs } from "../cli-args-types.js";
-import { BitLiteError } from "../utils/errors.js";
+import { BitLiteError } from "bit-lite-utils";
 import { runCompileCommand } from "./compile.js";
 
 export function createWatchCommandArgs(parsed: ParsedCliArgs): ParsedCliArgs {

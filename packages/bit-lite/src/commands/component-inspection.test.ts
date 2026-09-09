@@ -4,8 +4,8 @@ import path from "node:path";
 import { readWorkspace } from "bit-lite-context";
 import { openComponentHistoryStore, type ComponentHistoryStore } from "bit-lite-history";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runSnapCommand, type SnapReport } from "../commands/snap.js";
-import { inspectWorkspace, type WorkspaceInspection } from "./component-inspection.js";
+import { runSnapCommand, type SnapReport } from "./snap.js";
+import { inspectWorkspace, type WorkspaceInspection } from "bit-lite-versioning";
 import type { ParsedCliArgs } from "../cli-args-types.js";
 
 // Real Git subprocesses against real repositories.

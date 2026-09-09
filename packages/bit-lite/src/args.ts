@@ -1,6 +1,6 @@
 import path from "node:path";
 import yargsParser from "yargs-parser";
-import { BitLiteError } from "./utils/errors.js";
+import { BitLiteError } from "bit-lite-utils";
 import type { ParsedCliArgs } from "./cli-args-types.js";
 import type { CliArguments, CliOptionScalar, CliOptionValue } from "bit-lite-utils";
 

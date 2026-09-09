@@ -1,7 +1,7 @@
 import { isWorkspaceProtocolSpec } from "bit-lite-context";
 import { isRecord } from "bit-lite-utils";
 import type { PackageRef, WorkspaceComponent } from "bit-lite-context";
-import { BitLiteError } from "./errors.js";
+import { BitLiteError } from "bit-lite-utils";
 
 /**
  * What: derives the `.comp.json` a component commit records from workspace

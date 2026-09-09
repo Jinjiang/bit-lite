@@ -13,7 +13,7 @@ import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
 import type { ProxyEndpoint, ProxyRoute } from "bit-lite-proxy";
 import type { PreviewProxyComponent, PreviewProxyManifest } from "bit-lite-preview/node";
 import type { VendorTask } from "bit-lite-vendors";
-import { BitLiteError } from "../utils/errors.js";
+import { BitLiteError } from "bit-lite-utils";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
 import type { ResolvedCommandSelection } from "../utils/command-selection.js";
 import {

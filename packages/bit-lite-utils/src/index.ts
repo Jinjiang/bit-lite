@@ -1,3 +1,22 @@
+export { formatPatch } from "./unified-diff.js";
+export type { PatchComponent, PatchFile, PatchFileSide } from "./unified-diff.js";
+/**
+ * Marks an error as coming from Bit Lite domain logic rather than a raw system
+ * or JavaScript failure, so a command can show its message directly instead of
+ * a stack trace.
+ *
+ * It lives here because three packages raise it and none of them should depend
+ * on another to name the type. Declaring an equivalent class per package is
+ * what this replaces: two identical copies already existed, and a third would
+ * have followed the next package that needed one.
+ */
+export class BitLiteError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BitLiteError";
+  }
+}
+
 /**
  * Shapes for the arguments a command was given. They live here rather than with
  * the CLI because they cross the vendor worker boundary as part of

@@ -1,5 +1,5 @@
 import type { CliOptionValue } from "bit-lite-utils";
-import { BitLiteError } from "./errors.js";
+import { BitLiteError } from "bit-lite-utils";
 
 /**
  * Option readers shared by the recording commands, so `snap` and `tag` accept

@@ -1,7 +1,7 @@
 import { isRecord } from "bit-lite-utils";
 import { readTreeFile, type ComponentHistoryStore, type GitObjectId } from "bit-lite-history";
 import type { PackageRef } from "bit-lite-context";
-import { BitLiteError } from "./errors.js";
+import { BitLiteError } from "bit-lite-utils";
 import { componentConfigFileName } from "./component-projection.js";
 import type { FileChange } from "bit-lite-history";
 

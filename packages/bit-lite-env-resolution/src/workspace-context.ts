@@ -1,4 +1,4 @@
-import { BitLiteError } from "bit-lite-context";
+import { BitLiteError } from "bit-lite-utils";
 import type { Workspace, WorkspaceComponent } from "bit-lite-context";
 import { getSelectedEnvKey } from "./env-identity.js";
 import { loadWorkspaceEnvContexts } from "./env-loader.js";

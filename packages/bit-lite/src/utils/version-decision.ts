@@ -1,5 +1,5 @@
 import { assertComponentVersion, type ComponentVersionIncrement } from "bit-lite-history";
-import { BitLiteError } from "./errors.js";
+import { BitLiteError } from "bit-lite-utils";
 
 /**
  * What: the version a user chose for one component, as a value.

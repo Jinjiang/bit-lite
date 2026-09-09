@@ -2,7 +2,7 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isRecord, readPackageName } from "bit-lite-utils";
 import { isNodeErrorCode } from "bit-lite-utils/node";
-import { BitLiteError } from "./utils/errors.js";
+import { BitLiteError } from "bit-lite-utils";
 import type { PackageRef, WorkspaceComponentConfig, WorkspaceConfig } from "./types/index.js";
 
 export const CONFIG_FILE = "bit-lite.json";

@@ -1,5 +1,5 @@
 import type { Workspace, WorkspaceComponent } from "./types/index.js";
-import { BitLiteError } from "./utils/errors.js";
+import { BitLiteError } from "bit-lite-utils";
 
 /**
  * What: the single definition of what one component must be processed after.

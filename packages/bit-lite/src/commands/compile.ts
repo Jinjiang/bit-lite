@@ -19,7 +19,7 @@ import type {
   VendorTask,
   VendorTaskStartOptions,
 } from "bit-lite-vendors";
-import { BitLiteError } from "../utils/errors.js";
+import { BitLiteError } from "bit-lite-utils";
 import {
   createVendorWatchExecution,
   defineVendorExecution,

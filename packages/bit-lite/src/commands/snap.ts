@@ -7,9 +7,9 @@ import {
   publishComponentSnaps,
   type ComponentSnapResult,
 } from "bit-lite-history";
-import { BitLiteError } from "../utils/errors.js";
+import { BitLiteError } from "bit-lite-utils";
 import { readFlagOption, readTextOption } from "../utils/command-options.js";
-import { prepareRecording, writeRecordedVersions } from "../utils/component-recording.js";
+import { prepareRecording, writeRecordedVersions } from "bit-lite-versioning";
 
 /**
  * What: records the selected components in the durable component history store.
