@@ -38,6 +38,8 @@ The `.comp.json` recorded in a component commit SHALL be derived from workspace 
 
 Bit Lite SHALL NOT record the resolved installed version of an external env package, so that recording remains independent of installation state. All other component-owned files SHALL be captured byte for byte.
 
+The projection SHALL have exactly one implementation. Every operation that produces recorded component content and every operation that compares it SHALL use that implementation rather than deriving the recorded form independently, so producing and comparing can never disagree about what a component's recorded content is.
+
 #### Scenario: Record a component that depends on a workspace component
 
 - **WHEN** a component whose `.comp.json` declares a workspace-placeholder dependency is recorded
@@ -64,6 +66,11 @@ Bit Lite SHALL NOT record the resolved installed version of an external env pack
 
 - **WHEN** a component is recorded twice with no change to its files, its dependencies' versions, or its env's version
 - **THEN** the second operation reports the component as unchanged and creates no commit
+
+#### Scenario: Producing and comparing share one projection
+
+- **WHEN** a recording operation and a comparison operation each derive a component's recorded content from the same workspace state
+- **THEN** both obtain identical content from the same implementation
 
 ### Requirement: The workspace component file retains its authored form
 
