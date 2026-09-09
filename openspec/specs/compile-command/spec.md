@@ -5,7 +5,7 @@ Define configured one-shot and vendor-owned watch compilation, dependency planni
 ## Requirements
 
 ### Requirement: Compile accepts named selection and a universal watch flag
-The `compile` command SHALL accept component selection through named options such as `--filter` and SHALL expose `--watch` as a common compiler-vendor lifecycle flag. The CLI SHALL reject unsupported bare arguments after the command while preserving arguments after `--` as vendor passthrough. Parsed vendor arguments SHALL contain raw arguments, named options, and passthrough arguments without a positional field.
+The `compile` command SHALL accept component selection through named options such as `--filter` and through positional component patterns, which are equivalent, and SHALL expose `--watch` as a common compiler-vendor lifecycle flag. The CLI SHALL preserve arguments after `--` as vendor passthrough. Parsed vendor arguments SHALL contain raw arguments, named options, and passthrough arguments without a positional field: a positional component pattern SHALL be consumed into the component filters during parsing and SHALL NOT reach a vendor as a positional argument.
 
 #### Scenario: One-shot compile is requested
 - **WHEN** a user runs `bit-lite compile --filter ui/button`
@@ -15,9 +15,13 @@ The `compile` command SHALL accept component selection through named options suc
 - **WHEN** a user runs `bit-lite compile --watch --filter ui/button -- --vendor-option`
 - **THEN** every selected compiler vendor receives `options.watch` as true and receives `--vendor-option` as passthrough
 
-#### Scenario: Unsupported positional argument is supplied
+#### Scenario: Component is selected positionally
 - **WHEN** a user runs `bit-lite compile ui/button`
-- **THEN** argument parsing fails with guidance to use `--filter` for selection or `--` for vendor passthrough
+- **THEN** compile selects the same components as `bit-lite compile --filter ui/button` and the parsed vendor arguments carry no positional field
+
+#### Scenario: Positional selection is combined with vendor passthrough
+- **WHEN** a user runs `bit-lite compile ui/button --watch -- --vendor-option`
+- **THEN** `ui/button` selects the component, `options.watch` is true, and the compiler vendor receives `--vendor-option` as passthrough
 
 ### Requirement: Compile plans configured compiler services in dependency order
 Compile SHALL resolve each included component's compiler from the `services.compile` definition of its effective environment without selecting a compiler from component kind. It SHALL include required local environment components in the plan, order planned components by local runtime and environment prerequisites, and invoke each component separately with its effective service config and selected-env identity.
