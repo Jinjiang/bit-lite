@@ -15,7 +15,7 @@ import { runTagCommand } from "./commands/tag.js";
 import { runTestCommand } from "./commands/test.js";
 import { runWatchCommand } from "./commands/watch.js";
 import type { ParsedCliArgs } from "./cli-args-types.js";
-import { BitLiteError } from "bit-lite-utils";
+import { BitLiteError, formatError } from "bit-lite-utils";
 
 type CommandHandler = (parsed: ParsedCliArgs) => void | Promise<unknown>;
 
@@ -64,8 +64,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
 
     throw unknownCommand(parsed.command ?? "");
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(message);
+    console.error(formatError(error));
     return 1;
   }
 }

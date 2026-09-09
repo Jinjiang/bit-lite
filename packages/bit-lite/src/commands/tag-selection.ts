@@ -1,5 +1,5 @@
 import readline from "node:readline";
-import { countOf } from "bit-lite-utils";
+import { countOf, formatError } from "bit-lite-utils";
 import type { WorkspaceComponent } from "bit-lite-context";
 import type { ComponentVersionIncrement } from "bit-lite-history";
 import { assertComponentVersion } from "bit-lite-history";
@@ -171,7 +171,7 @@ class VersionSelection {
         assertComponentVersion(editing.text);
       } catch (error) {
         // Reported in place: a mistyped version must not abandon the release.
-        this.#notice = error instanceof Error ? error.message : String(error);
+        this.#notice = formatError(error);
         return this.#render();
       }
       this.#editing = undefined;
@@ -233,7 +233,7 @@ class VersionSelection {
       // for instance — is reported and rolled back, leaving the review open.
       if (previous === undefined) this.#decisions.delete(componentId);
       else this.#decisions.set(componentId, previous);
-      this.#notice = error instanceof Error ? error.message : String(error);
+      this.#notice = formatError(error);
     }
     this.#render();
   }

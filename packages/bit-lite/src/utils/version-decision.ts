@@ -1,5 +1,5 @@
 import { assertComponentVersion, type ComponentVersionIncrement } from "bit-lite-history";
-import { BitLiteError } from "bit-lite-utils";
+import { BitLiteError, formatError } from "bit-lite-utils";
 
 /**
  * What: the version a user chose for one component, as a value.
@@ -45,7 +45,7 @@ export function assertVersionDecisions(decisions: VersionDecisions): VersionDeci
     try {
       validated.set(componentId, assertVersionDecision(decision));
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = formatError(error);
       throw new BitLiteError(`component "${componentId}": ${reason}`);
     }
   }
