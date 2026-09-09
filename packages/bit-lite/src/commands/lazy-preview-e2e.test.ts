@@ -232,7 +232,7 @@ async function createSelection(
     };
     return {
       env: {
-        env,
+        identity: env,
         package: source,
         config: undefined,
         services: { preview: service },

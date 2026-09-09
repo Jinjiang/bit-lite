@@ -1,12 +1,10 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { isRecord, readPackageName } from "bit-lite-utils";
+import { BitLiteError, formatError, isPackageName, isRecord, pluralize, readPackageName } from "bit-lite-utils";
 import { isNodeErrorCode } from "bit-lite-utils/node";
-import { BitLiteError } from "bit-lite-utils";
 import type { PackageRef, WorkspaceComponentConfig, WorkspaceConfig } from "./types/index.js";
 
 export const CONFIG_FILE = "bit-lite.json";
-const packageNamePattern = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 
 export async function loadConfig(workspaceRoot: string): Promise<WorkspaceConfig> {
   const configPath = path.join(workspaceRoot, CONFIG_FILE);
@@ -24,8 +22,7 @@ export async function loadConfig(workspaceRoot: string): Promise<WorkspaceConfig
     return validateConfig(JSON.parse(raw) as unknown);
   } catch (error) {
     if (error instanceof BitLiteError) throw error;
-    const message = error instanceof Error ? error.message : String(error);
-    throw new BitLiteError(`failed parsing ${CONFIG_FILE}: ${message}`);
+    throw new BitLiteError(`failed parsing ${CONFIG_FILE}: ${formatError(error)}`);
   }
 }
 
@@ -59,7 +56,7 @@ export function validateConfig(value: unknown): WorkspaceConfig {
     const component: WorkspaceComponentConfig = {
       path: readRequiredString(entry.path, `component entry at index ${index} field "path"`),
       id: readRequiredString(entry.id, `component entry at index ${index} field "id"`),
-      packageName: readConfigPackageName(
+      packageName: readPackageName(
         entry.packageName,
         `component entry at index ${index} field "packageName"`
       ),
@@ -125,7 +122,7 @@ export async function writeComponentVersions(
 
   if (remaining.size > 0) {
     throw new BitLiteError(
-      `${CONFIG_FILE} has no entry for component${remaining.size === 1 ? "" : "s"} ${[...remaining].join(", ")}`
+      `${CONFIG_FILE} has no entry for ${pluralize(remaining.size, "component")} ${[...remaining].join(", ")}`
     );
   }
 
@@ -134,21 +131,16 @@ export async function writeComponentVersions(
   await rename(temporaryPath, configPath);
 }
 
-export function readPackageRef(value: unknown, label: string): PackageRef {
+function readPackageRef(value: unknown, label: string): PackageRef {
   if (!isRecord(value)) throw new BitLiteError(`${label} must be an object`);
-  const packageName = readConfigPackageName(
-    value.packageName,
-    `${label}.packageName`
-  );
+  const packageName = readPackageName(value.packageName, `${label}.packageName`);
   const version = readRequiredString(value.version, `${label}.version`);
   if (/\s/.test(version)) throw new BitLiteError(`${label}.version must be a supported package version specifier`);
   return { packageName, version };
 }
 
 export function assertPackageName(name: string) {
-  if (!packageNamePattern.test(name) || name.length > 214) {
-    throw new BitLiteError(`invalid npm package name "${name}"`);
-  }
+  if (!isPackageName(name)) throw new BitLiteError(`invalid npm package name "${name}"`);
 }
 
 export function isWorkspaceProtocolSpec(version: string) {
@@ -165,19 +157,6 @@ function rejectLegacyFields(value: Record<string, unknown>) {
   for (const [field, message] of Object.entries(migrations)) {
     if (field in value) throw new BitLiteError(message);
   }
-}
-
-function readConfigPackageName(value: unknown, label: string) {
-  return readPackageName(value, {
-    invalidTypeReason: "required-string",
-    pattern: packageNamePattern,
-    createError: (reason) =>
-      new BitLiteError(
-        reason === "required-string"
-          ? `${label} must be a non-empty string`
-          : `${label} must be a valid npm package name`
-      ),
-  });
 }
 
 function assertPackageScope(scope: string) {

@@ -236,7 +236,7 @@ async function listenOnPreviewPort(
     await listen(server, host, preferredPort);
     return readServerPort(server);
   } catch (error) {
-    if (!isPortUnavailableError(error, "code-only")) throw error;
+    if (!isPortUnavailableError(error)) throw error;
   }
 
   for (let port = fallbackStartPort; port <= 65535; port += 1) {
@@ -244,7 +244,7 @@ async function listenOnPreviewPort(
       await listen(server, host, port);
       return readServerPort(server);
     } catch (error) {
-      if (!isPortUnavailableError(error, "code-only")) throw error;
+      if (!isPortUnavailableError(error)) throw error;
     }
   }
   throw new Error(`No available preview port found at or after ${fallbackStartPort}`);

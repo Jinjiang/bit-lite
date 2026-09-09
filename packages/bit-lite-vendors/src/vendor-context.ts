@@ -22,7 +22,7 @@ export function createVendorContext(options: {
     version: 1,
     workspace: options.workspace,
     args: options.args,
-    env: options.env.env,
+    env: options.env.identity,
     service: {
       name: options.service.name,
       source: options.service.source,

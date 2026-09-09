@@ -1,30 +1,28 @@
-import { access, lstat, mkdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  getComponentDependencyDirectory,
+  getLinkedPackageDirectory,
   isWorkspaceProtocolSpec,
   readWorkspace,
 } from "bit-lite-context";
-import { isRecord, sortStringRecord } from "bit-lite-utils";
+import { BitLiteError, countOf, isRecord, sortStringRecord } from "bit-lite-utils";
 import { isNodeErrorCode, readJsonFile } from "bit-lite-utils/node";
-import type { PackageRef, Workspace, WorkspaceComponent } from "bit-lite-context";
+import { unrecordedComponentVersion } from "bit-lite-versioning";
+import type { Workspace, WorkspaceComponent } from "bit-lite-context";
 import type { ParsedCliArgs } from "../cli-args-types.js";
-import { BitLiteError } from "bit-lite-utils";
-
-export type { PackageRef, Workspace, WorkspaceComponent } from "bit-lite-context";
-export { isWorkspaceProtocolSpec, readWorkspace };
-export { sortStringRecord };
 
 export async function runLinkCommand(parsed: ParsedCliArgs) {
   const workspace = await readWorkspace(parsed.workspaceRoot);
   await linkComponentPackages(workspace);
-  console.log(`Linked ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}.`);
+  console.log(`Linked ${countOf(workspace.components.length, "component package")}.`);
   for (const component of workspace.components) console.log(`- ${component.id} -> ${component.packageName}`);
 }
 
 export async function linkComponentPackages(workspace: Workspace) {
   const versions = readComponentVersions(workspace);
   for (const component of workspace.components) {
-    const packageDir = getPackageDirectory(workspace.rootDir, component.packageName);
+    const packageDir = getLinkedPackageDirectory(workspace.rootDir, component.packageName);
     await preparePackageDirectory(packageDir, component);
     await writeJsonFile(
       path.join(packageDir, "package.json"),
@@ -34,14 +32,6 @@ export async function linkComponentPackages(workspace: Workspace) {
     await ensureComponentDependencyLinks(workspace.rootDir, packageDir, component);
     await mkdir(path.join(packageDir, "dist"), { recursive: true });
   }
-}
-
-export function getPackageDirectory(workspaceRoot: string, packageName: string) {
-  return path.join(workspaceRoot, "node_modules", ...packageName.split("/"));
-}
-
-export function getComponentDependencyDirectory(workspaceRoot: string, packageName: string) {
-  return path.join(workspaceRoot, ".bit-lite", "deps", "components", ...packageName.split("/"));
 }
 
 export async function writeJsonFile(filePath: string, value: unknown) {
@@ -60,8 +50,6 @@ export async function writeJsonFile(filePath: string, value: unknown) {
  * because resolution happens through symlinks rather than through these
  * versions.
  */
-export const unrecordedComponentVersion = "0.0.0";
-
 function readComponentVersions(workspace: Workspace): ReadonlyMap<string, string> {
   return new Map(
     workspace.components.map((component) => [
@@ -122,44 +110,44 @@ function createGeneratedPackageManifest(
   return manifest;
 }
 
+/**
+ * Makes sure the package directory is one Bit Lite may write into. A stale
+ * symlink from an earlier layout is replaced; a real directory belonging to
+ * another package is refused, because overwriting it would delete something
+ * this command did not generate.
+ */
 async function preparePackageDirectory(packageDir: string, component: WorkspaceComponent) {
   await mkdir(path.dirname(packageDir), { recursive: true });
-  try {
-    const stats = await lstat(packageDir);
-    if (stats.isSymbolicLink()) {
-      await rm(packageDir, { recursive: true, force: true });
-      await mkdir(packageDir, { recursive: true });
-      return;
-    }
-    if (!stats.isDirectory()) {
-      throw new BitLiteError(`cannot link ${component.packageName}: ${packageDir} exists and is not a directory`);
-    }
-  } catch (error) {
-    if (isNodeErrorCode(error, "ENOENT")) {
-      await mkdir(packageDir, { recursive: true });
-      return;
-    }
-    throw error;
-  }
 
-  const existingManifestPath = path.join(packageDir, "package.json");
-  try {
-    const existingManifest = await readJsonFile(existingManifestPath, {
-      mapParseError: (error) =>
-        new BitLiteError(
-          `failed parsing ${existingManifestPath}: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        ),
-    });
-    if (isRecord(existingManifest) && typeof existingManifest.name === "string" && existingManifest.name !== component.packageName) {
+  const existing = await lstatOrUndefined(packageDir);
+  if (existing?.isDirectory() !== true) {
+    if (existing?.isSymbolicLink() === true) await rm(packageDir, { recursive: true, force: true });
+    else if (existing !== undefined) {
       throw new BitLiteError(
-        `cannot link ${component.packageName}: ${packageDir} already belongs to ${existingManifest.name}`
+        `cannot link ${component.packageName}: ${packageDir} exists and is not a directory`
       );
     }
-  } catch (error) {
-    if (!isNodeErrorCode(error, "ENOENT")) throw error;
+    await mkdir(packageDir, { recursive: true });
+    return;
   }
+
+  const owner = await readPackageDirectoryOwner(path.join(packageDir, "package.json"));
+  if (owner !== undefined && owner !== component.packageName) {
+    throw new BitLiteError(
+      `cannot link ${component.packageName}: ${packageDir} already belongs to ${owner}`
+    );
+  }
+}
+
+async function readPackageDirectoryOwner(manifestPath: string): Promise<string | undefined> {
+  let manifest: unknown;
+  try {
+    manifest = await readJsonFile(manifestPath);
+  } catch (error) {
+    if (isNodeErrorCode(error, "ENOENT")) return undefined;
+    throw error;
+  }
+  return isRecord(manifest) && typeof manifest.name === "string" ? manifest.name : undefined;
 }
 
 async function ensureSourceSymlink(packageDir: string, componentRootDir: string) {
@@ -180,59 +168,64 @@ async function ensureComponentDependencyLinks(
     ...(component.internalEnvPackageName ? [component.internalEnvPackageName] : []),
   ]);
   for (const packageName of [...internalToolingPackages].sort()) {
-    await replacePackageSymlink(
+    await replaceOwnedSymlink(
       path.join(dependencyDir, ...packageName.split("/")),
-      getPackageDirectory(workspaceRoot, packageName),
-      component.packageName
+      getLinkedPackageDirectory(workspaceRoot, packageName),
+      "generated-tree",
+      `cannot link internal dependency for ${component.packageName}`
     );
   }
-  const destinations = [path.join(packageDir, "node_modules"), path.join(component.rootDir, "node_modules")];
-  for (const destination of destinations) {
-    await replaceManagedDirectorySymlink(destination, dependencyDir, component.packageName);
+  for (const destination of [
+    path.join(packageDir, "node_modules"),
+    path.join(component.rootDir, "node_modules"),
+  ]) {
+    await replaceOwnedSymlink(
+      destination,
+      dependencyDir,
+      "user-directory",
+      `cannot link dependencies for ${component.packageName}`
+    );
   }
 }
 
-async function replacePackageSymlink(destination: string, source: string, ownerPackageName: string) {
+/**
+ * Where a link lives decides how much the linker may assume about it.
+ *
+ * A link inside Bit Lite's own generated tree is owned by its location, so
+ * whatever is there may be replaced. A link written into a directory the user
+ * owns — a component's `node_modules` — has to prove it was Bit Lite that
+ * created it, or the linker would quietly delete something it did not put there.
+ */
+type SymlinkOwnership = "generated-tree" | "user-directory";
+
+async function replaceOwnedSymlink(
+  destination: string,
+  source: string,
+  ownership: SymlinkOwnership,
+  reason: string
+) {
   await mkdir(path.dirname(destination), { recursive: true });
-  try {
-    const stats = await lstat(destination);
-    if (!stats.isSymbolicLink()) {
-      throw new BitLiteError(
-        `cannot link internal dependency for ${ownerPackageName}: ${destination} exists and is not a symlink`
-      );
+
+  const existing = await lstatOrUndefined(destination);
+  if (existing !== undefined) {
+    if (!existing.isSymbolicLink()) {
+      throw new BitLiteError(`${reason}: ${destination} exists and is not a symlink`);
+    }
+    if (ownership === "user-directory" && !(await symlinkPointsTo(destination, source))) {
+      throw new BitLiteError(`${reason}: ${destination} is not managed by bit-lite`);
     }
     await rm(destination, { recursive: true, force: true });
-  } catch (error) {
-    if (!isNodeErrorCode(error, "ENOENT")) throw error;
   }
+
   await symlink(path.relative(path.dirname(destination), source), destination, "dir");
 }
 
-async function replaceManagedDirectorySymlink(destination: string, source: string, packageName: string) {
-  await mkdir(path.dirname(destination), { recursive: true });
+async function lstatOrUndefined(filePath: string) {
   try {
-    const stats = await lstat(destination);
-    if (!stats.isSymbolicLink()) {
-      throw new BitLiteError(`cannot link dependencies for ${packageName}: ${destination} exists and is not a symlink`);
-    }
-    if (!(await symlinkPointsTo(destination, source))) {
-      throw new BitLiteError(`cannot link dependencies for ${packageName}: ${destination} is not managed by bit-lite`);
-    }
-    await rm(destination, { recursive: true, force: true });
+    return await lstat(filePath);
   } catch (error) {
-    if (!isNodeErrorCode(error, "ENOENT")) throw error;
-  }
-  await symlink(path.relative(path.dirname(destination), source), destination, "dir");
-}
-
-async function removeManagedDependencyLink(destination: string, source: string) {
-  try {
-    const stats = await lstat(destination);
-    if (stats.isSymbolicLink() && (await symlinkPointsTo(destination, source))) {
-      await rm(destination, { force: true });
-    }
-  } catch (error) {
-    if (!isNodeErrorCode(error, "ENOENT")) throw error;
+    if (isNodeErrorCode(error, "ENOENT")) return undefined;
+    throw error;
   }
 }
 

@@ -5,7 +5,6 @@ export {
 } from "./env-identity.js";
 export {
   loadEnvForComponent,
-  resolveEnvModuleSpecifier,
   resolveServiceSpecifier,
   resolveVendorSpecifier,
 } from "./env-loader.js";

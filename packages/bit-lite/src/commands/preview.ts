@@ -1,6 +1,7 @@
-import { getSelectedEnvKey, resolveEnvModuleSpecifier } from "bit-lite-env-resolution";
+import { getSelectedEnvKey, resolveServiceSpecifier } from "bit-lite-env-resolution";
 import { ProxyServer } from "bit-lite-proxy";
 import {
+  BitLiteError,
   formatError,
   isJsonObject,
   readHost,
@@ -8,7 +9,6 @@ import {
   throwCombinedErrors,
 } from "bit-lite-utils";
 import { superviseVendorTasks } from "bit-lite-vendors";
-import { BitLiteError } from "bit-lite-utils";
 import {
   createPreviewPresentationRoutes,
   createPreviewServiceRoutes,
@@ -44,6 +44,8 @@ import type {
 } from "../utils/vendor-execution.js";
 import type { WatchCommandContribution } from "../utils/watch-contribution.js";
 import { readFlagOption } from "../utils/command-options.js";
+import { disposeAll, once } from "../utils/disposal.js";
+import { printNoTasks } from "../utils/no-tasks.js";
 
 export type PreviewVendorRuntime = PreviewPreparedRuntime;
 export type PreviewServiceResult = JsonObject & { mode: "serve"; port: number };
@@ -105,43 +107,22 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
   const selection = await prepareResolvedCommandSelection(parsed);
   const plan = createEnvServiceExecutionPlan(selection, serviceId);
   if (plan.layers[0]?.length === 0) {
-    printNoPreviewTasks(selection.groups);
+    printNoTasks("preview", selection.groups);
     return;
   }
 
   const host = readPreviewHost(parsed.args.options.host);
-  const proxyPort = readPreviewPort(
-    parsed.args.options.port,
-    "--port",
-    defaultProxyPort
-  );
+  const proxyPort = readPreviewPort(parsed.args.options.port, "--port", defaultProxyPort);
   const activationMode = readPreviewLazy(parsed.args.options.lazy) ? "lazy" : "eager";
   const proxyServer = new ProxyServer();
   let contribution: PreviewCommandContribution | undefined;
-  let disposePromise: Promise<void> | undefined;
 
-  const disposeResources = () => {
-    if (disposePromise) return disposePromise;
-    disposePromise = (async () => {
-      const failures: unknown[] = [];
-      try {
-        await contribution?.dispose();
-      } catch (error) {
-        failures.push(error);
-      }
-      try {
-        await proxyServer.close();
-      } catch (error) {
-        failures.push(error);
-      }
-      throwCombinedErrors(
-        failures,
-        "Failed to dispose preview command resources",
-        "deduplicate"
-      );
-    })();
-    return disposePromise;
-  };
+  const disposeResources = once(() =>
+    disposeAll("Failed to dispose preview command resources", [
+      () => contribution?.dispose(),
+      () => proxyServer.close(),
+    ])
+  );
 
   const failures: unknown[] = [];
   try {
@@ -152,10 +133,9 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
     proxyServer.addRoutes(contribution.routes);
 
     if (contribution.tasks.length === 0) {
-      const failures = contribution.preparationFailures
-        .map(({ env, error }) => `${env.env.packageName}: ${formatError(error)}`)
-        .join("; ");
-      throw new BitLiteError(`Preview preparation failed for every selected env${failures ? ` (${failures})` : ""}`);
+      throw new BitLiteError(
+        `Preview preparation failed for every selected env${describeEnvFailures(contribution.preparationFailures)}`
+      );
     }
 
     console.log(`Preview: ${proxyServer.origin}`);
@@ -169,9 +149,20 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
   try {
     await disposeResources();
   } catch (error) {
-    if (!failures.includes(error)) failures.push(error);
+    failures.push(error);
   }
-  throwCombinedErrors(failures, "Preview command failed", "deduplicate");
+  throwCombinedErrors(failures, "Preview command failed");
+}
+
+/** Names every env whose preview could not be prepared, for one summary line. */
+function describeEnvFailures(
+  preparationFailures: readonly { env: EnvContext; error: unknown }[]
+): string {
+  if (preparationFailures.length === 0) return "";
+  const described = preparationFailures
+    .map(({ env, error }) => `${env.identity.packageName}: ${formatError(error)}`)
+    .join("; ");
+  return ` (${described})`;
 }
 
 export async function createPreviewCommandContribution(
@@ -183,11 +174,11 @@ export async function createPreviewCommandContribution(
   const plan = createEnvServiceExecutionPlan(selection, serviceId);
   const plannedUnits = plan.layers[0] ?? [];
   const unitIdByEnv = new Map(
-    plannedUnits.map(({ id, value }) => [getSelectedEnvKey(value.group.env.env), id])
+    plannedUnits.map(({ id, value }) => [getSelectedEnvKey(value.group.env.identity), id])
   );
   const state = new PreviewProxyState({
     envs: plannedUnits.map(({ id, value }) => ({
-      env: value.group.env.env,
+      env: value.group.env.identity,
       taskId: id,
       vendor: value.service.definition.vendor,
       status: activationMode === "lazy" ? "idle" : "starting",
@@ -208,7 +199,6 @@ export async function createPreviewCommandContribution(
   const tasks = execution.tasks;
   let cleanupListeners: (() => void) | undefined;
   let disposed = false;
-  let disposePromise: Promise<void> | undefined;
 
   try {
     cleanupListeners = attachPreviewTaskListeners(state, tasks);
@@ -241,36 +231,14 @@ export async function createPreviewCommandContribution(
     for (const task of tasks) void ensureStarted(task.context.env).catch(() => undefined);
   }
 
-  const dispose = () => {
-    if (disposePromise) return disposePromise;
+  const dispose = once(async () => {
     disposed = true;
-    disposePromise = (async () => {
-      const failures: unknown[] = [];
-      try {
-        await execution.dispose();
-      } catch (error) {
-        failures.push(error);
-      }
-      for (const task of tasks) {
-        try {
-          state.updateTask(task.context.env, { status: "stopped" });
-        } catch (error) {
-          failures.push(error);
-        }
-      }
-      try {
-        cleanupListeners?.();
-      } catch (error) {
-        failures.push(error);
-      }
-      throwCombinedErrors(
-        failures,
-        "Failed to dispose preview contribution",
-        "deduplicate"
-      );
-    })();
-    return disposePromise;
-  };
+    await disposeAll("Failed to dispose preview contribution", [
+      () => execution.dispose(),
+      ...tasks.map((task) => () => state.updateTask(task.context.env, { status: "stopped" })),
+      () => cleanupListeners?.(),
+    ]);
+  });
 
   return {
     serviceId,
@@ -307,26 +275,26 @@ async function preparePreviewUnit(options: {
       host,
       preferredPort: defaultVendorPort,
       fallbackStartPort: defaultVendorPort,
-      basePath: `/env/${encodeRouteSegment(group.env.env.packageName)}/`,
+      basePath: `/env/${encodeRouteSegment(group.env.identity.packageName)}/`,
       proxyOrigin,
     };
     const prepared = await preparePreviewEnv({
-      env: group.env.env,
+      env: group.env.identity,
       components: group.components,
       config: service.definition.config ?? {},
       workspaceRoot: workspace.rootDir,
       server,
       resolveModule(specifier, field) {
-        return resolveEnvModuleSpecifier({
+        return resolveServiceSpecifier({
           specifier,
-          service,
+          source: service.source,
           workspaceRoot: workspace.rootDir,
           field: `preview config.${field}`,
-          selectedEnv: group.env.env.packageName,
+          selectedEnv: group.env.identity.packageName,
         });
       },
     });
-    state.updatePreparedComponents(group.env.env, server.basePath, prepared.components);
+    state.updatePreparedComponents(group.env.identity, server.basePath, prepared.components);
     return {
       taskOptions: {
         ...taskOptions,
@@ -336,7 +304,7 @@ async function preparePreviewUnit(options: {
       metadata: prepared,
     };
   } catch (error) {
-    state.updatePreparationFailure(group.env.env, error);
+    state.updatePreparationFailure(group.env.identity, error);
     throw error;
   }
 }
@@ -442,32 +410,16 @@ function toPreviewServerInfo(runtime: PreviewPreparedRuntime, result: PreviewSer
   };
 }
 
-function printNoPreviewTasks(groups: readonly WorkspaceEnvGroup[]) {
-  console.log("No preview tasks found.");
-  if (groups.length === 0) {
-    console.log("No components were selected from this workspace.");
-    return;
-  }
-  console.log(`Selected envs: ${groups.map((group) => group.env.env.packageName).join(", ")}`);
-  console.log("Make sure each selected env defines services.preview in the workspace config.");
-}
-
 export function readPreviewHost(value: CliOptionValue | undefined) {
-  return readHost(value, {
-    fallback: defaultHost,
-    createError: () => new BitLiteError("--host requires a host name"),
-  });
+  return readHost(value, "--host", defaultHost);
 }
 
-export function readPreviewPort(value: CliOptionValue | undefined, optionName: string, fallback: number) {
-  return readPort(value, {
-    fallback,
-    acceptNumericString: true,
-    createError: () =>
-      new BitLiteError(
-        `${optionName} requires a port number between 1 and 65535`
-      ),
-  });
+export function readPreviewPort(
+  value: CliOptionValue | undefined,
+  optionName: string,
+  fallback: number
+) {
+  return readPort(value, optionName, fallback);
 }
 
 export function readPreviewLazy(value: CliOptionValue | undefined) {

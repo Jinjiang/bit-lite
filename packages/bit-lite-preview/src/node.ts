@@ -54,18 +54,11 @@ export function readPreviewPreparedRuntime(runtime: JsonObject | undefined): Pre
   if (typeof host !== "string" || host.length === 0) {
     throw new Error("preview vendor runtime.server.host is missing");
   }
-  const validatedPreferredPort = readPort(preferredPort, {
-    createError: () =>
-      new Error(
-        "preview vendor runtime.server.preferredPort must be an integer between 1 and 65535"
-      ),
-  });
-  const validatedFallbackStartPort = readPort(fallbackStartPort, {
-    createError: () =>
-      new Error(
-        "preview vendor runtime.server.fallbackStartPort must be an integer between 1 and 65535"
-      ),
-  });
+  const validatedPreferredPort = readPort(preferredPort, "preview vendor runtime.server.preferredPort");
+  const validatedFallbackStartPort = readPort(
+    fallbackStartPort,
+    "preview vendor runtime.server.fallbackStartPort"
+  );
   if (typeof basePath !== "string" || !basePath.startsWith("/")) {
     throw new Error("preview vendor runtime.server.basePath is missing");
   }

@@ -5,7 +5,7 @@ import {
   runVendorTasks,
   stopVendorTasks,
 } from "bit-lite-vendors";
-import { throwCombinedErrors } from "bit-lite-utils";
+import { disposeAll, once } from "./disposal.js";
 import type { Workspace, WorkspaceComponent } from "bit-lite-context";
 import type { CliArguments, CliOptionValue } from "bit-lite-utils";
 import type { EnvContext, PackageLocation, WorkspaceEnvGroup } from "bit-lite-env-resolution";
@@ -237,7 +237,7 @@ export function createEnvServiceExecutionPlan(
     const service = getResolvedService(group.env, serviceId);
     return service
       ? [{
-          id: `${serviceId}:${getSelectedEnvKey(group.env.env)}`,
+          id: `${serviceId}:${getSelectedEnvKey(group.env.identity)}`,
           dependsOn: [],
           value: { group, service },
         }]
@@ -296,9 +296,9 @@ export async function prepareResolvedServiceTaskOptions(options: {
   const { group, service } = options.unit;
   const vendorUrl = await resolveVendorSpecifier({
     specifier: service.definition.vendor,
-    service,
+    source: service.source,
     workspaceRoot: options.workspace.rootDir,
-    selectedEnv: group.env.env.packageName,
+    selectedEnv: group.env.identity.packageName,
     serviceName: service.name,
   });
   return {
@@ -449,7 +449,6 @@ export async function createVendorWatchExecution<
     Promise<ReadyVendorWatchUnit<Unit, Prepared, EventResult, InputMessage>>
   >();
   let disposed = false;
-  let disposePromise: Promise<void> | undefined;
 
   const execution: VendorWatchExecution<Unit, Prepared, EventResult, InputMessage> = {
     plan,
@@ -494,30 +493,17 @@ export async function createVendorWatchExecution<
       readinessByUnitId.set(unitId, readiness);
       return readiness;
     },
-    dispose() {
-      if (disposePromise) return disposePromise;
+    dispose: once(async () => {
       disposed = true;
-      disposePromise = (async () => {
-        const failures: unknown[] = [];
-        try {
-          await stopVendorTasks(tasks);
-        } catch (error) {
-          failures.push(error);
-        }
-        for (const { unit, prepared } of [...preparedForCleanup].reverse()) {
-          try {
-            await definition.cleanupPrepared?.(prepared, unit);
-          } catch (error) {
-            failures.push(error);
-          }
-        }
-        throwCombinedErrors(
-          failures,
-          `Failed to dispose vendor watch execution "${definition.serviceId}"`
-        );
-      })();
-      return disposePromise;
-    },
+      // Preparations are undone in reverse, so a later unit never observes a
+      // resource an earlier one had already released.
+      await disposeAll(`Failed to dispose vendor watch execution "${definition.serviceId}"`, [
+        () => stopVendorTasks(tasks),
+        ...[...preparedForCleanup]
+          .reverse()
+          .map(({ unit, prepared }) => () => definition.cleanupPrepared?.(prepared, unit)),
+      ]);
+    }),
   };
 
   try {

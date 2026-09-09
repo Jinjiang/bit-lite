@@ -1,5 +1,5 @@
-import type { Workspace, WorkspaceComponent } from "./types/index.js";
 import { BitLiteError } from "bit-lite-utils";
+import type { Workspace, WorkspaceComponent } from "./types/index.js";
 
 /**
  * What: the single definition of what one component must be processed after.
@@ -29,7 +29,15 @@ export function orderComponentsByPrerequisites(
   workspace: Workspace,
   components: readonly WorkspaceComponent[] = workspace.components
 ): WorkspaceComponent[] {
-  const { byPackageName, included, sorted } = indexSelection(workspace, components);
+  const index = indexSelection(workspace, components);
+  return orderIndexedSelection(index);
+}
+
+function orderIndexedSelection({
+  byPackageName,
+  included,
+  sorted,
+}: SelectionIndex): WorkspaceComponent[] {
   const ordered: WorkspaceComponent[] = [];
   const permanent = new Set<string>();
   const active = new Set<string>();
@@ -75,8 +83,9 @@ export function layerComponentsByPrerequisites(
   workspace: Workspace,
   components: readonly WorkspaceComponent[] = workspace.components
 ): WorkspaceComponent[][] {
-  const ordered = orderComponentsByPrerequisites(workspace, components);
-  const { byPackageName, included } = indexSelection(workspace, components);
+  const index = indexSelection(workspace, components);
+  const { byPackageName, included } = index;
+  const ordered = orderIndexedSelection(index);
 
   // Ordered traversal guarantees every prerequisite already has a level, so a
   // component's level is one past the deepest prerequisite it waits on.
@@ -100,7 +109,16 @@ export function layerComponentsByPrerequisites(
   return layers;
 }
 
-function indexSelection(workspace: Workspace, components: readonly WorkspaceComponent[]) {
+type SelectionIndex = {
+  byPackageName: ReadonlyMap<string, WorkspaceComponent>;
+  included: ReadonlySet<string>;
+  sorted: readonly WorkspaceComponent[];
+};
+
+function indexSelection(
+  workspace: Workspace,
+  components: readonly WorkspaceComponent[]
+): SelectionIndex {
   return {
     byPackageName: new Map(
       workspace.components.map((component) => [component.packageName, component])

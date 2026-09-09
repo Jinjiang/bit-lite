@@ -1,15 +1,14 @@
 import { Worker } from "node:worker_threads";
 import { bindTerminalResize, readTerminalSize } from "bit-lite-terminal";
-import { formatError, formatExitCode } from "bit-lite-utils";
+import { formatErrorStack, formatExitCode } from "bit-lite-utils";
 import type { TerminalOutputStream, TerminalSize } from "bit-lite-terminal";
 import {
   WORKER_RUNNER_SHUTDOWN_MESSAGE_TYPE,
   WORKER_RUNNER_START_RESULT_MESSAGE_TYPE,
 } from "./worker-protocol.js";
 
+/** Where a vendor's target module runs: in this process, or in a worker thread. */
 export type RunnerMode = "worker" | "inline";
-
-export type RunnerKind = RunnerMode;
 
 export type RunnerExitCode = number | null | undefined;
 
@@ -17,20 +16,15 @@ export type RunnerOutputStream = TerminalOutputStream;
 
 export type Unsubscribe = () => void;
 
-export type RunnerParentMessage<Message = never> = Message;
-
-export type RunnerMessageListener<Message> = (message: Message) => void;
-
-export type RunnerParentMessageListener<Message = never> = (
-  message: Message
-) => void | Promise<void>;
+export type RunnerMessageListener<Message> = (message: Message) => void | Promise<void>;
 
 export type RunnerOutputListener = (stream: RunnerOutputStream, chunk: Buffer) => void;
 
+/** The side of the boundary the target module sees. */
 export type RunnerRuntime<Data = unknown, ChildMessage = unknown, ParentMessage = never> = {
   data: Data;
   postMessage(message: ChildMessage): void;
-  onMessage(listener: RunnerParentMessageListener<ParentMessage>): Unsubscribe;
+  onMessage(listener: RunnerMessageListener<ParentMessage>): Unsubscribe;
 };
 
 export type RunnerStartResult<Data = unknown> = {
@@ -81,7 +75,7 @@ export type CreateRunnerOptions<Data = unknown> = {
 };
 
 export type Runner<Data = unknown, ChildMessage = unknown, ParentMessage = never, ResultData = unknown> = {
-  kind: RunnerKind;
+  kind: RunnerMode;
   exitPromise: Promise<RunnerExitCode>;
   /** Subscribe to application messages sent from the target through `RunnerRuntime.postMessage()`. */
   onMessage(listener: RunnerMessageListener<ChildMessage>): Unsubscribe;
@@ -109,7 +103,7 @@ export function createInlineRunner<Data, ChildMessage = unknown, ParentMessage =
   data: Data
 ): Runner<Data, ChildMessage, ParentMessage, ResultData> {
   const parentMessageListeners = new Set<RunnerMessageListener<ChildMessage>>();
-  const childMessageListeners = new Set<RunnerParentMessageListener<ParentMessage>>();
+  const childMessageListeners = new Set<RunnerMessageListener<ParentMessage>>();
   let runnerStartResult: RunnerStartResult<ResultData> | void;
   let startPromise: Promise<ResultData | undefined> | undefined;
   let stopPromise: Promise<void> | undefined;
@@ -169,25 +163,19 @@ export function createInlineRunner<Data, ChildMessage = unknown, ParentMessage =
       if (startPromise) return startPromise;
       startPromise = (async () => {
         try {
-          const runnerModule = (await import(toModuleUrl(target.moduleUrl))) as RunnerTargetModule<
+          const startRunnerTarget = await importRunnerTarget<
             Data,
             ChildMessage,
             ParentMessage,
             ResultData
-          >;
-          const startRunnerTarget = runnerModule.default;
-
-          if (typeof startRunnerTarget !== "function") {
-            throw new Error("Runner target module must default export a StartRunnerTarget function.");
-          }
-
+          >(target.moduleUrl);
           runnerStartResult = await startRunnerTarget(runtime);
           if (stopPromise) await stopTarget();
           return runnerStartResult?.data;
         } catch (error) {
           runtime.postMessage({
             type: "error",
-            message: formatError(error, "stack-preferred"),
+            message: formatErrorStack(error),
           } as ChildMessage);
           console.error(error);
           settleExit(1);
@@ -354,4 +342,27 @@ function createWorkerEntryUrl() {
 
 function toModuleUrl(moduleUrl: URL | string) {
   return moduleUrl instanceof URL ? moduleUrl.href : moduleUrl;
+}
+
+/**
+ * Loads a target module and returns its start function. Both runners go through
+ * this so an inline run and a worker run reject the same malformed module with
+ * the same message.
+ */
+export async function importRunnerTarget<
+  Data = unknown,
+  ChildMessage = unknown,
+  ParentMessage = never,
+  ResultData = unknown,
+>(moduleUrl: URL | string): Promise<StartRunnerTarget<Data, ChildMessage, ParentMessage, ResultData>> {
+  const runnerModule = (await import(toModuleUrl(moduleUrl))) as RunnerTargetModule<
+    Data,
+    ChildMessage,
+    ParentMessage,
+    ResultData
+  >;
+  if (typeof runnerModule.default !== "function") {
+    throw new Error("Runner target module must default export a StartRunnerTarget function.");
+  }
+  return runnerModule.default;
 }

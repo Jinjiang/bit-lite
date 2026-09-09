@@ -85,7 +85,7 @@ export default async function startJestVendor(
     void runWatch().catch((error) => {
       runtime.postMessage({
         type: "error",
-        message: formatError(error, "object-message-aware"),
+        message: formatError(error),
       });
       finish("error");
     });
@@ -287,7 +287,7 @@ function applyJestTestResult(result: MutableComponentResult, testResult: JestTes
   if (testResult.failureMessage) result.errors.push(testResult.failureMessage);
   if (testResult.testExecError !== undefined) {
     result.errors.push(
-      formatError(testResult.testExecError, "object-message-aware")
+      formatError(testResult.testExecError)
     );
     if (failed === 0) {
       result.stats.failed += 1;

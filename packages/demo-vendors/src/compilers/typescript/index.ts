@@ -152,7 +152,6 @@ async function findComponentSourceFiles(componentRootDir: string) {
   return collectFiles(componentRootDir, {
     ignoredDirectories,
     includeFile: shouldCompileFile,
-    order: "sorted",
   });
 }
 

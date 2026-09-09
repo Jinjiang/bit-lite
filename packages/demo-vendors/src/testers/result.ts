@@ -1,5 +1,5 @@
 import path from "node:path";
-import { formatError, isJsonValue } from "bit-lite-utils";
+import { formatError, isJsonSerializable } from "bit-lite-utils";
 import { toPosixPath } from "bit-lite-utils/node";
 import type { JsonObject, JsonValue } from "bit-lite-vendors";
 import type { ComponentTestTarget } from "./files.js";
@@ -96,7 +96,7 @@ export function createTestServiceResult(options: {
 export function addFileLoadFailure(result: MutableComponentResult, error: unknown) {
   result.stats.total += 1;
   result.stats.failed += 1;
-  result.errors.push(formatError(error, "object-message-aware"));
+  result.errors.push(formatError(error));
 }
 
 export function finishStats(stats: MutableStats): TestStats {
@@ -115,7 +115,7 @@ export function formatSummary(result: Pick<TestStats, "total" | "passed" | "fail
 export function toJsonObject(config: Record<string, unknown>): JsonObject {
   const result: JsonObject = {};
   for (const [key, value] of Object.entries(config)) {
-    if (isJsonValue(value, { numberPolicy: "allow-non-finite" })) {
+    if (isJsonSerializable(value)) {
       result[key] = value;
     }
   }

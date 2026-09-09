@@ -29,7 +29,7 @@ describe("resolved workspace context", () => {
     expect(context.components[1]?.component).toBe(workspace.components[1]);
     expect(groups[0]?.components[0]).toBe(workspace.components[1]);
     expect(groups[0]?.env).toBe(context.components[1]?.env);
-    expect(getWorkspaceEnvs(context).map((env) => env.env.packageName)).toEqual([
+    expect(getWorkspaceEnvs(context).map((env) => env.identity.packageName)).toEqual([
       "@env/node", "@env/react", "@env/vue",
     ]);
     expect(context).not.toHaveProperty("config");

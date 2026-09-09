@@ -1,9 +1,8 @@
 import type { Workspace, WorkspaceComponent } from "bit-lite-context";
-import type { CliArguments } from "bit-lite-utils";
+import type { CliArguments, JsonObject, JsonValue } from "bit-lite-utils";
 import type { PackageLocation, SelectedEnvIdentity } from "bit-lite-env-resolution";
 import type {
   Runner,
-  RunnerParentMessage,
   RunnerStartResult,
   RunnerMode,
   RunnerOutputStream,
@@ -11,15 +10,8 @@ import type {
   RunnerTargetDefinition,
 } from "../runner/index.js";
 
-export type { RunnerMode };
-
-export type OutputStream = RunnerOutputStream;
-
-export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
-export type JsonObject = {
-  [key: string]: JsonValue;
-};
+export type { RunnerMode, RunnerOutputStream as OutputStream };
+export type { JsonObject, JsonPrimitive, JsonValue } from "bit-lite-utils";
 
 export type VendorReadyMessage = {
   type: "ready";
@@ -45,8 +37,6 @@ export type VendorMessage<Data extends JsonValue = JsonValue> =
   | VendorStatusMessage
   | VendorErrorMessage
   | VendorResultMessage<Data>;
-
-export type VendorParentMessage<Message extends JsonValue = JsonValue> = RunnerParentMessage<Message>;
 
 export type VendorConfig = JsonObject;
 

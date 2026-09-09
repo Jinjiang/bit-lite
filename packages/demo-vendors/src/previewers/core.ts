@@ -35,10 +35,7 @@ export function createPreviewServiceResult(port: number): PreviewServiceResult {
 
 export function withPreviewVendorContext(error: unknown, env: { packageName: string }, vendor: string) {
   return new Error(
-    `${vendor} failed for preview env "${env.packageName}": ${formatError(
-      error,
-      "message-only"
-    )}`,
+    `${vendor} failed for preview env "${env.packageName}": ${formatError(error)}`,
     { cause: error }
   );
 }

@@ -3,13 +3,13 @@ import type {
   CompiledEnvDefinition,
   EnvServicesConfig,
   JsonObject,
-  SourceEnvDefinition,
+  EnvDefinition,
   SupportedEnvServiceName,
 } from "./types/index.js";
 
 /** Flatten one validated source definition over an optional already-flattened parent. */
 export function flattenEnvDefinition(
-  definition: SourceEnvDefinition,
+  definition: EnvDefinition,
   parent?: CompiledEnvDefinition
 ): CompiledEnvDefinition {
   if (definition.extends === undefined && parent !== undefined) {

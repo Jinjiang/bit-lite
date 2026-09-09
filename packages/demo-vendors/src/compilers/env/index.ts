@@ -64,8 +64,7 @@ async function compileOnce(input: CompileVendorInput) {
 
   const sourceFiles = await collectFiles(component.rootDir, {
     ignoredDirectories,
-    ignoredFiles,
-    order: "sorted",
+    includeFile: (fileName) => !ignoredFiles.has(fileName),
   });
   for (const sourceFile of sourceFiles) {
     const relativePath = path.relative(component.rootDir, sourceFile);
@@ -123,10 +122,7 @@ async function resolveDependencyEnv(packageRoot: string, packageName: string) {
   if (!isRecord(manifest) || manifest.name !== packageName) {
     throw new Error(`env dependency "${packageName}" has an invalid package manifest at ${dependencyRoot}`);
   }
-  const entry = readDefaultExport(manifest, {
-    createMissingExportError: () =>
-      new Error(`env dependency "${packageName}" does not define a default export`),
-  });
+  const entry = readDefaultExport(manifest, `env dependency "${packageName}"`);
   return {
     packageRoot: dependencyRoot,
     entryFile: path.resolve(dependencyRoot, entry),

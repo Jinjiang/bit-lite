@@ -486,7 +486,7 @@ function group(packageName: string, services: Record<string, unknown>): Workspac
   const item = component(`components/${packageName}`, `@fixture/${packageName}`, packageName);
   return {
     env: {
-      env: {
+      identity: {
         packageName,
         requestedVersion: "workspace:*",
         installedVersion: "0.0.0",

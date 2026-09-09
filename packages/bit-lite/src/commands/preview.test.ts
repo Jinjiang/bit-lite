@@ -394,7 +394,7 @@ function createGroup(
     source: serviceSource,
   };
   const env = {
-    env: envIdentity,
+    identity: envIdentity,
     package: selectedSource,
     config: undefined,
     services: { preview: service },

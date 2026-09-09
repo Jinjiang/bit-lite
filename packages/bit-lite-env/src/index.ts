@@ -1,5 +1,4 @@
 export {
-  BitLiteEnvConfigError,
   isCompiledEnvDefinition,
   isSupportedEnvServiceName,
   validateEnvDefinition,
@@ -13,7 +12,6 @@ export type {
   CompiledEnvServiceOrigin,
   CompileServiceConfig,
   EnvDefinition,
-  SourceEnvDefinition,
   EnvServiceConfig,
   EnvServiceConfigMap,
   EnvServicesConfig,

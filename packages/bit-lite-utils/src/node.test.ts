@@ -7,6 +7,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   collectFiles,
+  isDirectory,
   isFile,
   isInteractiveTerminal,
   isNodeErrorCode,
@@ -42,13 +43,16 @@ describe("Node path and file utilities", () => {
     expect(toPosixPath(path.join("src", "file.ts"))).toBe("src/file.ts");
   });
 
-  it("recognizes files and treats missing paths as non-files", async () => {
+  it("recognizes files and directories, treating missing paths as neither", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "bit-lite-utils-file-"));
     const filePath = path.join(root, "file.txt");
     await writeFile(filePath, "value", "utf8");
     expect(await isFile(filePath)).toBe(true);
     expect(await isFile(root)).toBe(false);
     expect(await isFile(path.join(root, "missing"))).toBe(false);
+    expect(await isDirectory(root)).toBe(true);
+    expect(await isDirectory(filePath)).toBe(false);
+    expect(await isDirectory(path.join(root, "missing"))).toBe(false);
   });
 });
 
@@ -101,7 +105,7 @@ describe("Node server utilities", () => {
 });
 
 describe("file collection", () => {
-  it("supports ignored directories, ignored files, filtering, and sorted output", async () => {
+  it("ignores directories, filters files, and always sorts", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "bit-lite-utils-collect-"));
     await mkdir(path.join(root, "src"));
     await mkdir(path.join(root, "node_modules"));
@@ -113,26 +117,21 @@ describe("file collection", () => {
 
     const files = await collectFiles(root, {
       ignoredDirectories: new Set(["node_modules"]),
-      ignoredFiles: new Set(["ignored.ts"]),
-      includeFile: (fileName) => fileName.endsWith(".ts"),
-      order: "sorted",
+      includeFile: (fileName) => fileName.endsWith(".ts") && fileName !== "ignored.ts",
     });
 
     expect(files).toEqual([path.join(root, "src", "b.ts")]);
   });
 
-  it("can ignore missing directories and use parallel traversal", async () => {
-    await expect(
-      collectFiles(path.join(tmpdir(), "bit-lite-utils-does-not-exist"), {
-        missingDirectory: "ignore",
-        traversal: "parallel",
-      })
-    ).resolves.toEqual([]);
+  it("raises on a missing root unless it is allowed to be missing", async () => {
+    const missing = path.join(tmpdir(), "bit-lite-utils-does-not-exist");
+    await expect(collectFiles(missing)).rejects.toThrow();
+    await expect(collectFiles(missing, { allowMissing: true })).resolves.toEqual([]);
   });
 });
 
 describe("JSON file reading", () => {
-  it("parses JSON and maps parse failures", async () => {
+  it("parses JSON and names the file in a parse failure", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "bit-lite-utils-json-"));
     const validPath = path.join(root, "valid.json");
     const invalidPath = path.join(root, "invalid.json");
@@ -140,19 +139,16 @@ describe("JSON file reading", () => {
     await writeFile(invalidPath, "{", "utf8");
 
     await expect(readJsonFile(validPath)).resolves.toEqual({ ok: true });
-    await expect(
-      readJsonFile(invalidPath, {
-        mapParseError: (error) =>
-          new TypeError(`parse: ${error instanceof Error ? error.message : String(error)}`),
-      })
-    ).rejects.toThrow(/^parse:/);
+    await expect(readJsonFile(invalidPath)).rejects.toThrow(
+      `failed parsing ${invalidPath}`
+    );
   });
 
-  it("maps read failures independently", async () => {
+  it("leaves read failures recognizable to the caller", async () => {
     await expect(
-      readJsonFile(path.join(tmpdir(), "bit-lite-utils-missing.json"), {
-        mapReadError: () => new TypeError("read failed"),
-      })
-    ).rejects.toThrow("read failed");
+      readJsonFile(path.join(tmpdir(), "bit-lite-utils-missing.json")).catch((error) =>
+        isNodeErrorCode(error, "ENOENT")
+      )
+    ).resolves.toBe(true);
   });
 });

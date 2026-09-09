@@ -1,23 +1,20 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import type { WorkspaceComponent } from "bit-lite-context";
-import type { ParsedCliArgs } from "../cli-args-types.js";
-import { readWorkspace } from "bit-lite-context";
-import { discoverPnpmWorkspacePackages, installDependencyProjects, type DependencyProject } from "bit-lite-deps";
-import { BitLiteError } from "bit-lite-utils";
-import { compileComponentPackages } from "./compile.js";
 import {
   getComponentDependencyDirectory,
+  getDependencyInstallRoot,
   isWorkspaceProtocolSpec,
-  linkComponentPackages,
-  sortStringRecord,
-  writeJsonFile,
-} from "./link.js";
-import {
-  createInstallReporter,
-  type InstallReporter,
-} from "./install-reporter.js";
+  readWorkspace,
+} from "bit-lite-context";
+import { discoverPnpmWorkspacePackages, installDependencyProjects } from "bit-lite-deps";
+import { countOf, sortStringRecord } from "bit-lite-utils";
+import type { DependencyProject } from "bit-lite-deps";
+import type { WorkspaceComponent } from "bit-lite-context";
+import type { ParsedCliArgs } from "../cli-args-types.js";
 import { readFlagOption } from "../utils/command-options.js";
+import { compileComponentPackages } from "./compile.js";
+import { createInstallReporter, type InstallReporter } from "./install-reporter.js";
+import { linkComponentPackages, writeJsonFile } from "./link.js";
 
 type DependencyManifest = {
   name: string;
@@ -32,89 +29,97 @@ export type RunInstallCommandOptions = {
   reporter?: InstallReporter;
 };
 
+/**
+ * Prepares every component to be developed against: an isolated dependency
+ * project per component, its external requirements installed, and the workspace
+ * components linked in as packages.
+ *
+ * Each phase reports through the reporter before it runs and either succeeds or
+ * fails it, so an interrupted install says which phase it was in.
+ */
 export async function runInstallCommand(
   parsed: ParsedCliArgs,
   options: RunInstallCommandOptions = {}
 ) {
   const reporter = options.reporter ?? createInstallReporter();
+  const shouldCompile = readFlagOption(parsed.args.options.compile, "--compile");
+
   try {
-    reporter.start("Reading workspace");
-    let workspace;
-    try {
-      workspace = await readWorkspace(parsed.workspaceRoot);
-      reporter.succeed(
-        `Found ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}`
-      );
-    } catch (error) {
-      reporter.fail("Workspace discovery failed");
-      throw error;
-    }
-
-    const shouldCompile = readFlagOption(parsed.args.options.compile, "--compile");
-    reporter.start(
-      `Preparing dependencies for ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}`
+    const workspace = await phase(
+      reporter,
+      "Reading workspace",
+      "Workspace discovery failed",
+      async () => await readWorkspace(parsed.workspaceRoot),
+      (result) => `Found ${countOf(result.components.length, "component package")}`
     );
-    try {
-      const projects = await createDependencyProjects(workspace.rootDir, workspace.components);
-      // Temporary demo bridge: reuse locally developed packages when this Bit workspace
-      // happens to be nested in a pnpm workspace. Its absence is normal; production Bit
-      // component installation is expected to resolve through a dedicated npm registry.
-      const workspacePackages = await discoverPnpmWorkspacePackages(workspace.rootDir);
-      reporter.update("Installing dependencies");
-      await installDependencyProjects({
-        rootDir: getDependencyInstallRoot(workspace.rootDir),
-        projects,
-        workspacePackages,
-        onProgress: (event) => reporter.dependency(event),
-      });
-      reporter.succeed(
-        `Installed dependencies for ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}`
-      );
-    } catch (error) {
-      reporter.fail("Dependency installation failed");
-      throw error;
-    }
+    const packageCount = countOf(workspace.components.length, "component package");
 
-    reporter.start(
-      `Linking ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}`
+    await phase(
+      reporter,
+      `Preparing dependencies for ${packageCount}`,
+      "Dependency installation failed",
+      async () => {
+        const projects = await createDependencyProjects(workspace.rootDir, workspace.components);
+        // Temporary demo bridge: reuse locally developed packages when this Bit workspace
+        // happens to be nested in a pnpm workspace. Its absence is normal; production Bit
+        // component installation is expected to resolve through a dedicated npm registry.
+        const workspacePackages = await discoverPnpmWorkspacePackages(workspace.rootDir);
+        reporter.update("Installing dependencies");
+        await installDependencyProjects({
+          rootDir: getDependencyInstallRoot(workspace.rootDir),
+          projects,
+          workspacePackages,
+          onProgress: (event) => reporter.dependency(event),
+        });
+      },
+      () => `Installed dependencies for ${packageCount}`
     );
-    try {
-      await linkComponentPackages(workspace);
-      reporter.succeed(
-        `Linked ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}`
-      );
-    } catch (error) {
-      reporter.fail("Component linking failed");
-      throw error;
-    }
 
-    const externalRequirements = countExternalRequirements(workspace.components);
+    await phase(
+      reporter,
+      `Linking ${packageCount}`,
+      "Component linking failed",
+      () => linkComponentPackages(workspace),
+      () => `Linked ${packageCount}`
+    );
+
+    const requirements = countExternalRequirements(workspace.components);
     console.log(
-      `Installed ${externalRequirements} external dependency requirement${externalRequirements === 1 ? "" : "s"} across ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}.`
+      `Installed ${countOf(requirements, "external dependency requirement")} across ${packageCount}.`
     );
-    console.log(`Linked ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}.`);
+    console.log(`Linked ${packageCount}.`);
 
     if (shouldCompile) {
-      reporter.start(
-        `Compiling ${workspace.components.length} component package${workspace.components.length === 1 ? "" : "s"}`
+      const compiled = await phase(
+        reporter,
+        `Compiling ${packageCount}`,
+        "Component compilation failed",
+        () => compileComponentPackages(workspace, undefined, parsed.args),
+        (result) => `Compiled ${countOf(result.length, "component package")}`
       );
-      let compiledComponents;
-      try {
-        compiledComponents = await compileComponentPackages(workspace, undefined, parsed.args);
-        reporter.succeed(
-          `Compiled ${compiledComponents.length} component package${compiledComponents.length === 1 ? "" : "s"}`
-        );
-      } catch (error) {
-        reporter.fail("Component compilation failed");
-        throw error;
-      }
-      console.log(`Compiled ${compiledComponents.length} component package${compiledComponents.length === 1 ? "" : "s"}.`);
-      for (const component of compiledComponents) {
-        console.log(`- ${component.packageName}`);
-      }
+      console.log(`Compiled ${countOf(compiled.length, "component package")}.`);
+      for (const component of compiled) console.log(`- ${component.packageName}`);
     }
   } finally {
     reporter.close();
+  }
+}
+
+async function phase<Result>(
+  reporter: InstallReporter,
+  start: string,
+  failure: string,
+  run: () => Promise<Result>,
+  describe: (result: Result) => string
+): Promise<Result> {
+  reporter.start(start);
+  try {
+    const result = await run();
+    reporter.succeed(describe(result));
+    return result;
+  } catch (error) {
+    reporter.fail(failure);
+    throw error;
   }
 }
 
@@ -188,8 +193,4 @@ function countExternalRequirements(components: readonly WorkspaceComponent[]) {
     }
   }
   return requirements.size;
-}
-
-function getDependencyInstallRoot(workspaceRoot: string) {
-  return path.join(workspaceRoot, ".bit-lite", "deps");
 }

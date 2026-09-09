@@ -9,6 +9,7 @@ import type {
   VendorTask,
 } from "bit-lite-vendors";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
+import { printNoTasks } from "../utils/no-tasks.js";
 import type { ResolvedCommandSelection } from "../utils/command-selection.js";
 import {
   createEnvServiceExecutionPlan,
@@ -134,7 +135,7 @@ export async function runTestCommand(parsed: ParsedCliArgs, options: RunTestComm
       resultStore: options.resultStore,
     });
     if (contribution.tasks.length === 0) {
-      printNoTestTasks(contribution.groups);
+      printNoTasks("test", contribution.groups);
       await contribution.dispose();
       return;
     }
@@ -151,7 +152,7 @@ export async function runTestCommand(parsed: ParsedCliArgs, options: RunTestComm
   }
 
   if (plan.layers[0]?.length === 0) {
-    printNoTestTasks(selection.groups);
+    printNoTasks("test", selection.groups);
     return;
   }
 
@@ -204,16 +205,6 @@ export async function createTestWatchContribution(
     await contribution.dispose();
     throw error;
   }
-}
-
-function printNoTestTasks(groups: readonly WorkspaceEnvGroup[]) {
-  console.log("No test tasks found.");
-  if (groups.length === 0) {
-    console.log("No components were selected from this workspace.");
-    return;
-  }
-  console.log(`Selected envs: ${groups.map((group) => group.env.env.packageName).join(", ")}`);
-  console.log("Make sure each selected env defines services.test in the workspace config.");
 }
 
 function printTestResults(

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   loadEnvForComponent,
   loadWorkspaceEnvContexts,
-  resolveEnvModuleSpecifier,
+  resolveServiceSpecifier,
 } from "./env-loader.js";
 import { readWorkspace } from "bit-lite-context";
 
@@ -42,25 +42,25 @@ describe("JSON env package loading", () => {
     const workspace = await readWorkspace(root);
     const loaded = await loadEnvForComponent(workspace.components[0]!, workspace);
 
-    expect(loaded.env.requestedVersion).toBe("^1.0.0");
-    expect(loaded.env.installedVersion).toBe("1.0.0");
+    expect(loaded.identity.requestedVersion).toBe("^1.0.0");
+    expect(loaded.identity.installedVersion).toBe("1.0.0");
     expect(loaded.inheritance.map((identity) => identity.packageName))
       .toEqual(["@env/grand", "@env/parent", "@env/child"]);
     expect(loaded.config).toEqual({ grandOnly: true, shared: "child", parentOnly: true });
     expect(loaded.services.test?.definition.config).toEqual({ inherited: false });
     expect(loaded.services.test?.source.identity.packageName).toBe("@env/child");
     expect(loaded.services.compile?.source.identity.packageName).toBe("@env/grand");
-    const parentVendor = await resolveEnvModuleSpecifier({
+    const parentVendor = await resolveServiceSpecifier({
       specifier: "./grand-vendor.js",
-      service: loaded.services.compile ?? loaded.services.test!,
+      source: (loaded.services.compile ?? loaded.services.test!).source,
       workspaceRoot: root,
       field: "fixture",
       selectedEnv: "@env/child",
     });
     expect(parentVendor).toBe(await realpath(path.join(grand, "grand-vendor.js")));
-    await expect(resolveEnvModuleSpecifier({
+    await expect(resolveServiceSpecifier({
       specifier: "../outside.js",
-      service: loaded.services.test!,
+      source: (loaded.services.test!).source,
       workspaceRoot: root,
       field: "fixture",
       selectedEnv: "@env/child",
@@ -92,9 +92,9 @@ describe("JSON env package loading", () => {
     const workspace = await readWorkspace(root);
     const selectedComponent = workspace.components.find((candidate) => candidate.id === "lib/math")!;
     const loaded = await loadEnvForComponent(selectedComponent, workspace);
-    expect(loaded.env.packageName).toBe("@scope/env.local");
-    expect(loaded.env.requestedVersion).toBe("workspace:*");
-    expect(loaded.env.installedVersion).toBe("0.0.0");
+    expect(loaded.identity.packageName).toBe("@scope/env.local");
+    expect(loaded.identity.requestedVersion).toBe("workspace:*");
+    expect(loaded.identity.installedVersion).toBe("0.0.0");
     expect(loaded.package.rootDir).toBe(await realpath(generated));
   });
 
@@ -134,9 +134,9 @@ describe("JSON env package loading", () => {
     expect(loaded.inheritance.map((identity) => identity.packageName))
       .toEqual(["@env/parent", "@scope/env.local"]);
     expect(loaded.services.compile?.source.identity.packageName).toBe("@env/parent");
-    expect(await resolveEnvModuleSpecifier({
+    expect(await resolveServiceSpecifier({
       specifier: "./compiler.js",
-      service: loaded.services.compile!,
+      source: (loaded.services.compile!).source,
       workspaceRoot: root,
       field: "fixture",
       selectedEnv: "@scope/env.local",

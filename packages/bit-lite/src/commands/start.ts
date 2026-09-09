@@ -1,20 +1,15 @@
 import { readFileSync } from "node:fs";
 import { getSelectedEnvKey } from "bit-lite-env-resolution";
 import { ProxyServer, sendHtml, sendJson, sendText } from "bit-lite-proxy";
-import {
-  formatError,
-  readHost,
-  readPort,
-  throwCombinedErrors,
-} from "bit-lite-utils";
+import { formatError, readHost, readPort, throwCombinedErrors } from "bit-lite-utils";
 import { superviseVendorTasks } from "bit-lite-vendors";
 import type { ParsedCliArgs } from "../cli-args-types.js";
 import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
 import type { ProxyEndpoint, ProxyRoute } from "bit-lite-proxy";
 import type { PreviewProxyComponent, PreviewProxyManifest } from "bit-lite-preview/node";
 import type { VendorTask } from "bit-lite-vendors";
-import { BitLiteError } from "bit-lite-utils";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
+import { disposeAll, once } from "../utils/disposal.js";
 import type { ResolvedCommandSelection } from "../utils/command-selection.js";
 import {
   createCompileWatchContribution,
@@ -86,16 +81,8 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
     return;
   }
 
-  const host = readHost(parsed.args.options.host, {
-    fallback: defaultHost,
-    createError: () => new BitLiteError("--host requires a host name"),
-  });
-  const port = readPort(parsed.args.options.port, {
-    fallback: defaultPort,
-    acceptNumericString: true,
-    createError: () =>
-      new BitLiteError("--port requires a port number between 1 and 65535"),
-  });
+  const host = readHost(parsed.args.options.host, "--host", defaultHost);
+  const port = readPort(parsed.args.options.port, "--port", defaultPort);
   const activationMode = readPreviewLazy(parsed.args.options.lazy) ? "lazy" : "eager";
   const proxyServer = new ProxyServer();
   const sourceCatalog = createStartSourceCatalog(selection.components);
@@ -103,44 +90,17 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
   let preview: PreviewCommandContribution | undefined;
   let test: TestWatchContribution | undefined;
   let proxyStarted = false;
-  let disposePromise: Promise<void> | undefined;
 
-  const disposeResources = () => {
-    if (disposePromise) return disposePromise;
-    disposePromise = (async () => {
-      const failures: unknown[] = [];
-      try {
-        await test?.dispose();
-      } catch (error) {
-        failures.push(error);
-      }
-      try {
-        await preview?.dispose();
-      } catch (error) {
-        failures.push(error);
-      }
-      if (compile) {
-        try {
-          await compile.dispose();
-        } catch (error) {
-          failures.push(error);
-        }
-      }
-      if (proxyStarted) {
-        try {
-          await proxyServer.close();
-        } catch (error) {
-          failures.push(error);
-        }
-      }
-      throwCombinedErrors(
-        failures,
-        "Failed to dispose bit-lite start",
-        "deduplicate"
-      );
-    })();
-    return disposePromise;
-  };
+  // Released in the reverse of the order they were created, so no layer is torn
+  // down while something built on top of it is still running.
+  const disposeResources = once(() =>
+    disposeAll("Failed to dispose bit-lite start", [
+      () => test?.dispose(),
+      () => preview?.dispose(),
+      () => compile?.dispose(),
+      () => (proxyStarted ? proxyServer.close() : undefined),
+    ])
+  );
 
   const failures: unknown[] = [];
   try {
@@ -182,13 +142,9 @@ export async function runStartCommand(parsed: ParsedCliArgs) {
   try {
     await disposeResources();
   } catch (error) {
-    if (!failures.includes(error)) failures.push(error);
+    failures.push(error);
   }
-  throwCombinedErrors(
-    failures,
-    "bit-lite start failed and cleanup also failed",
-    "deduplicate"
-  );
+  throwCombinedErrors(failures, "bit-lite start failed and cleanup also failed");
 }
 
 export function createStartManifest(
@@ -213,7 +169,7 @@ export function createStartManifest(
   };
 
   for (const group of options?.selection.groups ?? preview.groups) {
-    for (const component of group.components) ensureComponent(component.id, group.env.env);
+    for (const component of group.components) ensureComponent(component.id, group.env.identity);
   }
   for (const env of previewManifest.envs) {
     for (const previewComponent of env.components) {
@@ -324,10 +280,10 @@ function printNoStartTasks(
     console.log("No components were selected from this workspace.");
     return;
   }
-  console.log(`Selected envs: ${selection.groups.map((group) => group.env.env.packageName).join(", ")}`);
+  console.log(`Selected envs: ${selection.groups.map((group) => group.env.identity.packageName).join(", ")}`);
   if (preview && preview.preparationFailures.length > 0) {
     const failures = preview.preparationFailures
-      .map(({ env, error }) => `${env.env.packageName}: ${formatError(error)}`)
+      .map(({ env, error }) => `${env.identity.packageName}: ${formatError(error)}`)
       .join("; ");
     console.log(`Preview preparation failures: ${failures}`);
   }
