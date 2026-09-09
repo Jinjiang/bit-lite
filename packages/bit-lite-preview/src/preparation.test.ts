@@ -2,12 +2,8 @@ import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  derivePreviewCompositionName,
-  discoverPreviewComponents,
-  preparePreviewEnv,
-  resolvePreviewServiceConfig,
-} from "./preparation.js";
+import { derivePreviewCompositionName, discoverPreviewComponents } from "./component-discovery.js";
+import { preparePreviewEnv, resolvePreviewServiceConfig } from "./preparation.js";
 
 describe("preview preparation", () => {
   it("discovers selected components and files deterministically", async () => {

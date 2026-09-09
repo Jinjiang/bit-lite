@@ -1,7 +1,8 @@
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { PreviewProxyServer, findAvailablePort, preparePreviewEnv } from "bit-lite-preview/node";
+import { findAvailablePort } from "bit-lite-proxy";
+import { PreviewProxyServer, preparePreviewEnv } from "bit-lite-preview/node";
 import startVitePreviewVendor from "demo-vendors/previewers/vite";
 import startWebpackPreviewVendor from "demo-vendors/previewers/webpack";
 import { describe, expect, it } from "vitest";

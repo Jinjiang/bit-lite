@@ -1,18 +1,10 @@
 import { getSelectedEnvKey, resolveServiceSpecifier } from "bit-lite-env-resolution";
 import { ProxyServer } from "bit-lite-proxy";
-import {
-  BitLiteError,
-  formatError,
-  isJsonObject,
-  readHost,
-  readPort,
-  throwCombinedErrors,
-} from "bit-lite-utils";
+import { BitLiteError, formatError, isJsonObject, throwCombinedErrors } from "bit-lite-utils";
 import { superviseVendorTasks } from "bit-lite-vendors";
 import {
   createPreviewPresentationRoutes,
   createPreviewServiceRoutes,
-  encodeRouteSegment,
   preparePreviewEnv,
   PreviewProxyState,
   type PreparedPreviewEnv,
@@ -43,7 +35,7 @@ import type {
   PlannedUnit,
 } from "../utils/vendor-execution.js";
 import type { WatchCommandContribution } from "../utils/watch-contribution.js";
-import { readFlagOption } from "../utils/command-options.js";
+import { readFlagOption, readHostOption, readPortOption } from "../utils/command-options.js";
 import { disposeAll, once } from "../utils/disposal.js";
 import { printNoTasks } from "../utils/no-tasks.js";
 
@@ -72,8 +64,7 @@ type PreviewStateWriter = Pick<
 
 const serviceId = "preview";
 const label = "Preview";
-const defaultHost = "127.0.0.1";
-const defaultProxyPort = 4000;
+/** Where each env's own preview server starts looking for a free port. */
 const defaultVendorPort = 6000;
 
 type PreviewExecutionContext = {
@@ -111,8 +102,8 @@ export async function runPreviewCommand(parsed: ParsedCliArgs) {
     return;
   }
 
-  const host = readPreviewHost(parsed.args.options.host);
-  const proxyPort = readPreviewPort(parsed.args.options.port, "--port", defaultProxyPort);
+  const host = readHostOption(parsed.args.options.host);
+  const proxyPort = readPortOption(parsed.args.options.port);
   const activationMode = readPreviewLazy(parsed.args.options.lazy) ? "lazy" : "eager";
   const proxyServer = new ProxyServer();
   let contribution: PreviewCommandContribution | undefined;
@@ -275,7 +266,7 @@ async function preparePreviewUnit(options: {
       host,
       preferredPort: defaultVendorPort,
       fallbackStartPort: defaultVendorPort,
-      basePath: `/env/${encodeRouteSegment(group.env.identity.packageName)}/`,
+      basePath: `/env/${encodeURIComponent(group.env.identity.packageName)}/`,
       proxyOrigin,
     };
     const prepared = await preparePreviewEnv({
@@ -408,18 +399,6 @@ function toPreviewServerInfo(runtime: PreviewPreparedRuntime, result: PreviewSer
     port: result.port,
     basePath: runtime.server.basePath,
   };
-}
-
-export function readPreviewHost(value: CliOptionValue | undefined) {
-  return readHost(value, "--host", defaultHost);
-}
-
-export function readPreviewPort(
-  value: CliOptionValue | undefined,
-  optionName: string,
-  fallback: number
-) {
-  return readPort(value, optionName, fallback);
 }
 
 export function readPreviewLazy(value: CliOptionValue | undefined) {

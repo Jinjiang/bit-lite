@@ -5,13 +5,14 @@ import path from "node:path";
 import { TextDecoder } from "node:util";
 import { sendHtml, sendJson, sendText } from "bit-lite-proxy";
 import { toPosixPath } from "bit-lite-utils/node";
+import { generatedStateDirectoryName } from "bit-lite-context";
 import type { WorkspaceComponent } from "bit-lite-context";
 import type { ProxyRoute } from "bit-lite-proxy";
 
 const startSourceHtml = readFileSync(new URL("../assets/start-source.html", import.meta.url), "utf8");
 
 const ignoredDirectoryNames = new Set([
-  ".bit-lite",
+  generatedStateDirectoryName,
   ".git",
   "build",
   "coverage",

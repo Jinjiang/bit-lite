@@ -1,5 +1,5 @@
+import { BitLiteError, readHost, readPort } from "bit-lite-utils";
 import type { CliOptionValue } from "bit-lite-utils";
-import { BitLiteError } from "bit-lite-utils";
 
 /**
  * Option readers shared by every command, so a flag reads the same way and
@@ -31,4 +31,20 @@ export function readTextOption(
     throw new BitLiteError(`${label} requires a value`);
   }
   return value;
+}
+
+/**
+ * Where the browser-facing commands bind. `preview` and `start` serve the same
+ * kind of endpoint and are commonly swapped for one another, so a URL that
+ * worked for one has to work for the other.
+ */
+export const defaultServerHost = "127.0.0.1";
+export const defaultServerPort = 4000;
+
+export function readHostOption(value: CliOptionValue | undefined): string {
+  return readHost(value, "--host", defaultServerHost);
+}
+
+export function readPortOption(value: CliOptionValue | undefined): number {
+  return readPort(value, "--port", defaultServerPort);
 }

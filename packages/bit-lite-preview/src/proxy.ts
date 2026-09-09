@@ -1,8 +1,6 @@
 import { readFileSync } from "node:fs";
 import {
   ProxyServer,
-  encodeRouteSegment,
-  findAvailablePort,
   proxyHttpRequest,
   proxyWebSocket,
   sendHtml,
@@ -12,12 +10,10 @@ import { getSelectedEnvKey } from "bit-lite-env-resolution";
 import { escapeHtml, formatError } from "bit-lite-utils";
 import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
 import type { ProxyEndpoint, ProxyRoute } from "bit-lite-proxy";
-import type { PreparedPreviewComponent } from "./preparation.js";
+import type { PreparedPreviewComponent } from "./component-discovery.js";
 
 const previewShellHtml = readFileSync(new URL("./assets/preview-shell.html", import.meta.url), "utf8");
 const previewMessageTemplate = readFileSync(new URL("./assets/preview-message.html", import.meta.url), "utf8");
-
-export { encodeRouteSegment, findAvailablePort } from "bit-lite-proxy";
 
 export type PreviewServerInfo = {
   origin: string;
@@ -72,7 +68,9 @@ export class PreviewProxyState {
         status: item.status,
         components: item.components.map((component) => ({
           componentId: component.id,
-          overviewRoute: `/env/${encodeRouteSegment(item.env.packageName)}/#${encodeRouteSegment(component.id)}`,
+          overviewRoute:
+            `/env/${encodeURIComponent(item.env.packageName)}/` +
+            `#${encodeURIComponent(component.id)}`,
           compositions: [],
         })),
       });
@@ -267,7 +265,7 @@ export class PreviewProxyServer {
 function createProxyComponent(basePath: string, component: PreparedPreviewComponent): PreviewProxyComponent {
   return {
     componentId: component.component.id,
-    overviewRoute: `${basePath}${createHashRoute(component.component.id)}`,
+    overviewRoute: `${basePath}#${encodeURIComponent(component.component.id)}`,
     ...(component.docs ? { docsRoute: `${basePath}${component.docs.route}` } : {}),
     compositions: component.compositions.map((composition) => ({
       id: composition.id,
@@ -276,10 +274,6 @@ function createProxyComponent(basePath: string, component: PreparedPreviewCompon
       route: `${basePath}${composition.route}`,
     })),
   };
-}
-
-function createHashRoute(componentId: string) {
-  return `#${encodeURIComponent(componentId)}`;
 }
 
 function readEnvPackageName(pathname: string) {
