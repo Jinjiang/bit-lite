@@ -1,4 +1,4 @@
-import { isRecord } from "bit-lite-utils";
+import { formatError, isRecord } from "bit-lite-utils";
 import { readTreeFile, type ComponentHistoryStore, type GitObjectId } from "bit-lite-history";
 import type { PackageRef } from "bit-lite-context";
 import { BitLiteError } from "bit-lite-utils";
@@ -67,7 +67,7 @@ export async function readRecordedComponentConfig(
   } catch (error) {
     throw new BitLiteError(
       `component "${componentId}" recorded an unparsable ${componentConfigFileName}: ` +
-        `${error instanceof Error ? error.message : String(error)}`
+        formatError(error)
     );
   }
   if (!isRecord(parsed)) {

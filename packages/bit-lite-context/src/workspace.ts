@@ -1,7 +1,7 @@
-import { access, lstat } from "node:fs/promises";
+import { lstat } from "node:fs/promises";
 import path from "node:path";
 import { BitLiteError, isRecord, sortStringRecord } from "bit-lite-utils";
-import { isNodeErrorCode, readJsonFile } from "bit-lite-utils/node";
+import { isFile, isNodeErrorCode, readJsonFile } from "bit-lite-utils/node";
 import { assertPackageName, CONFIG_FILE, isWorkspaceProtocolSpec, loadConfig } from "./config.js";
 import type { ComponentKind, Workspace, WorkspaceComponent } from "./types/index.js";
 import { toPosixPath } from "./utils/path-utils.js";
@@ -144,12 +144,7 @@ async function findMainFile(rootDir: string, componentId: string, kind: Componen
   const candidates = kind === "env" ? ["index.json"] : ordinaryEntryCandidates;
   for (const candidate of candidates) {
     const filePath = path.join(rootDir, candidate);
-    try {
-      await access(filePath);
-      return filePath;
-    } catch (error) {
-      if (!isNodeErrorCode(error, "ENOENT")) throw error;
-    }
+    if (await isFile(filePath)) return filePath;
   }
   throw new BitLiteError(
     `component "${componentId}" does not have a supported ${kind} entry file (${candidates.join(", ")})`
@@ -185,11 +180,18 @@ function resolveInsideWorkspace(workspaceRoot: string, relativePath: string, lab
   return resolved;
 }
 
+/**
+ * `lstat` rather than `stat`: a component root that is a symbolic link is not
+ * something this model supports, and a broken link must fail as clearly as a
+ * missing directory.
+ */
 async function assertDirectory(dir: string, message: string) {
+  let stats;
   try {
-    if (!(await lstat(dir)).isDirectory()) throw new BitLiteError(message);
+    stats = await lstat(dir);
   } catch (error) {
     if (isNodeErrorCode(error, "ENOENT")) throw new BitLiteError(message);
     throw error;
   }
+  if (!stats.isDirectory()) throw new BitLiteError(message);
 }
