@@ -219,7 +219,8 @@ function parsed(command: string, workspaceRoot: string): ParsedCliArgs {
     command,
     workspaceRoot,
     componentFilters: [],
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
     args: { raw: [command], options: {}, passthrough: [] },
   };
 }

@@ -1,5 +1,7 @@
 import { parseArgs } from "./args.js";
 import { runCompileCommand } from "./commands/compile.js";
+import { commandDeclarations, findCommandDeclaration } from "./commands/declarations.js";
+import { renderCommandHelp, renderCommandList } from "./commands/help-text.js";
 import { runDiffCommand } from "./commands/diff.js";
 import { runLinkCommand } from "./commands/link.js";
 import { runLogCommand } from "./commands/log.js";
@@ -17,7 +19,13 @@ import { BitLiteError } from "bit-lite-utils";
 
 type CommandHandler = (parsed: ParsedCliArgs) => void | Promise<unknown>;
 
-const commands: Record<string, CommandHandler> = {
+/**
+ * One handler per declared command. `help` has no handler because a help
+ * request is answered before dispatch — asking about a command must never run
+ * it. `commandHandlers` and the declaration table are kept in step by a test
+ * rather than by remembering.
+ */
+export const commandHandlers: Record<string, CommandHandler> = {
   compile: runCompileCommand,
   diff: runDiffCommand,
   install: runInstallCommand,
@@ -36,18 +44,25 @@ const commands: Record<string, CommandHandler> = {
 export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   try {
     const parsed = parseArgs(argv);
-    if (parsed.help || !parsed.command) {
-      printUsage();
+
+    if (parsed.help.kind === "list") {
+      console.log(renderCommandList(commandDeclarations));
+      return 0;
+    }
+    if (parsed.help.kind === "command") {
+      const declaration = findCommandDeclaration(parsed.help.command);
+      if (!declaration) throw unknownCommand(parsed.help.command);
+      console.log(renderCommandHelp(declaration));
       return 0;
     }
 
-    const command = commands[parsed.command];
+    const command = parsed.command === undefined ? undefined : commandHandlers[parsed.command];
     if (command) {
       await command(parsed);
       return 0;
     }
 
-    throw new BitLiteError(`command "${parsed.command}" is not registered in this clean-slate build`);
+    throw unknownCommand(parsed.command ?? "");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(message);
@@ -55,33 +70,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   }
 }
 
-function printUsage() {
-  console.log(`bit-lite
-
-Usage:
-  bit-lite --help
-  bit-lite <command> [--workspace <dir>] [--filter <component-pattern>] [...args]
-
-Commands:
-  compile compile component packages once or watch with vendor-owned --watch
-  diff    emit a unified diff of the selected components between two points,
-          defaulting to working content against each recorded head
-          [--from <version>] [--to <version>, one component only] [--json]
-  install install/link packages and optionally compile once with --compile
-  log     list one component's recorded snaps with the versions on each and
-          why each version exists [--json]
-  preview serve component docs and compositions
-  snap    record selected components in the component history store
-          [--message <text>] [--dry-run] [--json]
-  start   compile and serve preview/live tests in one watch session
-  status  report each selected component's state against its recorded history
-          [--detail, expand what makes each component modified] [--json]
-  sync    exchange component histories and tags with [--remote <url>]
-  tag     assign immutable versions to the selected components' snaps,
-          incrementing each component's patch by default
-          [--interactive, choose each component's version before anything is written]
-          [--version <x.y.z>, one component only] [--message <text>] [--dry-run] [--json]
-  test    run the configured test service
-  watch   alias for compile --watch
-`);
+function unknownCommand(name: string) {
+  const known = commandDeclarations.map((declaration) => declaration.name).join(", ");
+  return new BitLiteError(`Unknown command "${name}". Available commands: ${known}.`);
 }

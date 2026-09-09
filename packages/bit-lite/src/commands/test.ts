@@ -24,6 +24,7 @@ import type {
 } from "../utils/vendor-execution.js";
 import type { WatchCommandContribution } from "../utils/watch-contribution.js";
 import { createTestResultRoutes } from "./test-routes.js";
+import { readFlagOption } from "../utils/command-options.js";
 
 export type TestServiceResult = JsonObject & {
   mode: "run" | "watch";
@@ -128,7 +129,7 @@ export async function runTestCommand(parsed: ParsedCliArgs, options: RunTestComm
   const selection = await prepareResolvedCommandSelection(parsed);
   const plan = createEnvServiceExecutionPlan(selection, serviceId);
 
-  if (parsed.args.options.watch === true && isInteractiveTerminal()) {
+  if (readFlagOption(parsed.args.options.watch, "--watch") && isInteractiveTerminal()) {
     const contribution = await createTestWatchContribution(selection, {
       resultStore: options.resultStore,
     });

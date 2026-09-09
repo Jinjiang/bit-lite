@@ -71,7 +71,7 @@ bit-lite install --workspace ./my-workspace --compile
 Runs the compile service selected by each component's environment. Local prerequisites are included and components are processed in dependency order.
 
 ```bash
-bit-lite compile --filter 'ui/*'
+bit-lite compile 'ui/*'
 bit-lite compile --watch
 ```
 
@@ -82,8 +82,8 @@ bit-lite compile --watch
 Groups components that share a resolved test service and invokes the service vendor.
 
 ```bash
-bit-lite test --filter ui/button
-bit-lite test --filter ui/button -- --coverage
+bit-lite test ui/button
+bit-lite test ui/button -- --coverage
 ```
 
 Arguments after `--` are preserved for the vendor.
@@ -113,10 +113,10 @@ Regenerates package manifests and symlinks without installing external dependenc
 
 ### `snap`
 
-Records the selected components in the workspace's component history store at `.bit-lite-store.git`, creating it on first use. Without `--filter` it records every registered component.
+Records the selected components in the workspace's component history store at `.bit-lite-store.git`, creating it on first use. With no pattern it records every registered component.
 
 ```bash
-bit-lite snap --workspace ./my-workspace --filter ui/**
+bit-lite snap --workspace ./my-workspace "ui/**"
 ```
 
 A snap captures every regular file under each component root, including docs, demos, tests, assets, and dotfiles. `.comp.json` is the one exception to "exactly the bytes on disk": what a snap records is a **projection** of it, with `workspace:*` dependency specifiers resolved to the versions those components currently carry and the env reference from `bit-lite.json` injected. The working file is never modified.
@@ -129,11 +129,11 @@ Requires Git. See the [`bit-lite-history` documentation](../bit-lite-history/REA
 
 ### `tag`
 
-Assigns immutable semantic versions to the selected components' snaps, deriving each component's version independently by incrementing the patch of the highest it already carries. Without `--filter` it tags every registered component.
+Assigns immutable semantic versions to the selected components' snaps, deriving each component's version independently by incrementing the patch of the highest it already carries. With no pattern it tags every registered component.
 
 ```bash
-bit-lite tag --filter ui/**
-bit-lite tag --filter ui/button --version 1.2.3
+bit-lite tag "ui/**"
+bit-lite tag ui/button --version 1.2.3
 ```
 
 `--version` overrides the derived version and requires the selection to resolve to exactly one component, since one version cannot describe several. A component with nothing new — unchanged content whose snap already carries a version — is skipped and keeps the version it has, so repeating the command changes nothing.
@@ -153,11 +153,11 @@ Reconciliation is fast-forward only. Divergent histories and conflicting tag tar
 
 ### `status`
 
-Reports where each selected component stands against its recorded history. Without `--filter` it reports every registered component.
+Reports where each selected component stands against its recorded history. With no pattern it reports every registered component.
 
 ```bash
 bit-lite status
-bit-lite status --filter ui/** --json
+bit-lite status "ui/**" --json
 ```
 
 Five conditions are reported independently, because a component can be in several at once:
@@ -181,7 +181,7 @@ Unlike `snap` and `tag`, `status` never refuses. A prerequisite that has never b
 Expands each modified component into the changes behind it — the component-owned files that differ, and the dependency, env, and other metadata changes.
 
 ```bash
-bit-lite status --detail --filter ui/button
+bit-lite status --detail ui/button
 ```
 
 Detail always compares working content against the recorded head; comparing two recorded versions against each other is what `log` reports for every snap. It reports the same components and the same conditions as the summary view, adding detail rather than changing the answer, and a component that is not modified gains no expansion.
@@ -193,7 +193,7 @@ Detail always compares working content against the recorded head; comparing two 
 Lists one component's snaps from its head backwards, and says why each version exists.
 
 ```bash
-bit-lite log --filter ui/button
+bit-lite log ui/button
 ```
 
 Each entry carries the snap identifier, its authored timestamp, any semantic versions assigned to it, and its change source — `source`, `deps`, `env`, or a combination. An entry whose version came only from a dependency or env moving says that no component-owned source file changed and names the versions on both sides.
@@ -204,8 +204,8 @@ Emits a line-by-line unified diff of the selected components' content.
 
 ```bash
 bit-lite diff
-bit-lite diff --filter ui/button > changes.diff
-bit-lite diff --filter ui/button --from 0.0.1 --to 0.0.2
+bit-lite diff ui/button > changes.diff
+bit-lite diff ui/button --from 0.0.1 --to 0.0.2
 ```
 
 With no `--from` or `--to`, it compares each selected component's working content against its recorded head and follows the same selection conventions as `status`, so a bare `bit-lite diff` covers the whole workspace. Each option accepts a snap identifier or an assigned semantic version; a version that is not one of that component's snaps fails naming both. Naming a version requires a selection resolving to one component, because a version identifier is local to one component's history.
@@ -246,9 +246,21 @@ A component whose own files are untouched but whose workspace prerequisite has u
 | Option | Meaning |
 | --- | --- |
 | `--workspace <dir>`, `-w <dir>` | Workspace root; defaults to the current directory |
-| `--filter <pattern>` | Component ID or path pattern; may be repeated |
-| `--help`, `-h` | Print usage |
+| `--filter <pattern>` | Component ID or path pattern; may be repeated. Only on the commands that select components |
+| `--help`, `-h` | Print help for the command, or for the CLI when no command is named |
 | `--` | Start the vendor-specific argument list |
+
+A component pattern may be written positionally instead of with `--filter`, and the two are
+equivalent: `bit-lite snap ui/button` and `bit-lite snap --filter ui/button` select the same thing,
+and both spellings may be used together. Quote patterns containing `*` so the shell does not expand
+them. `install`, `link`, and `sync` take no component patterns.
+
+These four spellings are reserved, so a vendor option spelled the same way goes after `--`. Any
+other option a command does not define is forwarded to its vendor, on the commands that run one;
+`snap`, `tag`, `status`, `log`, `diff`, `link`, and `sync` reach no vendor and report an option they
+do not define instead of ignoring it.
+
+Run `bit-lite help <command>` for each command's own options and examples.
 
 ## JavaScript API
 

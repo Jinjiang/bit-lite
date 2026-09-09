@@ -198,7 +198,8 @@ function parsed(command: string, workspaceRoot: string, componentFilters: string
     command,
     workspaceRoot,
     componentFilters,
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
     args: { raw: [command], options: {}, passthrough: [] },
   };
 }

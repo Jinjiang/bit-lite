@@ -142,7 +142,8 @@ describe("preview command preparation isolation", () => {
       },
       workspaceRoot,
       componentFilters: [],
-      help: false,
+      help: { kind: "none" },
+      consumedBareWords: [],
     };
     const selection = { parsed, context, components: workspace.components, groups: [group] };
     const sigintListeners = process.listenerCount("SIGINT");
@@ -451,7 +452,8 @@ function createSelection(workspace: Workspace, groups: WorkspaceEnvGroup[]) {
     args: { raw: ["preview"], options: {}, passthrough: [] },
     workspaceRoot: workspace.rootDir,
     componentFilters: [],
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
   };
   return {
     parsed,
@@ -506,7 +508,8 @@ async function createContributionSelection(vendor: string) {
     args: { raw: ["preview", "--lazy"], options: { lazy: true }, passthrough: [] },
     workspaceRoot,
     componentFilters: [],
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
   };
   return {
     selection: { parsed, context, components: workspace.components, groups: [group] },

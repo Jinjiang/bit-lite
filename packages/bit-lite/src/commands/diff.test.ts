@@ -349,7 +349,8 @@ function parsed(
     command: "diff",
     workspaceRoot,
     componentFilters,
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
     args: {
       raw: ["diff", ...componentFilters.flatMap((filter) => ["--filter", filter])],
       options,

@@ -5,6 +5,8 @@ import type { ParsedCliArgs } from "../cli-args-types.js";
 import type { CliOptionValue } from "bit-lite-utils";
 import { openComponentHistoryStore, readComponentHead } from "bit-lite-history";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { parseArgs } from "../args.js";
+import { runCli } from "../cli.js";
 import { createSnapJsonReporter, runSnapCommand, type SnapReport } from "./snap.js";
 import { createTagJsonReporter, runTagCommand, type TagReport } from "./tag.js";
 
@@ -171,6 +173,62 @@ describe("--message", () => {
   });
 });
 
+describe("selection spellings", () => {
+  it("records the same components positionally as it does with --filter", async () => {
+    const positionalRoot = await createWorkspace();
+    const filteredRoot = await createWorkspace();
+
+    const positional = await runSnapCommand(
+      parseArgs(["snap", "ui/button", "lib/math", "-w", positionalRoot]),
+      { reporter: silent }
+    );
+    const filtered = await runSnapCommand(
+      parseArgs(["snap", "--filter", "ui/button", "--filter", "lib/math", "-w", filteredRoot]),
+      { reporter: silent }
+    );
+
+    expect(positional.changed.map((item) => item.componentId)).toEqual(
+      filtered.changed.map((item) => item.componentId)
+    );
+    expect(positional.changed.length).toBeGreaterThan(0);
+  });
+});
+
+describe("an option nobody declared", () => {
+  it("stops snap before it writes, rather than recording with the flag unset", async () => {
+    const root = await createWorkspace();
+    const before = await readFile(path.join(root, "bit-lite.json"), "utf8");
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // One missing hyphen. This used to perform a real recording and report success.
+    expect(await runCli(["snap", "--dryrun", "-w", root])).toBe(1);
+
+    expect(errors.mock.calls.flat().join("\n")).toContain("--dryrun");
+    expect(await readFile(path.join(root, "bit-lite.json"), "utf8")).toBe(before);
+    const store = await openComponentHistoryStore({ workspaceRoot: root });
+    expect(await readComponentHead(store, "ui/button")).toBeUndefined();
+    errors.mockRestore();
+  });
+});
+
+describe("asking a recording command for help", () => {
+  it("prints tag's help and moves nothing", async () => {
+    const root = await createWorkspace();
+    await snap(root);
+    const store = await openComponentHistoryStore({ workspaceRoot: root });
+    const headBefore = await readComponentHead(store, "ui/button");
+    const configBefore = await readFile(path.join(root, "bit-lite.json"), "utf8");
+    const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    expect(await runCli(["tag", "-h", "-w", root])).toBe(0);
+
+    expect(logs.mock.calls.flat().join("\n")).toContain("--interactive");
+    expect(await readComponentHead(store, "ui/button")).toEqual(headBefore);
+    expect(await readFile(path.join(root, "bit-lite.json"), "utf8")).toBe(configBefore);
+    logs.mockRestore();
+  });
+});
+
 async function snap(
   root: string,
   options: Record<string, CliOptionValue> = {}
@@ -194,7 +252,8 @@ function parsed(
     command,
     workspaceRoot,
     componentFilters: [],
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
     args: { raw: [command], options, passthrough: [] },
   };
 }

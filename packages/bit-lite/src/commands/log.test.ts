@@ -242,7 +242,8 @@ function parsed(workspaceRoot: string, componentFilters: string[] = []): ParsedC
     command: "log",
     workspaceRoot,
     componentFilters,
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
     args: {
       raw: ["log", ...componentFilters.flatMap((filter) => ["--filter", filter])],
       options: componentFilters.length > 0 ? { filter: componentFilters } : {},

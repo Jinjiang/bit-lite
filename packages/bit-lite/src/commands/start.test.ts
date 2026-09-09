@@ -94,7 +94,7 @@ describe("runStartCommand", () => {
     expect(mocks.prepare).toHaveBeenCalledOnce();
     expect(await runCli(["--help"])).toBe(0);
     expect(vi.mocked(console.log).mock.calls.flat().join("\n")).toContain(
-      "start   compile and serve preview/live tests in one watch session"
+      "run compile watch, test watch, source browsing, and preview together"
     );
   });
 
@@ -376,7 +376,8 @@ function createParsed(
 ): ParsedCliArgs {
   return {
     command: "start",
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
     args: { raw, options, passthrough },
     workspaceRoot: "/workspace",
     componentFilters: [],

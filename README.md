@@ -246,8 +246,13 @@ The workspace and environment models remain JSON-safe. Process-specific resource
 ## CLI overview
 
 ```text
-bit-lite <command> [--workspace <directory>] [--filter <pattern>] [-- ...vendor-options]
+bit-lite <command> [component-pattern...] [options] [-- ...vendor-options]
+bit-lite help <command>
 ```
+
+Every command describes itself. `bit-lite help` lists the commands, and `bit-lite help <command>`
+— equivalently `bit-lite <command> -h` — prints that command's own options, examples, and whether
+it selects components. The table below says what each command is *for*; help says how to call it.
 
 | Command | What it does |
 | --- | --- |
@@ -271,11 +276,11 @@ bit-lite <command> [--workspace <directory>] [--filter <pattern>] [-- ...vendor-
 
 A snap's version is spelled `0.0.0-g<git object id>`, and `tag` assigns versions of exactly `major.minor.patch`. **Snap versions are identifiers, not ordered versions** — semantic-version precedence over their text has no relationship to history order, so sorting them or computing a "latest" from them gives an arbitrary answer. Use the store's ancestry instead.
 
-Both commands accept `--message <text>` to replace the generated message, `--dry-run` to report what would happen without writing anything, and `--json` for structured output. `tag` also accepts `--version <x.y.z>` to override the derived version, which requires the selection to resolve to exactly one component.
+Both commands can replace the generated message, report what they would do without writing anything, and emit structured output; `tag` can also be given an explicit version, which requires the selection to resolve to exactly one component. `bit-lite help snap` and `bit-lite help tag` spell those options out.
 
 Because the recorded projection names the versions a component was built against, **a component can gain a new version with no change to any of its own files** — when a dependency or its env moves, its recorded metadata moves with it. That is deliberate, and it is why the inspection commands exist: `log` attributes every version to `source`, `deps`, `env`, or a combination, and names the versions on both sides, so a version with no visible source change explains itself. `status` reports the same relationship ahead of time as an available dependency or env update.
 
-The inspection commands accept the same `--filter` arguments as everything else and `--json` for structured output, in which version identifiers are never abbreviated. `log` describes one component, so its selection must resolve to exactly one.
+The inspection commands select components the same way everything else does, and each can emit structured output, in which version identifiers are never abbreviated. `log` describes one component, so its selection must resolve to exactly one.
 
 The three divide the work by what kind of answer they give. `status` and `log` **report**: they name changes in the workspace's vocabulary, and `.comp.json` — a projection rather than a file anyone edits — is presented as dependency and env changes rather than as a file. `status --detail` expands each modified component into the files and metadata changes behind it. `diff` **reproduces**: it emits the content itself as a unified diff, where `.comp.json` appears as an ordinary file patch like any other.
 
@@ -283,14 +288,36 @@ The three divide the work by what kind of answer they give. `status` and `log` *
 
 `status` is the authority on what recording will act on: it reports a component as modified if and only if `snap` would act on it, including when the reason is a workspace prerequisite with uncommitted changes. An empty `diff` does not carry that guarantee, because such a component has no content difference of its own for a patch to show; `diff` says so on standard error.
 
+Selecting components:
+
+The commands that act on components take patterns either positionally or with `--filter`, and the
+two are exactly equivalent — `bit-lite snap ui/button` is `bit-lite snap --filter ui/button`. Both
+spellings may appear together and combine as a union. Quote any pattern containing `*` so the shell
+does not expand it before `bit-lite` sees it:
+
+```bash
+bit-lite status "ui/**" lib/math
+bit-lite tag "ui/**" --interactive
+```
+
+`install`, `link`, and `sync` act on the whole workspace and take no component patterns at all.
+
 Common flags:
 
 - `--workspace`, `-w`: directory containing `bit-lite.json`; defaults to the current directory.
-- `--filter`: component ID or path pattern; repeat the option to add more patterns.
-- `--help`, `-h`: print CLI help.
+- `--filter`: component ID or path pattern; repeat the option to add more patterns. Only on the
+  commands that select components.
+- `--help`, `-h`: print help for the command, or for the CLI when no command is named.
 - `--`: forward the remaining arguments to the selected vendor.
 
-`preview` and `start` also accept `--host`, `--port`, and `--lazy`.
+Those four spellings are reserved by the CLI, so a vendor option spelled `-h`, `-w`, `--help`,
+`--workspace`, or `--filter` has to go after `--`. Every other option a command does not define is
+passed to its vendor unchanged — on the commands that run one. `snap`, `tag`, `status`, `log`,
+`diff`, `link`, and `sync` never reach a vendor, so an option they do not define is a typo and they
+say so rather than proceeding with it unset.
+
+Run `bit-lite help <command>` for the rest. `--lazy`, for instance, belongs to `preview` and
+`start`, which is where their help documents it.
 
 See the [`bit-lite` package documentation](./packages/bit-lite/README.md) for configuration and file conventions.
 

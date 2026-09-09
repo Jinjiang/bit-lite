@@ -506,7 +506,8 @@ function parsed(
     command: "status",
     workspaceRoot,
     componentFilters,
-    help: false,
+    help: { kind: "none" },
+    consumedBareWords: [],
     args: {
       raw: [
         "status",
