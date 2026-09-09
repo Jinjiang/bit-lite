@@ -18,11 +18,12 @@ import {
 
 The root entry covers:
 
-- JSON-compatible value validation;
+- the JSON value types every JSON-safe boundary in the repository shares, and
+  their validators;
 - record parsing and deterministic key ordering;
 - error aggregation and formatting;
 - host, port, package-name, and default-export readers;
-- HTML escaping and safe file names;
+- HTML escaping, safe file names, and noun pluralization;
 - exit-code formatting;
 - mapping discovered component files to results.
 
@@ -51,8 +52,16 @@ Utilities should remain stateless and independent from Bit Lite workspace policy
 
 `BitLiteError` marks an error as Bit Lite domain logic rather than a raw system
 failure, so a command shows its message instead of a stack trace. It lives here
-because three packages raise it and none should depend on another to name the
-type — two identical declarations already existed before this consolidation.
+because every package raises it and none should depend on another to name the
+type. A layer that wants its own failures recognizable extends it — component
+history does, as `ComponentHistoryError` — rather than declaring a parallel one.
+
+## Contribution rule for options
+
+A helper here takes what it needs and nothing more. Adding a policy flag or a
+callback so that two call sites can share one function is how these utilities
+grow a surface larger than their bodies; prefer two well-named functions, or
+leave the second call site with its own three lines.
 
 ## Patch formatting
 

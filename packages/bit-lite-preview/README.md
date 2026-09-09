@@ -43,6 +43,11 @@ import {
 
 `readPreviewPreparedRuntime` validates that runtime inside the vendor.
 
+Each step is its own module: `component-discovery.ts` reads a component's docs and
+demo files, `demo-exports.ts` decides which of a demo's exports exist at runtime,
+`entry-source.ts` generates the module a bundler compiles, and `preparation.ts`
+orchestrates the three and owns the temporary directory they write into.
+
 ### `bit-lite-preview/browser`
 
 The browser entry starts the preview application from a component manifest and optional rendering adapters.
