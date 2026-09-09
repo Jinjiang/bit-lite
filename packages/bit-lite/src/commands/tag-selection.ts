@@ -1,4 +1,5 @@
 import readline from "node:readline";
+import { countOf } from "bit-lite-utils";
 import type { WorkspaceComponent } from "bit-lite-context";
 import type { ComponentVersionIncrement } from "bit-lite-history";
 import { assertComponentVersion } from "bit-lite-history";
@@ -297,7 +298,7 @@ export function renderSelection(input: {
 
   const idWidth = Math.max(...rows.map((row) => row.componentId.length), 9);
   const lines: string[] = [
-    `Release: ${releasing} of ${rows.length} component${rows.length === 1 ? "" : "s"}`,
+    `Release: ${releasing} of ${countOf(rows.length, "component")}`,
     "",
   ];
 

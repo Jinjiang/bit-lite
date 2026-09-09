@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { readWorkspace, selectWorkspaceComponents } from "bit-lite-context";
 import {
@@ -7,13 +7,11 @@ import {
   formatSnapVersion,
   isAncestorCommit,
   isSnapVersion,
-  openComponentHistoryStore,
   parseSnapVersion,
   readBlobBytes,
   readCommitTree,
   readTagTarget,
   readTreeFiles,
-  resolveComponentStorePath,
   type ComponentHistoryStore,
   type GitObjectId,
   type TreeFileEntry,
@@ -22,6 +20,7 @@ import type { WorkspaceComponent } from "bit-lite-context";
 import type { ParsedCliArgs } from "../cli-args-types.js";
 import { BitLiteError } from "bit-lite-utils";
 import { readFlagOption, readTextOption } from "../utils/command-options.js";
+import { openRecordedHistory } from "../utils/component-store.js";
 import { componentConfigFileName } from "bit-lite-versioning";
 import {
   inspectWorkspace,
@@ -101,7 +100,8 @@ export async function runDiffCommand(
   const workspace = await readWorkspace(parsed.workspaceRoot);
   const components = selectComponents(workspace, parsed.componentFilters, from, to);
 
-  if (!(await directoryExists(resolveComponentStorePath(workspace.rootDir)))) {
+  const store = await openRecordedHistory(workspace.rootDir);
+  if (store === undefined) {
     if (from !== undefined || to !== undefined) {
       throw new BitLiteError(
         `component "${components[0]!.id}" has no recorded history, so there is no version to compare`
@@ -115,10 +115,6 @@ export async function runDiffCommand(
     return report;
   }
 
-  const store = await openComponentHistoryStore({
-    workspaceRoot: workspace.rootDir,
-    create: false,
-  });
   const inspection = await inspectWorkspace(store, workspace);
 
   const reports: DiffComponentReport[] = [];
@@ -345,14 +341,6 @@ function pairSides(before: SideContent, after: SideContent): PatchFile[] {
   }
 
   return files;
-}
-
-async function directoryExists(directory: string): Promise<boolean> {
-  try {
-    return (await stat(directory)).isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 /**

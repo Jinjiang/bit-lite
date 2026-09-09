@@ -1,7 +1,6 @@
 import { readWorkspace, selectWorkspaceComponents } from "bit-lite-context";
 import type { Workspace, WorkspaceComponent } from "bit-lite-context";
 import type { ParsedCliArgs } from "../cli-args-types.js";
-import type { CliOptionValue } from "bit-lite-utils";
 import {
   abbreviateComponentVersion,
   assertComponentVersion,
@@ -17,7 +16,7 @@ import {
   type ComponentTagResult,
   type PreparedComponentSnap,
 } from "bit-lite-history";
-import { BitLiteError } from "bit-lite-utils";
+import { BitLiteError, countOf } from "bit-lite-utils";
 import { selectVersions, type SelectionInputStream } from "./tag-selection.js";
 import { readFlagOption, readTextOption } from "../utils/command-options.js";
 import {
@@ -129,7 +128,7 @@ export async function runTagCommand(
   const asJson = readFlagOption(parsed.args.options.json, "--json");
   const interactive = readFlagOption(parsed.args.options.interactive, "--interactive");
   // Validated before the store is opened, so a bad version fails immediately.
-  const requested = readVersionOption(parsed.args.options.version);
+  const requested = readTextOption(parsed.args.options.version, "--version");
   const requestedVersion = requested === undefined ? undefined : assertComponentVersion(requested);
   const message = readTextOption(parsed.args.options.message, "--message");
   const reporter = options.reporter ?? (asJson ? createTagJsonReporter() : createTagReporter());
@@ -507,17 +506,6 @@ function createTagPolicy(
   };
 }
 
-function readVersionOption(value: CliOptionValue | undefined): string | undefined {
-  if (value === undefined) return undefined;
-  if (Array.isArray(value)) {
-    throw new BitLiteError("--version accepts exactly one value");
-  }
-  if (typeof value !== "string" || value.length === 0) {
-    throw new BitLiteError("--version requires a version");
-  }
-  return value;
-}
-
 export function createTagReporter(
   log: (message: string) => void = console.log
 ): TagReporter {
@@ -546,7 +534,7 @@ export function createTagReporter(
         }
         const count = report.planned.length - skipped.length;
         log(
-          `${count} component${count === 1 ? "" : "s"} would be tagged, ` +
+          `${countOf(count, "component")} would be tagged, ` +
             `${skipped.length} unchanged (dry run, nothing written)`
         );
         return;
@@ -559,10 +547,7 @@ export function createTagReporter(
         const label = tag.status === "created" ? "tagged" : "already tagged";
         log(`${label} ${tag.componentId} ${tag.version} ${abbreviateComponentVersion(tag.snapId)}`);
       }
-      log(
-        `${report.tags.length} component${report.tags.length === 1 ? "" : "s"} tagged, ` +
-          `${skipped.length} unchanged`
-      );
+      log(`${countOf(report.tags.length, "component")} tagged, ${skipped.length} unchanged`);
     },
   };
 }

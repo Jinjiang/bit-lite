@@ -1,18 +1,15 @@
-import { stat } from "node:fs/promises";
 import { readWorkspace } from "bit-lite-context";
 import {
   abbreviateComponentVersion,
   formatObjectId,
   formatSnapVersion,
-  openComponentHistoryStore,
   readCommitTree,
   readComponentHistory,
-  resolveComponentStorePath,
-  type ComponentHistoryStore,
 } from "bit-lite-history";
 import type { ParsedCliArgs } from "../cli-args-types.js";
 import { readFlagOption } from "../utils/command-options.js";
 import { selectSingleWorkspaceComponent } from "../utils/command-selection.js";
+import { openRecordedHistory } from "../utils/component-store.js";
 import { compareComponentStates } from "bit-lite-versioning";
 import {
   attributeSnapChange,
@@ -75,16 +72,13 @@ export async function runLogCommand(
   const component = selectSingleWorkspaceComponent(workspace, parsed.componentFilters, "log");
 
   // No store means no history, which is an answer rather than a failure.
-  if (!(await directoryExists(resolveComponentStorePath(workspace.rootDir)))) {
+  const store = await openRecordedHistory(workspace.rootDir);
+  if (store === undefined) {
     const report = { componentId: component.id, neverRecorded: true, entries: [] };
     reporter.report(report);
     return report;
   }
 
-  const store = await openComponentHistoryStore({
-    workspaceRoot: workspace.rootDir,
-    create: false,
-  });
   const history = await readComponentHistory(store, component.id);
 
   const entries: LogEntry[] = [];
@@ -124,14 +118,6 @@ export async function runLogCommand(
   };
   reporter.report(report);
   return report;
-}
-
-async function directoryExists(directory: string): Promise<boolean> {
-  try {
-    return (await stat(directory)).isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 export function createLogReporter(log: (message: string) => void = console.log): LogReporter {

@@ -24,7 +24,7 @@ describe("preview proxy", () => {
     expect(shell).toContain("isTerminalStatus");
     expect(shell).not.toContain("setInterval(loadManifest");
 
-    proxy.updatePreparedComponents(env, "/env/react%20env/", [
+    proxy.state.updatePreparedComponents(env, "/env/react%20env/", [
       {
         component: { id: "scope/button" },
         docs: {
@@ -62,7 +62,7 @@ describe("preview proxy", () => {
       ],
     });
 
-    proxy.updatePreparationFailure(env, new Error("config could not be resolved"));
+    proxy.state.updateFailure(env, new Error("config could not be resolved"));
     const failed = await fetch(`${proxy.origin}/env/react%20env/`);
     expect(failed.status).toBe(503);
     expect(await failed.text()).toContain("config could not be resolved");
@@ -92,7 +92,7 @@ describe("preview proxy", () => {
       ],
     });
     await proxy.start("127.0.0.1", 43_100);
-    proxy.updateServer(
+    proxy.state.updateServer(
       env,
       { origin: `http://127.0.0.1:${upstreamPort}`, host: "127.0.0.1", port: upstreamPort, basePath: "/env/static/" },
       "vite-preview"
@@ -127,7 +127,7 @@ describe("preview proxy", () => {
       ],
     });
     const endpoint = await proxy.start("127.0.0.1", 43_200);
-    proxy.updateServer(
+    proxy.state.updateServer(
       env,
       {
         origin: `http://127.0.0.1:${upstreamPort}`,

@@ -82,21 +82,26 @@ describe("existing commands stay independent of component history", () => {
 });
 
 describe("inspection commands read the store without creating it", () => {
-  it.each(inspectionCommands)("%s opens the store with create disabled", async (fileName) => {
+  it.each(inspectionCommands)("%s reaches the store only through the read-only gate", async (fileName) => {
     const source = await readCommandSource(fileName);
 
-    expect(source).toContain("openComponentHistoryStore");
-    // Opening without `create: false` would initialize a bare repository as a
-    // side effect of asking a read-only question.
-    expect(source).toContain("create: false");
+    // One gate rather than three copies of the same precaution: a command that
+    // opened the store itself could forget `create: false` and initialize a
+    // bare repository as a side effect of a read-only question.
+    expect(source).toContain("openRecordedHistory");
+    expect(source).not.toContain("openComponentHistoryStore");
   });
 
-  it.each(inspectionCommands)("%s answers before opening a store at all", async (fileName) => {
-    const source = await readCommandSource(fileName);
+  it("answers from the absent directory rather than by opening a store", async () => {
+    const gate = await readFile(
+      path.join(sourceDirectory, "..", "utils", "component-store.ts"),
+      "utf8"
+    );
 
-    // A workspace with no store is answered from the absent directory, so
-    // inspection needs neither a store nor Git to say "never recorded".
-    expect(source).toContain("resolveComponentStorePath");
+    // Inspection needs neither a store nor Git to say "never recorded", and
+    // asking must never bring one into existence.
+    expect(gate).toContain("resolveComponentStorePath");
+    expect(gate).toContain("create: false");
   });
 
   it.each(inspectionCommands)("%s never writes objects, refs, or anchors", async (fileName) => {

@@ -7,7 +7,7 @@ import {
   publishComponentSnaps,
   type ComponentSnapResult,
 } from "bit-lite-history";
-import { BitLiteError } from "bit-lite-utils";
+import { BitLiteError, countOf } from "bit-lite-utils";
 import { readFlagOption, readTextOption } from "../utils/command-options.js";
 import { prepareRecording, writeRecordedVersions } from "bit-lite-versioning";
 
@@ -112,11 +112,10 @@ export function createSnapReporter(
             `${version === undefined ? component.snapId : abbreviateComponentVersion(version)}`
         );
       }
-      const changedCount = report.changed.length;
-      const unchangedCount = report.unchanged.length;
       log(
-        `${changedCount} component${changedCount === 1 ? "" : "s"} ` +
-          `${report.dryRun ? "would be snapped" : "snapped"}, ${unchangedCount} unchanged` +
+        `${countOf(report.changed.length, "component")} ` +
+          `${report.dryRun ? "would be snapped" : "snapped"}, ` +
+          `${report.unchanged.length} unchanged` +
           `${report.dryRun ? " (dry run, nothing written)" : ""}`
       );
     },
