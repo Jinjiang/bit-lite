@@ -7,7 +7,7 @@ Define the command-side planning, preparation, execution, and contribution contr
 ## Requirements
 
 ### Requirement: Vendor command orchestration accepts open service identifiers
-The command-side vendor execution API SHALL accept a non-empty service identifier as an opaque string and SHALL NOT encode the currently supported env services as a closed union in the orchestration contract. Env schema validation MAY independently restrict which services can be declared. An env-service plan SHALL derive units from the already resolved command selection and SHALL silently omit an env group that does not expose the requested resolved service without creating unavailable-service state.
+The command-side vendor execution API SHALL accept a non-empty service identifier as an opaque string and SHALL NOT encode the currently supported env services as a closed union in the orchestration contract. Env schema validation MAY independently restrict which services can be declared. An env-service plan SHALL derive units from the resolved env groups a command selection carries, stated as the groups themselves rather than as the command-selection type, so planning does not refer to the command layer that assembled them. It SHALL silently omit an env group that does not expose the requested resolved service without creating unavailable-service state.
 
 #### Scenario: Existing service is planned
 - **WHEN** a caller plans the string service identifier `test` for a resolved selection whose env groups expose that service
@@ -20,6 +20,10 @@ The command-side vendor execution API SHALL accept a non-empty service identifie
 #### Scenario: Selected env omits the service
 - **WHEN** a selected env group does not expose the requested resolved service
 - **THEN** that group contributes no execution unit and no unavailable-service record
+
+#### Scenario: Planning is asked for by something other than a command
+- **WHEN** a caller holds resolved env groups without a parsed command line
+- **THEN** it can plan an env service from those groups, because the plan's input names the groups and nothing else
 
 ### Requirement: Every vendor execution uses a validated layered plan
 A vendor execution plan SHALL contain one or more ordered layers of uniquely identified units, and every unit SHALL declare the IDs of units it depends on. A dependency MUST identify a unit in an earlier layer. The same plan representation SHALL support single-layer commands and dependency-ordered commands. Plan validation SHALL reject duplicate IDs, missing dependencies, and same-layer or later-layer dependencies before vendor preparation begins.
