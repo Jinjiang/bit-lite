@@ -1,11 +1,10 @@
 import { lstat } from "node:fs/promises";
 import path from "node:path";
 import { BitLiteError, isRecord, sortStringRecord } from "bit-lite-utils";
-import { isFile, isNodeErrorCode, readJsonFile } from "bit-lite-utils/node";
+import { isFile, isNodeErrorCode, readJsonFile, toPosixPath } from "bit-lite-utils/node";
 import { assertPackageName, CONFIG_FILE, isWorkspaceProtocolSpec, loadConfig } from "./config.js";
 import type { ComponentKind, Workspace, WorkspaceComponent } from "./types/index.js";
-import { toPosixPath } from "./utils/path-utils.js";
-import { matchPattern } from "./utils/patterns.js";
+import { matchPattern } from "./patterns.js";
 
 const componentConfigFileName = ".comp.json";
 const ordinaryEntryCandidates = [
