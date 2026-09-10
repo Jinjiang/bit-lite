@@ -22,7 +22,6 @@
     "vitest": "^4.1.8"
   },
   "dependencies": {
-    "bit-lite-env": "workspace:*",
     "bit-lite-utils": "workspace:*"
   }
 }
