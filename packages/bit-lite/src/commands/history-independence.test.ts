@@ -92,18 +92,6 @@ describe("inspection commands read the store without creating it", () => {
     expect(source).not.toContain("openComponentHistoryStore");
   });
 
-  it("answers from the absent directory rather than by opening a store", async () => {
-    const gate = await readFile(
-      path.join(sourceDirectory, "..", "utils", "component-store.ts"),
-      "utf8"
-    );
-
-    // Inspection needs neither a store nor Git to say "never recorded", and
-    // asking must never bring one into existence.
-    expect(gate).toContain("resolveComponentStorePath");
-    expect(gate).toContain("create: false");
-  });
-
   it.each(inspectionCommands)("%s never writes objects, refs, or anchors", async (fileName) => {
     const source = await readCommandSource(fileName);
 

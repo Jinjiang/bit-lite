@@ -7,6 +7,7 @@ import {
   formatSnapVersion,
   isAncestorCommit,
   isSnapVersion,
+  openRecordedHistory,
   parseSnapVersion,
   readBlobBytes,
   readCommitTree,
@@ -20,9 +21,8 @@ import type { WorkspaceComponent } from "bit-lite-context";
 import type { ParsedCliArgs } from "../cli-args-types.js";
 import { BitLiteError } from "bit-lite-utils";
 import { readFlagOption, readTextOption } from "../utils/command-options.js";
-import { openRecordedHistory } from "../utils/component-store.js";
-import { componentConfigFileName } from "bit-lite-versioning";
 import {
+  componentConfigFileName,
   inspectWorkspace,
   type InspectedComponent,
 } from "bit-lite-versioning";

@@ -4,7 +4,7 @@ import type { WorkspaceComponent } from "bit-lite-context";
 import type { ComponentVersionIncrement } from "bit-lite-history";
 import { assertComponentVersion } from "bit-lite-history";
 import type { TagPlanEntry, TagRelease } from "./tag.js";
-import type { VersionDecision, VersionDecisions } from "../utils/version-decision.js";
+import type { VersionDecision, VersionDecisions } from "bit-lite-versioning";
 
 /**
  * What: presents a pending release and collects a version decision per

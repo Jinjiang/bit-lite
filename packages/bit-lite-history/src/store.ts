@@ -83,6 +83,29 @@ export async function openComponentHistoryStore(
   return { gitDir, objectFormat: await readObjectFormat(run, gitDir), run };
 }
 
+/**
+ * Opens the workspace's store if it has one, and answers `undefined` if it does
+ * not.
+ *
+ * `status`, `log`, and `diff` only ever read, so a workspace that has never
+ * recorded anything is an answer they give rather than a failure — and they
+ * must not bring a store into existence by asking. Returning `undefined`
+ * instead of creating one is what keeps that promise, and it is why those
+ * commands work in a workspace that was only just cloned.
+ *
+ * It lives beside `openComponentHistoryStore` rather than in the CLI because
+ * that is the call it is guarding: a caller that reached for the creating
+ * entry point and remembered `create: false` would still fail on a workspace
+ * with no store, and a caller that forgot would silently initialize a bare
+ * repository as the side effect of a read-only question.
+ */
+export async function openRecordedHistory(
+  workspaceRoot: string
+): Promise<ComponentHistoryStore | undefined> {
+  if (!(await isDirectory(resolveComponentStorePath(workspaceRoot)))) return undefined;
+  return openComponentHistoryStore({ workspaceRoot, create: false });
+}
+
 async function initializeBareStore(gitPath: string, gitDir: string): Promise<void> {
   // `git init --bare <path>` takes the directory as a positional argument, so
   // this runner intentionally carries no --git-dir.

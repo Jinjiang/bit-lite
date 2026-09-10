@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { isDirectory } from "bit-lite-utils/node";
 import { afterEach, describe, expect, it } from "vitest";
 import { ComponentHistoryError } from "./errors.js";
 import { createGitRunner, runGitLine } from "./git-process.js";
@@ -9,6 +10,7 @@ import {
   checkGitAvailability,
   componentStoreDirectoryName,
   openComponentHistoryStore,
+  openRecordedHistory,
   resolveComponentStorePath,
 } from "./store.js";
 
@@ -131,5 +133,36 @@ describe("component history store", () => {
     await expect(
       rm(resolveComponentStorePath(workspaceRoot), { recursive: true })
     ).rejects.toThrow();
+  });
+});
+
+describe("reading a store that may not exist", () => {
+  it("answers undefined for a workspace that has never recorded anything", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+
+    await expect(openRecordedHistory(workspaceRoot)).resolves.toBeUndefined();
+  });
+
+  it("creates nothing by being asked", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+
+    await openRecordedHistory(workspaceRoot);
+
+    // The whole point of the gate: `status`, `log`, and `diff` answer "never
+    // recorded" without bringing a store into existence, so asking in a
+    // freshly cloned workspace leaves it exactly as it was.
+    await expect(
+      isDirectory(resolveComponentStorePath(workspaceRoot))
+    ).resolves.toBe(false);
+  });
+
+  it("opens the existing store without creating a second one", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const created = await openComponentHistoryStore({ workspaceRoot });
+
+    const opened = await openRecordedHistory(workspaceRoot);
+
+    expect(opened?.gitDir).toBe(created.gitDir);
+    expect(opened?.objectFormat).toBe(created.objectFormat);
   });
 });

@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import { renderSelection, selectVersions, type SelectionRow } from "./tag-selection.js";
 import type { TagPlanEntry, TagRelease } from "./tag.js";
-import type { VersionDecisions } from "../utils/version-decision.js";
+import type { VersionDecisions } from "bit-lite-versioning";
 
 /**
  * The interface is driven through injected streams, so navigation, editing, and
