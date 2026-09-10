@@ -120,9 +120,6 @@ importers:
       bit-lite-deps:
         specifier: workspace:*
         version: link:../bit-lite-deps
-      bit-lite-env:
-        specifier: workspace:*
-        version: link:../bit-lite-env
       bit-lite-env-resolution:
         specifier: workspace:*
         version: link:../bit-lite-env-resolution
@@ -135,9 +132,9 @@ importers:
       bit-lite-proxy:
         specifier: workspace:*
         version: link:../bit-lite-proxy
-      bit-lite-terminal:
+      bit-lite-tester:
         specifier: workspace:*
-        version: link:../bit-lite-terminal
+        version: link:../bit-lite-tester
       bit-lite-utils:
         specifier: workspace:*
         version: link:../bit-lite-utils
@@ -160,6 +157,9 @@ importers:
       '@types/yargs-parser':
         specifier: ^21.0.3
         version: 21.0.3
+      bit-lite-terminal:
+        specifier: workspace:*
+        version: link:../bit-lite-terminal
       demo-config:
         specifier: workspace:*
         version: link:../demo-config
@@ -197,9 +197,6 @@ importers:
 
   packages/bit-lite-context:
     dependencies:
-      bit-lite-env:
-        specifier: workspace:*
-        version: link:../bit-lite-env
       bit-lite-utils:
         specifier: workspace:*
         version: link:../bit-lite-utils
@@ -367,6 +364,25 @@ importers:
         specifier: ^4.1.8
         version: 4.1.9(@types/node@25.9.4)(jsdom@29.1.1)(vite@8.1.2(@types/node@25.9.4)(esbuild@0.28.1)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))
 
+  packages/bit-lite-tester:
+    dependencies:
+      bit-lite-utils:
+        specifier: workspace:*
+        version: link:../bit-lite-utils
+      bit-lite-vendors:
+        specifier: workspace:*
+        version: link:../bit-lite-vendors
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.4
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.8
+        version: 4.1.9(@types/node@25.9.4)(jsdom@29.1.1)(vite@8.1.2(@types/node@25.9.4)(esbuild@0.28.1)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))
+
   packages/bit-lite-utils:
     devDependencies:
       '@types/node':
@@ -384,9 +400,6 @@ importers:
       bit-lite-context:
         specifier: workspace:*
         version: link:../bit-lite-context
-      bit-lite-env:
-        specifier: workspace:*
-        version: link:../bit-lite-env
       bit-lite-env-resolution:
         specifier: workspace:*
         version: link:../bit-lite-env-resolution
@@ -553,6 +566,9 @@ importers:
       bit-lite-preview:
         specifier: workspace:*
         version: link:../bit-lite-preview
+      bit-lite-tester:
+        specifier: workspace:*
+        version: link:../bit-lite-tester
       bit-lite-utils:
         specifier: workspace:*
         version: link:../bit-lite-utils
