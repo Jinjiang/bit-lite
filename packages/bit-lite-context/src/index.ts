@@ -10,7 +10,7 @@ export {
   validateConfig,
   writeComponentVersions,
 } from "./config.js";
-export { matchPattern } from "./utils/patterns.js";
+export { matchPattern } from "./patterns.js";
 export { readWorkspace, selectWorkspaceComponents } from "./workspace.js";
 export {
   generatedStateDirectoryName,
