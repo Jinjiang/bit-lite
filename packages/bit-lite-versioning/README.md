@@ -16,3 +16,9 @@ dependency either side could replace.
 
 It declares no dependency on env resolution, so recording and inspection stay
 independent of whether anything has been installed.
+
+It also owns the rules for a version a user chose — the three-number gate an
+explicit version passes, what overrides a derivation's decision to skip a
+component, and why excluding one narrows the selection instead of being handled
+while versions are assigned. Those are versioning rules; `tag` is only the
+command that collects the choice.

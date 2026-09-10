@@ -183,6 +183,15 @@ await tagComponent(store, { componentId: "ui/button", version: "1.0.0" });
 await syncComponentHistory(store, { requestedUrl: "git@example.com:components.git" });
 ```
 
+A read-only caller uses `openRecordedHistory` instead, which answers
+`undefined` for a workspace that has never recorded anything rather than
+initializing a store as the side effect of asking:
+
+```ts
+const store = await openRecordedHistory(workspaceRoot);
+if (!store) return "never recorded";
+```
+
 ## Package development
 
 ```bash
