@@ -278,6 +278,26 @@ const exitCode = await runCli([
 process.exitCode = exitCode;
 ```
 
+## Source layout
+
+`src` is four layers plus the entry points that sit above them. Every import
+points downwards through this list, and `module-layers.test.ts` says so:
+
+| Directory | Holds | Knows about |
+| --- | --- | --- |
+| `cli/` | The command declaration table, the argument parser, help rendering, and the option readers | What can be typed. Nothing about workspaces, envs, or vendors |
+| `session/` | The watch-contribution shape and the disposal a resident command owes its resources | Tasks and routes |
+| `execution/` | Planning vendor work per component or per env group, and running or watching it | Envs and vendors |
+| `commands/` | One module per command, plus the selection and output they share | Everything above, and each other |
+
+`bin.ts`, `cli.ts`, and `index.ts` sit above all four: `cli.ts` parses a line
+through `cli/` and dispatches it to `commands/`.
+
+Commands compose each other on purpose — `start` reuses the preview, compile,
+and test contributions, and reaching the resolved workspace phase runs `link`
+and `compile` — so `commands/selection.ts` lives among the commands rather
+than beneath them.
+
 ## Package development
 
 ```bash

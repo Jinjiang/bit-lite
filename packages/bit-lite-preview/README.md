@@ -52,6 +52,12 @@ orchestrates the three and owns the temporary directory they write into.
 
 The browser entry starts the preview application from a component manifest and optional rendering adapters.
 
+React is an optional peer dependency, needed by this entry alone. The runtime
+creates the root that a component's compositions mount into, and those
+compositions come from the env's own React, so both must be the same instance —
+which is what a peer dependency states. A consumer that only prepares previews
+through `bit-lite-preview/node` never needs React at all.
+
 ## Browser integration types
 
 An env may provide:

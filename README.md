@@ -332,6 +332,7 @@ See the [`bit-lite` package documentation](./packages/bit-lite/README.md) for co
 | [`bit-lite-env-resolution`](./packages/bit-lite-env-resolution/README.md) | The resolved phase: env package loading, inheritance, effective services, and the views derived from them |
 | [`bit-lite-env`](./packages/bit-lite-env/README.md) | Environment schema and inheritance |
 | [`bit-lite-compiler`](./packages/bit-lite-compiler/README.md) | Compile-vendor contracts |
+| [`bit-lite-tester`](./packages/bit-lite-tester/README.md) | Test-vendor contracts |
 | [`bit-lite-vendors`](./packages/bit-lite-vendors/README.md) | Vendor runners and task lifecycle |
 | [`bit-lite-deps`](./packages/bit-lite-deps/README.md) | Dependency installation through pnpm APIs |
 | [`bit-lite-versioning`](./packages/bit-lite-versioning/README.md) | Turns workspace state into recorded component content and compares two recorded states; sits between the workspace model and the store because it is the only layer needing both |
@@ -340,6 +341,8 @@ See the [`bit-lite` package documentation](./packages/bit-lite/README.md) for co
 | [`bit-lite-proxy`](./packages/bit-lite-proxy/README.md) | HTTP and WebSocket routing |
 | [`bit-lite-terminal`](./packages/bit-lite-terminal/README.md) | Interactive watch-task terminal |
 | [`bit-lite-utils`](./packages/bit-lite-utils/README.md) | Shared validation, error, path, and I/O utilities |
+
+Each of the three env services has exactly one package holding the contract between a vendor and the command that runs it: `bit-lite-compiler` for compile, `bit-lite-tester` for test, and `bit-lite-preview` for preview. A vendor implementation imports its service's package and `bit-lite-vendors`; nothing else in the table is part of that contract.
 
 ### Reference implementations and fixtures
 
