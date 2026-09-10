@@ -1,5 +1,5 @@
 import { readWorkspace, selectWorkspaceComponents } from "bit-lite-context";
-import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
 import {
   abbreviateComponentVersion,
   describeComponentSnaps,
@@ -8,7 +8,7 @@ import {
   type ComponentSnapResult,
 } from "bit-lite-history";
 import { BitLiteError, countOf } from "bit-lite-utils";
-import { readFlagOption, readTextOption } from "../utils/command-options.js";
+import { readFlagOption, readTextOption } from "../cli/options.js";
 import { prepareRecording, writeRecordedVersions } from "bit-lite-versioning";
 
 /**

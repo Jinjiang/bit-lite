@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
 import { createGitRunner, resolveComponentStorePath, runGitLine } from "bit-lite-history";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runSnapCommand } from "./snap.js";

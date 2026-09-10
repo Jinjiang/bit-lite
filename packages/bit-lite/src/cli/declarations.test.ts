@@ -10,7 +10,7 @@ import {
   globalCommandOptions,
 } from "./declarations.js";
 
-const commandsDir = path.dirname(fileURLToPath(import.meta.url));
+const commandsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "commands");
 
 /**
  * The table is only a single source of truth while it stays complete. These

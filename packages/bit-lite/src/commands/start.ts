@@ -3,15 +3,15 @@ import { getSelectedEnvKey } from "bit-lite-env-resolution";
 import { getOnly, ProxyServer, sendHtml, sendJson } from "bit-lite-proxy";
 import { formatError } from "bit-lite-utils";
 import { superviseVendorTasks } from "bit-lite-vendors";
-import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
 import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
 import type { ProxyEndpoint, ProxyRoute } from "bit-lite-proxy";
 import type { PreviewProxyComponent, PreviewProxyManifest } from "bit-lite-preview/node";
 import type { VendorTask } from "bit-lite-vendors";
-import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
-import { readHostOption, readPortOption } from "../utils/command-options.js";
-import { disposeAll, once, runThenDispose } from "../utils/disposal.js";
-import type { ResolvedCommandSelection } from "../utils/command-selection.js";
+import { prepareResolvedCommandSelection } from "./selection.js";
+import { readHostOption, readPortOption } from "../cli/options.js";
+import { disposeAll, once, runThenDispose } from "../session/disposal.js";
+import type { ResolvedCommandSelection } from "./selection.js";
 import {
   createCompileWatchContribution,
   selectCompileRootIds,

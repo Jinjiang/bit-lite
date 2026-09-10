@@ -12,7 +12,7 @@ import {
   type PreviewServerInfo,
 } from "bit-lite-preview/node";
 import type { Workspace } from "bit-lite-context";
-import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
 import type { CliOptionValue } from "bit-lite-utils";
 import type { EnvContext, SelectedEnvIdentity, WorkspaceEnvGroup } from "bit-lite-env-resolution";
 import type { ProxyEndpoint } from "bit-lite-proxy";
@@ -21,23 +21,23 @@ import type {
   VendorMessage,
   VendorTask,
 } from "bit-lite-vendors";
-import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
-import type { ResolvedCommandSelection } from "../utils/command-selection.js";
+import { prepareResolvedCommandSelection } from "./selection.js";
+import type { ResolvedCommandSelection } from "./selection.js";
 import {
   createEnvServiceExecutionPlan,
   createVendorWatchExecution,
   defineVendorExecution,
   prepareResolvedServiceTaskOptions,
-} from "../utils/vendor-execution.js";
+} from "../execution/vendor-execution.js";
 import type {
   ImmutableCliArguments,
   PlannedEnvServiceUnit,
   PlannedUnit,
-} from "../utils/vendor-execution.js";
-import type { WatchCommandContribution } from "../utils/watch-contribution.js";
-import { readFlagOption, readHostOption, readPortOption } from "../utils/command-options.js";
-import { disposeAll, once, runThenDispose } from "../utils/disposal.js";
-import { printNoTasks } from "../utils/no-tasks.js";
+} from "../execution/vendor-execution.js";
+import type { WatchCommandContribution } from "../session/contribution.js";
+import { readFlagOption, readHostOption, readPortOption } from "../cli/options.js";
+import { disposeAll, once, runThenDispose } from "../session/disposal.js";
+import { printNoTasks } from "./no-tasks.js";
 
 export type PreviewVendorRuntime = PreviewPreparedRuntime;
 export type PreviewServiceResult = JsonObject & { mode: "serve"; port: number };

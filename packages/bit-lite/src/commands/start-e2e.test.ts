@@ -1,10 +1,10 @@
 import { access, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { parseArgs } from "../args.js";
+import { parseArgs } from "../cli/args.js";
 import { ProxyServer } from "bit-lite-proxy";
 import { describe, expect, it, vi } from "vitest";
-import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
+import { prepareResolvedCommandSelection } from "./selection.js";
 import { createPreviewCommandContribution } from "./preview.js";
 import {
   createCompileWatchContribution,

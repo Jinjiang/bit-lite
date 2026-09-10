@@ -1,10 +1,22 @@
-import { selectWorkspaceComponents } from "bit-lite-context";
-import { groupWorkspaceComponentsByEnv } from "bit-lite-env-resolution";
+import { readWorkspace, selectWorkspaceComponents } from "bit-lite-context";
+import { groupWorkspaceComponentsByEnv, resolveWorkspace } from "bit-lite-env-resolution";
 import type { Workspace, WorkspaceComponent } from "bit-lite-context";
-import type { ParsedCliArgs } from "../cli-args-types.js";
 import type { WorkspaceContext, WorkspaceEnvGroup } from "bit-lite-env-resolution";
 import { BitLiteError } from "bit-lite-utils";
-import { prepareWorkspaceForEnvLoading } from "./prepare-workspace.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
+import { assertNoSwallowedComponents } from "../cli/args.js";
+import { compileComponentPackages } from "./compile.js";
+import { linkComponentPackages } from "./link.js";
+
+/**
+ * What: how a command gets from a parsed command line to a selection it can
+ * execute against.
+ *
+ * Why it sits among the commands rather than under them: reaching the resolved
+ * phase means linking the workspace's component packages and compiling its
+ * local envs, and both of those are capabilities the `link` and `compile`
+ * commands expose. This composes two commands; it is not a layer they rest on.
+ */
 
 /**
  * Resolves a selection that must name exactly one component, for commands whose
@@ -30,32 +42,33 @@ export function selectSingleWorkspaceComponent(
   return components[0]!;
 }
 
+/**
+ * Brings a workspace to the state env loading requires: every component package
+ * linked, and every locally authored env compiled to the flattened JSON its
+ * resolution reads.
+ */
+export async function prepareWorkspaceForEnvLoading(workspaceRoot: string) {
+  const workspace = await readWorkspace(workspaceRoot);
+  await linkComponentPackages(workspace);
+  const requiredLocalEnvPackages = new Set(
+    workspace.components
+      .map((component) => component.internalEnvPackageName)
+      .filter((packageName): packageName is string => packageName !== undefined)
+  );
+  const envComponentIds = workspace.components
+    .filter((component) => requiredLocalEnvPackages.has(component.packageName))
+    .map((component) => component.id);
+  await compileComponentPackages(workspace, envComponentIds);
+  const context = await resolveWorkspace(workspace);
+  return { workspace, context };
+}
+
 export type ResolvedCommandSelection = {
   parsed: ParsedCliArgs;
   context: WorkspaceContext;
   components: readonly WorkspaceComponent[];
   groups: readonly WorkspaceEnvGroup[];
 };
-
-/**
- * An undeclared option takes the bare word after it, which is right for a
- * vendor option and its value and wrong when that word was a component. The
- * parser cannot tell those apart — it would have to know the vendor's options —
- * but here the registered component IDs are known, so an exact match is a
- * strong enough signal to stop and ask rather than run with nothing selected.
- */
-export function assertNoSwallowedComponents(parsed: ParsedCliArgs, workspace: Workspace) {
-  if (parsed.consumedBareWords.length === 0) return;
-  const registered = new Set(workspace.components.map((component) => component.id));
-  for (const { option, value } of parsed.consumedBareWords) {
-    if (!registered.has(value)) continue;
-    throw new BitLiteError(
-      `${option} consumed "${value}", which is a registered component. ` +
-        `Write ${option}=<value> if that is the option's value, ` +
-        `or move ${value} before ${option} if it is a component to select.`
-    );
-  }
-}
 
 type PrepareWorkspaceForEnvLoading = typeof prepareWorkspaceForEnvLoading;
 

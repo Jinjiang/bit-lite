@@ -1,11 +1,11 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
 import type { CliOptionValue } from "bit-lite-utils";
 import { openComponentHistoryStore, readComponentHead } from "bit-lite-history";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parseArgs } from "../args.js";
+import { parseArgs } from "../cli/args.js";
 import { runCli } from "../cli.js";
 import { createSnapJsonReporter, runSnapCommand, type SnapReport } from "./snap.js";
 import { createTagJsonReporter, runTagCommand, type TagReport } from "./tag.js";

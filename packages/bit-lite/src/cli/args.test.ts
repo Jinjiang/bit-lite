@@ -1,6 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseArgs } from "./args.js";
+import { assertNoSwallowedComponents, parseArgs } from "./args.js";
+import type { ParsedCliArgs } from "./arg-types.js";
 
 describe("CLI args", () => {
   it("keeps arguments after -- as vendor passthrough", () => {
@@ -236,6 +237,52 @@ describe("CLI args", () => {
       expect(parsed.args.options.reporter).toBe("verbose");
       expect(parsed.componentFilters).toEqual(["ui/button"]);
       expect(parsed.consumedBareWords).toEqual([{ option: "--reporter", value: "verbose" }]);
+    });
+  });
+  /**
+   * The other half of `consumedBareWords`: the parser records the ambiguity,
+   * and this resolves it once a caller knows which component IDs are
+   * registered.
+   */
+  describe("swallowed component guard", () => {
+    const workspace = { components: [{ id: "ui/button" }, { id: "lib/math" }] };
+
+    function withConsumed(consumed: { option: string; value: string }[]): ParsedCliArgs {
+      return { ...parseArgs(["test"]), consumedBareWords: consumed };
+    }
+
+    it("fails when an undeclared option consumed a registered component", () => {
+      const parsed = withConsumed([{ option: "--verbose", value: "ui/button" }]);
+
+      expect(() => assertNoSwallowedComponents(parsed, workspace)).toThrow(
+        '--verbose consumed "ui/button", which is a registered component'
+      );
+    });
+
+    it("names both spellings that resolve the ambiguity", () => {
+      const parsed = withConsumed([{ option: "--verbose", value: "ui/button" }]);
+
+      expect(() => assertNoSwallowedComponents(parsed, workspace)).toThrow("--verbose=<value>");
+      expect(() => assertNoSwallowedComponents(parsed, workspace)).toThrow(
+        "move ui/button before --verbose"
+      );
+    });
+
+    it("leaves an ordinary vendor value alone", () => {
+      // `test --reporter verbose ui/button` — both meanings intact.
+      const parsed = withConsumed([{ option: "--reporter", value: "verbose" }]);
+
+      expect(() => assertNoSwallowedComponents(parsed, workspace)).not.toThrow();
+    });
+
+    it("does nothing when no undeclared option consumed anything", () => {
+      expect(() => assertNoSwallowedComponents(withConsumed([]), workspace)).not.toThrow();
+    });
+
+    it("only matches a component ID exactly", () => {
+      const parsed = withConsumed([{ option: "--verbose", value: "ui/butto" }]);
+
+      expect(() => assertNoSwallowedComponents(parsed, workspace)).not.toThrow();
     });
   });
 });

@@ -18,9 +18,9 @@ import {
   type TreeFileEntry,
 } from "bit-lite-history";
 import type { WorkspaceComponent } from "bit-lite-context";
-import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
 import { BitLiteError } from "bit-lite-utils";
-import { readFlagOption, readTextOption } from "../utils/command-options.js";
+import { readFlagOption, readTextOption } from "../cli/options.js";
 import {
   componentConfigFileName,
   inspectWorkspace,

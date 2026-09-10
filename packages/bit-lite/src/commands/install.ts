@@ -10,8 +10,8 @@ import { discoverPnpmWorkspacePackages, installDependencyProjects } from "bit-li
 import { countOf, sortStringRecord } from "bit-lite-utils";
 import type { DependencyProject } from "bit-lite-deps";
 import type { WorkspaceComponent } from "bit-lite-context";
-import type { ParsedCliArgs } from "../cli-args-types.js";
-import { readFlagOption } from "../utils/command-options.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
+import { readFlagOption } from "../cli/options.js";
 import { compileComponentPackages } from "./compile.js";
 import { createInstallReporter, type InstallReporter } from "./install-reporter.js";
 import { linkComponentPackages, writeJsonFile } from "./link.js";

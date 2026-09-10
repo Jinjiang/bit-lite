@@ -7,7 +7,7 @@ import { stopVendorTasks } from "bit-lite-vendors";
 import { describe, expect, it, vi } from "vitest";
 import type { Workspace, WorkspaceComponent } from "bit-lite-context";
 import type { WorkspaceEnvGroup } from "bit-lite-env-resolution";
-import type { ResolvedCommandSelection } from "../utils/command-selection.js";
+import type { ResolvedCommandSelection } from "./selection.js";
 import { createPreviewCommandContribution } from "./preview.js";
 import { createStartSourceCatalog } from "./start-source.js";
 import { createStartRoutes } from "./start.js";

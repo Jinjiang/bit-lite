@@ -5,9 +5,9 @@ import {
   effectiveCommandOptions,
   findCommandDeclaration,
   globalCommandOptions,
-} from "./commands/declarations.js";
-import type { CommandDeclaration, CommandOption } from "./commands/declarations.js";
-import type { ConsumedBareWord, HelpRequest, ParsedCliArgs } from "./cli-args-types.js";
+} from "./declarations.js";
+import type { CommandDeclaration, CommandOption } from "./declarations.js";
+import type { ConsumedBareWord, HelpRequest, ParsedCliArgs } from "./arg-types.js";
 import type { CliArguments, CliOptionScalar, CliOptionValue } from "bit-lite-utils";
 
 type ParsedArgv = ReturnType<typeof yargsParser>;
@@ -84,6 +84,36 @@ export function parseArgs(argv: string[]): ParsedCliArgs {
     consumedBareWords:
       declaration.unknownOptions === "forward" ? findConsumedBareWords(scannable, options) : [],
   };
+}
+
+/** What the guard needs of a workspace: the component IDs a selection can name. */
+type RegisteredComponents = { components: readonly { id: string }[] };
+
+/**
+ * Finishes the judgement `parseArgs` had to defer.
+ *
+ * An undeclared option takes the bare word after it, which is right for a
+ * vendor option and its value and wrong when that word was a component. The
+ * parser cannot tell those apart — it would have to know the vendor's options —
+ * so it records the pair in `consumedBareWords` and leaves the decision here.
+ * By the time a caller has a workspace the registered component IDs are known,
+ * and an exact match is a strong enough signal to stop and ask rather than run
+ * with nothing selected.
+ */
+export function assertNoSwallowedComponents(
+  parsed: ParsedCliArgs,
+  workspace: RegisteredComponents
+) {
+  if (parsed.consumedBareWords.length === 0) return;
+  const registered = new Set(workspace.components.map((component) => component.id));
+  for (const { option, value } of parsed.consumedBareWords) {
+    if (!registered.has(value)) continue;
+    throw new BitLiteError(
+      `${option} consumed "${value}", which is a registered component. ` +
+        `Write ${option}=<value> if that is the option's value, ` +
+        `or move ${value} before ${option} if it is a component to select.`
+    );
+  }
 }
 
 function resolveHelpRequest(

@@ -1,7 +1,7 @@
-import { parseArgs } from "./args.js";
+import { parseArgs } from "./cli/args.js";
 import { runCompileCommand } from "./commands/compile.js";
-import { commandDeclarations, findCommandDeclaration } from "./commands/declarations.js";
-import { renderCommandHelp, renderCommandList } from "./commands/help-text.js";
+import { commandDeclarations, findCommandDeclaration } from "./cli/declarations.js";
+import { renderCommandHelp, renderCommandList } from "./cli/help-text.js";
 import { runDiffCommand } from "./commands/diff.js";
 import { runLinkCommand } from "./commands/link.js";
 import { runLogCommand } from "./commands/log.js";
@@ -14,7 +14,7 @@ import { runSyncCommand } from "./commands/sync.js";
 import { runTagCommand } from "./commands/tag.js";
 import { runTestCommand } from "./commands/test.js";
 import { runWatchCommand } from "./commands/watch.js";
-import type { ParsedCliArgs } from "./cli-args-types.js";
+import type { ParsedCliArgs } from "./cli/arg-types.js";
 import { BitLiteError, formatError } from "bit-lite-utils";
 
 type CommandHandler = (parsed: ParsedCliArgs) => void | Promise<unknown>;
