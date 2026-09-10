@@ -267,6 +267,46 @@ describe("JSON env package loading", () => {
     await writeFile(path.join(env, "index.js"), "export default {};\n");
     await expect(loadEnvForComponent(workspace.components[0]!, workspace)).rejects.toThrow("default entry must be JSON");
   });
+
+  /**
+   * The requested version is an npm range, so it is compared as one. The ranges
+   * below are the cases a hand-rolled comparison used to get wrong: a compound
+   * range and a wildcard were treated as opaque strings and only ever matched
+   * an identical spelling, and a caret on a 0.x version ignored the minor.
+   */
+  it("compares the installed env against the requested version as an npm range", async () => {
+    const root = await createWorkspace([
+      component("lib/math", "@scope/lib.math", "@env/ranged", "^1.2.0"),
+    ]);
+    const env = await createEnvPackage(root, "@env/ranged", {
+      name: "@env/ranged",
+      services: {},
+    });
+    await installEnvForComponent(root, "@scope/lib.math", "@env/ranged", env);
+
+    const setInstalledVersion = async (version: string) => {
+      await writeFile(path.join(env, "package.json"), JSON.stringify({
+        name: "@env/ranged", version, type: "module", exports: { ".": "./index.json" },
+      }));
+    };
+    const loadWithRequested = async (requested: string) => {
+      const workspace = await readWorkspace(root);
+      const component = workspace.components[0]!;
+      return loadEnvForComponent({ ...component, env: { ...component.env, version: requested } }, workspace);
+    };
+
+    await setInstalledVersion("1.4.2");
+    expect((await loadWithRequested("^1.2.0")).identity.installedVersion).toBe("1.4.2");
+    expect((await loadWithRequested(">=1.0.0 <2.0.0")).identity.installedVersion).toBe("1.4.2");
+    expect((await loadWithRequested("1.x")).identity.installedVersion).toBe("1.4.2");
+    expect((await loadWithRequested("*")).identity.installedVersion).toBe("1.4.2");
+    await expect(loadWithRequested("^2.0.0")).rejects.toThrow('does not satisfy "^2.0.0"');
+
+    // A caret on a 0.x version pins the minor, which is what npm means by it.
+    await setInstalledVersion("0.2.0");
+    expect((await loadWithRequested("^0.2.0")).identity.installedVersion).toBe("0.2.0");
+    await expect(loadWithRequested("^0.1.0")).rejects.toThrow('does not satisfy "^0.1.0"');
+  });
 });
 
 function component(

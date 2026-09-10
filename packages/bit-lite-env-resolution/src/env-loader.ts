@@ -2,6 +2,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import semver from "semver";
 import {
   isCompiledEnvDefinition,
   validateCompiledEnvDefinition,
@@ -479,34 +480,33 @@ function normalizeManifest(raw: Record<string, unknown>, manifestPath: string): 
   };
 }
 
+/**
+ * Whether the installed env package answers the version the workspace asked
+ * for.
+ *
+ * A local protocol is not a version range at all — it names a package by
+ * location — so there is nothing to compare and the resolution that found the
+ * package is the whole answer. Everything else is an npm range, and is compared
+ * as one: prereleases are included, because an env pinned to a prerelease is
+ * pinned deliberately.
+ */
 function satisfiesVersion(installed: string, requested: string) {
-  if (requested.startsWith("workspace:") || requested.startsWith("file:") || requested.startsWith("link:")) return true;
-  const installedParts = parseVersion(installed);
-  const range = /^(\^|~|>=|>|<=|<)?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(requested);
-  if (!installedParts || !range) return requested === installed;
-  const requestedParts: [number, number, number] = [Number(range[2]), Number(range[3]), Number(range[4])];
-  const comparison = compareVersions(installedParts, requestedParts);
-  switch (range[1] ?? "") {
-    case "^": return comparison >= 0 && installedParts[0] === requestedParts[0];
-    case "~": return comparison >= 0 && installedParts[0] === requestedParts[0] && installedParts[1] === requestedParts[1];
-    case ">=": return comparison >= 0;
-    case ">": return comparison > 0;
-    case "<=": return comparison <= 0;
-    case "<": return comparison < 0;
-    default: return comparison === 0;
+  if (isLocalProtocolSpec(requested)) return true;
+  const installedVersion = semver.valid(installed);
+  if (installedVersion === null || semver.validRange(requested) === null) {
+    // Neither side is a version this can reason about, so require them to
+    // agree exactly rather than guessing.
+    return requested === installed;
   }
+  return semver.satisfies(installedVersion, requested, { includePrerelease: true });
 }
 
-function parseVersion(value: string): [number, number, number] | undefined {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(value);
-  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : undefined;
-}
-
-function compareVersions(left: [number, number, number], right: [number, number, number]) {
-  for (let index = 0; index < 3; index += 1) {
-    if (left[index] !== right[index]) return (left[index] ?? 0) - (right[index] ?? 0);
-  }
-  return 0;
+function isLocalProtocolSpec(version: string) {
+  return (
+    isWorkspaceProtocolSpec(version) ||
+    version.startsWith("file:") ||
+    version.startsWith("link:")
+  );
 }
 
 function contextualError(error: unknown, ref: PackageRef, componentIds: readonly string[]) {

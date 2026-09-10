@@ -18,12 +18,14 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "@types/semver": "^7.8.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
   },
   "dependencies": {
     "bit-lite-context": "workspace:*",
     "bit-lite-env": "workspace:*",
-    "bit-lite-utils": "workspace:*"
+    "bit-lite-utils": "workspace:*",
+    "semver": "^7.8.5"
   }
 }
