@@ -3,16 +3,16 @@ import {
   abbreviateComponentVersion,
   formatObjectId,
   formatSnapVersion,
+  openRecordedHistory,
   readCommitTree,
   readComponentHistory,
 } from "bit-lite-history";
 import type { ParsedCliArgs } from "../cli-args-types.js";
 import { readFlagOption } from "../utils/command-options.js";
 import { selectSingleWorkspaceComponent } from "../utils/command-selection.js";
-import { openRecordedHistory } from "../utils/component-store.js";
-import { compareComponentStates } from "bit-lite-versioning";
 import {
   attributeSnapChange,
+  compareComponentStates,
   type ChangeSource,
   type DependencyChange,
   type EnvChange,

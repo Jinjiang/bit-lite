@@ -6,7 +6,7 @@ import { openComponentHistoryStore, readComponentHead } from "bit-lite-history";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runSnapCommand } from "./snap.js";
 import { runTagCommand, type TagReport } from "./tag.js";
-import type { VersionDecision } from "../utils/version-decision.js";
+import type { VersionDecision } from "bit-lite-versioning";
 
 // These drive real Git subprocesses against real repositories.
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });

@@ -73,6 +73,7 @@ export {
   checkGitAvailability,
   componentStoreDirectoryName,
   openComponentHistoryStore,
+  openRecordedHistory,
   resolveComponentStorePath,
 } from "./store.js";
 export {

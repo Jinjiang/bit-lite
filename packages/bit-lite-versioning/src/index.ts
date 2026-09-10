@@ -47,3 +47,12 @@ export type {
   InspectedComponent,
   WorkspaceInspection,
 } from "./component-inspection.js";
+export {
+  applyVersionExclusions,
+  assertVersionDecisions,
+  decisionExplicitVersion,
+  decisionIncrement,
+  decisionNamesVersion,
+  noVersionDecisions,
+} from "./version-decision.js";
+export type { VersionDecision, VersionDecisions } from "./version-decision.js";

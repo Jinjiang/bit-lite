@@ -20,25 +20,23 @@ import { BitLiteError, countOf } from "bit-lite-utils";
 import { selectVersions, type SelectionInputStream } from "./tag-selection.js";
 import { readFlagOption, readTextOption } from "../utils/command-options.js";
 import {
-  prepareRecording,
-  writeRecordedVersions,
-  type PreparedRecording,
-  type RecordingPolicy,
-  attributeSnapChange,
-  compareComponentStates,
-  type ChangeSource,
-  type DependencyChange,
-  type EnvChange,
-} from "bit-lite-versioning";
-import {
   applyVersionExclusions,
   assertVersionDecisions,
+  attributeSnapChange,
+  compareComponentStates,
   decisionExplicitVersion,
   decisionIncrement,
   decisionNamesVersion,
   noVersionDecisions,
+  prepareRecording,
+  writeRecordedVersions,
+  type ChangeSource,
+  type DependencyChange,
+  type EnvChange,
+  type PreparedRecording,
+  type RecordingPolicy,
   type VersionDecisions,
-} from "../utils/version-decision.js";
+} from "bit-lite-versioning";
 
 /**
  * What: assigns semantic versions to the selected components' snaps.

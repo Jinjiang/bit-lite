@@ -4,6 +4,7 @@ import {
   componentTagRef,
   isAncestorCommit,
   isSnapVersion,
+  openRecordedHistory,
   parseSnapVersion,
   readTagTarget,
   type ComponentHistoryStore,
@@ -14,17 +15,14 @@ import type { WorkspaceComponent } from "bit-lite-context";
 import type { ParsedCliArgs } from "../cli-args-types.js";
 import { BitLiteError } from "bit-lite-utils";
 import { readFlagOption } from "../utils/command-options.js";
-import { openRecordedHistory } from "../utils/component-store.js";
 import {
   compareComponentStates,
   inspectWorkspace,
-  type InspectedComponent,
-  type WorkspaceInspection,
-} from "bit-lite-versioning";
-import {
   readRecordedComponentConfig,
   type DependencyChange,
   type EnvChange,
+  type InspectedComponent,
+  type WorkspaceInspection,
 } from "bit-lite-versioning";
 
 /**
