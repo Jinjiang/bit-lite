@@ -82,6 +82,7 @@
     "bit-lite-env": "workspace:*",
     "bit-lite-env-resolution": "workspace:*",
     "bit-lite-preview": "workspace:*",
+    "bit-lite-tester": "workspace:*",
     "bit-lite-utils": "workspace:*",
     "bit-lite-vendors": "workspace:*",
     "chokidar": "^5.0.0",

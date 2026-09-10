@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { getOnly, sendHtml, sendJson, sendText } from "bit-lite-proxy";
 import type { ProxyRoute } from "bit-lite-proxy";
 import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
-import type { TestComponentResult, TestWatchContribution } from "./test.js";
+import type { TestComponentResult } from "bit-lite-tester";
+import type { TestWatchContribution } from "./test.js";
 
 const testPageHtml = readFileSync(new URL("../assets/start-test.html", import.meta.url), "utf8");
 const structuredNotice = "This is the latest observed update for this component, not a guaranteed complete test snapshot.";

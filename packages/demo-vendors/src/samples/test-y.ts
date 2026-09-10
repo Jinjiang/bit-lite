@@ -5,7 +5,7 @@ import type {
   VendorRuntime,
 } from "bit-lite-vendors";
 import { isInteractiveTerminal } from "bit-lite-utils/node";
-import type { TestServiceResult } from "./test-result.js";
+import type { TestServiceResult } from "bit-lite-tester";
 import { wait } from "./vendor-utils.js";
 
 export const meta: VendorDefinition = {

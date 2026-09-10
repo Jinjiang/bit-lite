@@ -5,12 +5,11 @@ import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCli } from "../cli.js";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
+import type { TestServiceResult } from "bit-lite-tester";
 import {
   createTestWatchResultStore,
   createTestWatchContribution,
-  isTestServiceResult,
   runTestCommand,
-  type TestServiceResult,
 } from "./test.js";
 import type { JsonObject, VendorTaskStartOptions } from "bit-lite-vendors";
 
@@ -146,17 +145,6 @@ describe("test command", () => {
     });
 
     expect(store.entries()).toEqual([]);
-  });
-
-  it("accepts extensible JSON data without reserving historical field names", () => {
-    const result = createWatchResult(selectedEnv("jest"));
-    expect(isTestServiceResult({ ...result, coverage: { lines: 100 } })).toBe(true);
-    expect(isTestServiceResult({
-      ...result,
-      env: selectedEnv("jest"),
-      service: "test",
-      config: {},
-    })).toBe(true);
   });
 
   it("enables contribution watch mode without mutating or discarding arguments", async () => {

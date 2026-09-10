@@ -26,6 +26,7 @@
     "bit-lite-history": "workspace:*",
     "bit-lite-preview": "workspace:*",
     "bit-lite-proxy": "workspace:*",
+    "bit-lite-tester": "workspace:*",
     "bit-lite-utils": "workspace:*",
     "bit-lite-vendors": "workspace:*",
     "bit-lite-versioning": "workspace:*",

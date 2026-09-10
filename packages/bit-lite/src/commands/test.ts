@@ -1,13 +1,11 @@
 import { superviseVendorTasks } from "bit-lite-vendors";
-import { isJsonObject } from "bit-lite-utils";
+import { isTestServiceResult } from "bit-lite-tester";
+import type { TestComponentResult, TestServiceResult } from "bit-lite-tester";
 import { isInteractiveTerminal } from "bit-lite-utils/node";
 import type { Workspace } from "bit-lite-context";
 import type { ParsedCliArgs } from "../cli-args-types.js";
 import type { SelectedEnvIdentity, WorkspaceEnvGroup } from "bit-lite-env-resolution";
-import type {
-  JsonObject,
-  VendorTask,
-} from "bit-lite-vendors";
+import type { VendorTask } from "bit-lite-vendors";
 import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
 import { printNoTasks } from "../utils/no-tasks.js";
 import type { ResolvedCommandSelection } from "../utils/command-selection.js";
@@ -26,29 +24,6 @@ import type {
 import type { WatchCommandContribution } from "../utils/watch-contribution.js";
 import { createTestResultRoutes } from "./test-routes.js";
 import { readFlagOption } from "../utils/command-options.js";
-
-export type TestServiceResult = JsonObject & {
-  mode: "run" | "watch";
-  run: number;
-  stats: TestStats;
-  componentResults: TestComponentResult[];
-};
-
-export type TestStats = JsonObject & {
-  total: number;
-  passed: number;
-  failed: number;
-  skipped: number;
-  summary: string;
-};
-
-export type TestComponentResult = JsonObject & {
-  componentId: string;
-  files: string[];
-  stats: TestStats;
-  durationMs: number;
-  errors: string[];
-};
 
 export type TestWatchResultEntry = {
   observedAt: string;
@@ -299,41 +274,6 @@ function formatTestDetails(result: TestServiceResult) {
       `${componentResult.componentId}: ${formatComponentResult(componentResult)}`
     ),
   ];
-}
-
-export function isTestServiceResult(value: unknown): value is TestServiceResult {
-  return (
-    isJsonObject(value) &&
-    (value.mode === "run" || value.mode === "watch") &&
-    typeof value.run === "number" &&
-    isTestStats(value.stats) &&
-    Array.isArray(value.componentResults) &&
-    value.componentResults.every(isTestComponentResult)
-  );
-}
-
-function isTestStats(value: unknown): value is TestStats {
-  return (
-    isJsonObject(value) &&
-    typeof value.total === "number" &&
-    typeof value.passed === "number" &&
-    typeof value.failed === "number" &&
-    typeof value.skipped === "number" &&
-    typeof value.summary === "string"
-  );
-}
-
-function isTestComponentResult(value: unknown): value is TestComponentResult {
-  return (
-    isJsonObject(value) &&
-    typeof value.componentId === "string" &&
-    Array.isArray(value.files) &&
-    value.files.every((file) => typeof file === "string") &&
-    isTestStats(value.stats) &&
-    typeof value.durationMs === "number" &&
-    Array.isArray(value.errors) &&
-    value.errors.every((error) => typeof error === "string")
-  );
 }
 
 function formatComponentResult(result: TestComponentResult) {

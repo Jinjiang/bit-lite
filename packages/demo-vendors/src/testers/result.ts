@@ -1,35 +1,21 @@
 import path from "node:path";
 import { formatError, isJsonSerializable } from "bit-lite-utils";
 import { toPosixPath } from "bit-lite-utils/node";
+import type {
+  TestComponentResult,
+  TestServiceResult,
+  TestStats,
+  TestVendorMode,
+} from "bit-lite-tester";
 import type { JsonObject, JsonValue } from "bit-lite-vendors";
 import type { ComponentTestTarget } from "./files.js";
 
-export type TestVendorMode = "run" | "watch";
-
-export type TestStats = JsonObject & {
-  total: number;
-  passed: number;
-  failed: number;
-  skipped: number;
-  summary: string;
-};
-
-export type TestComponentResult = JsonObject & {
-  componentId: string;
-  files: string[];
-  stats: TestStats;
-  durationMs: number;
-  errors: string[];
-};
-
-export type TestServiceResult = JsonObject & {
-  mode: TestVendorMode;
-  run: number;
-  stats: TestStats;
-  componentResults: TestComponentResult[];
-  coverage?: JsonValue;
-};
-
+/**
+ * The reference testers accumulate counts as tests report, then hand the
+ * finished shape to the CLI. The shape itself comes from `bit-lite-tester`, so
+ * these helpers describe how a vendor reaches it rather than restating what it
+ * is; the mutable types below are the accumulation state, not the contract.
+ */
 export type MutableStats = {
   total: number;
   passed: number;
