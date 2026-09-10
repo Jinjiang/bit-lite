@@ -5,7 +5,8 @@ import {
   isInteractiveTerminal,
   normalizeFilePath,
 } from "bit-lite-utils/node";
-import type { JsonObject, VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
+import type { TesterVendorRuntime, TestServiceResult } from "bit-lite-tester";
+import type { VendorDefinition, VendorStartResult } from "bit-lite-vendors";
 import { readTestVendorConfig } from "../config.js";
 import { findComponentTestTargets } from "../files.js";
 import {
@@ -14,7 +15,6 @@ import {
   createTestServiceResult,
   finishComponentResults,
   type MutableComponentResult,
-  type TestServiceResult,
 } from "../result.js";
 
 export const meta: VendorDefinition = {
@@ -25,7 +25,7 @@ export const meta: VendorDefinition = {
 };
 
 export default async function startVitestVendor(
-  runtime: VendorRuntime<JsonObject, TestServiceResult>
+  runtime: TesterVendorRuntime
 ): Promise<VendorStartResult<TestServiceResult>> {
   const workspaceRoot = runtime.data.context.workspace.rootDir;
   const watch = runtime.data.context.args.options.watch === true && isInteractiveTerminal();

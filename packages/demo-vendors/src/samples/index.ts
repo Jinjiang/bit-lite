@@ -13,4 +13,3 @@ export type { BarZResult } from "./bar-z.js";
 export type { BazXResult } from "./baz-x.js";
 export type { FooXResult } from "./foo-x.js";
 export type { MixedEventResult, MixedRunResult } from "./mixed-results.js";
-export type { TestServiceResult } from "./test-result.js";

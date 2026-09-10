@@ -11,7 +11,8 @@ import {
   normalizeFilePath,
   toPosixPath,
 } from "bit-lite-utils/node";
-import type { JsonObject, VendorDefinition, VendorRuntime, VendorStartResult } from "bit-lite-vendors";
+import type { TesterVendorRuntime, TestServiceResult } from "bit-lite-tester";
+import type { VendorDefinition, VendorStartResult } from "bit-lite-vendors";
 import { readTestVendorConfig } from "../config.js";
 import { findComponentTestTargets } from "../files.js";
 import type { ComponentTestTarget } from "../files.js";
@@ -21,7 +22,6 @@ import {
   createTestServiceResult,
   finishComponentResults,
   type MutableComponentResult,
-  type TestServiceResult,
 } from "../result.js";
 import { registerJestWatchReporter, unregisterJestWatchReporter } from "./reporter.js";
 
@@ -64,7 +64,7 @@ type JestRunCLI = (
 ) => Promise<{ results: JestAggregatedResult }>;
 
 export default async function startJestVendor(
-  runtime: VendorRuntime<JsonObject, TestServiceResult>
+  runtime: TesterVendorRuntime
 ): Promise<VendorStartResult<TestServiceResult>> {
   const workspaceRoot = runtime.data.context.workspace.rootDir;
   const watch = runtime.data.context.args.options.watch === true && isInteractiveTerminal();
