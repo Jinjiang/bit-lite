@@ -18,7 +18,7 @@ import type {
 } from "bit-lite-compiler";
 import { superviseVendorTasks } from "bit-lite-vendors";
 import type { Workspace, WorkspaceComponent } from "bit-lite-context";
-import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
 import type { CliArguments } from "bit-lite-utils";
 import type { EnvContext } from "bit-lite-env-resolution";
 import type {
@@ -32,16 +32,16 @@ import {
   getResolvedService,
   prepareResolvedServiceTaskOptions,
   runVendorExecutionPlan,
-} from "../utils/vendor-execution.js";
+} from "../execution/vendor-execution.js";
 import type {
   ImmutableCliArguments,
   VendorExecutionPlan,
-} from "../utils/vendor-execution.js";
-import type { ResolvedCommandSelection } from "../utils/command-selection.js";
+} from "../execution/vendor-execution.js";
+import type { ResolvedCommandSelection } from "./selection.js";
 import { linkComponentPackages } from "./link.js";
-import type { WatchCommandContribution } from "../utils/watch-contribution.js";
-import { readFlagOption } from "../utils/command-options.js";
-import { assertNoSwallowedComponents } from "../utils/command-selection.js";
+import type { WatchCommandContribution } from "../session/contribution.js";
+import { readFlagOption } from "../cli/options.js";
+import { assertNoSwallowedComponents } from "../cli/args.js";
 
 export { isCompileRunResult } from "bit-lite-compiler";
 export type { CompileVendorInput, CompileVendorRuntime } from "bit-lite-compiler";

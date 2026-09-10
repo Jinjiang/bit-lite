@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
 import type { CompileWatchContribution } from "./compile.js";
 import type { PreviewCommandContribution } from "./preview.js";
 import type { TestWatchContribution } from "./test.js";
-import type { ResolvedCommandSelection } from "../utils/command-selection.js";
+import type { ResolvedCommandSelection } from "./selection.js";
 
 const mocks = vi.hoisted(() => ({
   prepare: vi.fn(),
@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   supervise: vi.fn(),
 }));
 
-vi.mock("../utils/command-selection.js", () => ({
+vi.mock("./selection.js", () => ({
   prepareResolvedCommandSelection: mocks.prepare,
 }));
 

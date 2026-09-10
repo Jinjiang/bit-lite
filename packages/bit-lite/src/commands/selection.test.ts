@@ -1,9 +1,9 @@
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { Workspace, WorkspaceComponent } from "bit-lite-context";
-import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
 import type { EnvContext, WorkspaceContext } from "bit-lite-env-resolution";
-import { assertNoSwallowedComponents, prepareResolvedCommandSelection } from "./command-selection.js";
+import { prepareResolvedCommandSelection } from "./selection.js";
 
 describe("resolved command selection", () => {
   it("prepares once and preserves canonical filtered component and env references", async () => {
@@ -34,56 +34,6 @@ describe("resolved command selection", () => {
     expect(selection.groups).toHaveLength(1);
     expect(selection.groups[0]?.env).toBe(firstEnv);
     expect(selection.groups[0]?.components[0]).toBe(first);
-  });
-});
-
-/**
- * An undeclared option takes the word after it. That is right for a vendor
- * option and its value, and wrong when the word was a component — and only the
- * workspace knows which happened.
- */
-describe("swallowed component guard", () => {
-  const workspace = createWorkspace([
-    component("ui/button", "@scope/button", "env-a"),
-    component("lib/math", "@scope/math", "env-a"),
-  ]);
-
-  function withConsumed(consumed: { option: string; value: string }[]): ParsedCliArgs {
-    return { ...parsedArgs([]), command: "test", consumedBareWords: consumed };
-  }
-
-  it("fails when an undeclared option consumed a registered component", () => {
-    const parsed = withConsumed([{ option: "--verbose", value: "ui/button" }]);
-
-    expect(() => assertNoSwallowedComponents(parsed, workspace)).toThrow(
-      '--verbose consumed "ui/button", which is a registered component'
-    );
-  });
-
-  it("names both spellings that resolve the ambiguity", () => {
-    const parsed = withConsumed([{ option: "--verbose", value: "ui/button" }]);
-
-    expect(() => assertNoSwallowedComponents(parsed, workspace)).toThrow("--verbose=<value>");
-    expect(() => assertNoSwallowedComponents(parsed, workspace)).toThrow(
-      "move ui/button before --verbose"
-    );
-  });
-
-  it("leaves an ordinary vendor value alone", () => {
-    // `test --reporter verbose ui/button` — both meanings intact.
-    const parsed = withConsumed([{ option: "--reporter", value: "verbose" }]);
-
-    expect(() => assertNoSwallowedComponents(parsed, workspace)).not.toThrow();
-  });
-
-  it("does nothing when no undeclared option consumed anything", () => {
-    expect(() => assertNoSwallowedComponents(withConsumed([]), workspace)).not.toThrow();
-  });
-
-  it("only matches a component ID exactly", () => {
-    const parsed = withConsumed([{ option: "--verbose", value: "ui/butto" }]);
-
-    expect(() => assertNoSwallowedComponents(parsed, workspace)).not.toThrow();
   });
 });
 

@@ -5,7 +5,7 @@ import {
   runVendorTasks,
   stopVendorTasks,
 } from "bit-lite-vendors";
-import { disposeAll, once } from "./disposal.js";
+import { disposeAll, once } from "../session/disposal.js";
 import type { Workspace, WorkspaceComponent } from "bit-lite-context";
 import type { CliArguments, CliOptionValue } from "bit-lite-utils";
 import type { EnvContext, PackageLocation, WorkspaceEnvGroup } from "bit-lite-env-resolution";
@@ -18,7 +18,6 @@ import type {
   VendorWatchTask,
 } from "bit-lite-vendors";
 import type { WorkerRunnerOptions } from "bit-lite-vendors";
-import type { ResolvedCommandSelection } from "./command-selection.js";
 
 export type PlannedUnit<Unit> = {
   id: string;
@@ -42,6 +41,16 @@ export type OpenResolvedService = {
 export type PlannedEnvServiceUnit = {
   group: WorkspaceEnvGroup;
   service: OpenResolvedService;
+};
+
+/**
+ * The part of a command's resolved selection an env-service plan reads. Stated
+ * structurally so that planning depends on the env groups themselves rather
+ * than on the command layer that assembled them; `ResolvedCommandSelection`
+ * satisfies it.
+ */
+export type PlannedEnvSelection = {
+  groups: readonly WorkspaceEnvGroup[];
 };
 
 export type VendorExecutionMode = "run" | "watch";
@@ -202,7 +211,7 @@ export function getResolvedService(
 }
 
 export function createEnvServiceExecutionPlan(
-  selection: ResolvedCommandSelection,
+  selection: PlannedEnvSelection,
   serviceId: string
 ): VendorExecutionPlan<PlannedEnvServiceUnit> {
   assertServiceId(serviceId);

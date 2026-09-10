@@ -15,7 +15,7 @@ import {
   type ComponentStatus,
   type StatusReport,
 } from "./status.js";
-import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
 
 // Real Git subprocesses against real repositories.
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });

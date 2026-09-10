@@ -3,27 +3,27 @@ import { isTestServiceResult } from "bit-lite-tester";
 import type { TestComponentResult, TestServiceResult } from "bit-lite-tester";
 import { isInteractiveTerminal } from "bit-lite-utils/node";
 import type { Workspace } from "bit-lite-context";
-import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
 import type { SelectedEnvIdentity, WorkspaceEnvGroup } from "bit-lite-env-resolution";
 import type { VendorTask } from "bit-lite-vendors";
-import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
-import { printNoTasks } from "../utils/no-tasks.js";
-import type { ResolvedCommandSelection } from "../utils/command-selection.js";
+import { prepareResolvedCommandSelection } from "./selection.js";
+import { printNoTasks } from "./no-tasks.js";
+import type { ResolvedCommandSelection } from "./selection.js";
 import {
   createEnvServiceExecutionPlan,
   createVendorWatchExecution,
   defineVendorExecution,
   prepareResolvedServiceTaskOptions,
   runVendorExecutionPlan,
-} from "../utils/vendor-execution.js";
+} from "../execution/vendor-execution.js";
 import type {
   ImmutableCliArguments,
   PlannedEnvServiceUnit,
   VendorRunOutcome,
-} from "../utils/vendor-execution.js";
-import type { WatchCommandContribution } from "../utils/watch-contribution.js";
+} from "../execution/vendor-execution.js";
+import type { WatchCommandContribution } from "../session/contribution.js";
 import { createTestResultRoutes } from "./test-routes.js";
-import { readFlagOption } from "../utils/command-options.js";
+import { readFlagOption } from "../cli/options.js";
 
 export type TestWatchResultEntry = {
   observedAt: string;

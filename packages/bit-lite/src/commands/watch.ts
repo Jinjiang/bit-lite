@@ -1,4 +1,4 @@
-import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
 import { BitLiteError } from "bit-lite-utils";
 import { runCompileCommand } from "./compile.js";
 

@@ -13,7 +13,7 @@ import {
   type TagRelease,
 } from "./tag.js";
 import { applyVersionExclusions, type VersionDecision } from "bit-lite-versioning";
-import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 

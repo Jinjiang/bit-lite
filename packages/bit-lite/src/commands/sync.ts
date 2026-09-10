@@ -1,12 +1,12 @@
 import { readWorkspace } from "bit-lite-context";
-import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
 import {
   openComponentHistoryStore,
   syncComponentHistory,
   type SyncResult,
 } from "bit-lite-history";
 import { BitLiteError, countOf } from "bit-lite-utils";
-import { readTextOption } from "../utils/command-options.js";
+import { readTextOption } from "../cli/options.js";
 
 /**
  * What: synchronizes component histories and tags with the store's remote.

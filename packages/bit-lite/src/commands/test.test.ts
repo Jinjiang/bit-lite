@@ -4,7 +4,7 @@ import path from "node:path";
 import type { SelectedEnvIdentity } from "bit-lite-env-resolution";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCli } from "../cli.js";
-import { prepareResolvedCommandSelection } from "../utils/command-selection.js";
+import { prepareResolvedCommandSelection } from "./selection.js";
 import type { TestServiceResult } from "bit-lite-tester";
 import {
   createTestWatchResultStore,

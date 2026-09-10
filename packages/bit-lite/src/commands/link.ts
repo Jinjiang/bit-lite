@@ -10,7 +10,7 @@ import { BitLiteError, countOf, isRecord, sortStringRecord } from "bit-lite-util
 import { isNodeErrorCode, readJsonFile } from "bit-lite-utils/node";
 import { unrecordedComponentVersion } from "bit-lite-versioning";
 import type { Workspace, WorkspaceComponent } from "bit-lite-context";
-import type { ParsedCliArgs } from "../cli-args-types.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
 
 export async function runLinkCommand(parsed: ParsedCliArgs) {
   const workspace = await readWorkspace(parsed.workspaceRoot);

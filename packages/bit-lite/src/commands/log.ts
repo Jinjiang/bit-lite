@@ -7,9 +7,9 @@ import {
   readCommitTree,
   readComponentHistory,
 } from "bit-lite-history";
-import type { ParsedCliArgs } from "../cli-args-types.js";
-import { readFlagOption } from "../utils/command-options.js";
-import { selectSingleWorkspaceComponent } from "../utils/command-selection.js";
+import type { ParsedCliArgs } from "../cli/arg-types.js";
+import { readFlagOption } from "../cli/options.js";
+import { selectSingleWorkspaceComponent } from "./selection.js";
 import {
   attributeSnapChange,
   compareComponentStates,
