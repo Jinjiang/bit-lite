@@ -1,9 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isDirectory } from "bit-lite-utils/node";
-import { afterEach, describe, expect, it } from "vitest";
-import { ComponentHistoryError } from "./errors.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ComponentHistoryError, GitCommandError } from "./errors.js";
+import * as gitProcess from "./git-process.js";
 import { createGitRunner, runGitLine } from "./git-process.js";
 import { isGitObjectAlgorithm } from "./object-id.js";
 import {
@@ -17,6 +18,8 @@ import {
 const temporaryRoots: string[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   await Promise.all(
     temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true }))
   );
@@ -58,12 +61,82 @@ describe("component history store", () => {
   });
 
   it("initializes a bare repository on first use", async () => {
+    vi.stubEnv("GIT_DEFAULT_REF_FORMAT", "files");
     const workspaceRoot = await createWorkspaceRoot();
     const store = await openComponentHistoryStore({ workspaceRoot });
 
     expect(store.gitDir).toBe(resolveComponentStorePath(workspaceRoot));
     expect(await runGitLine(store.run, ["rev-parse", "--is-bare-repository"])).toBe("true");
+    expect(await runGitLine(store.run, ["rev-parse", "--show-ref-format"])).toBe("reftable");
     expect(isGitObjectAlgorithm(store.objectFormat)).toBe(true);
+  });
+
+  it.each([
+    "error: unknown option `ref-format=reftable'",
+    "fatal: unknown ref storage format 'reftable'",
+    "fatal: cannot mkdir history store: Permission denied",
+  ])("preserves initialization errors without falling back: %s", async (stderr) => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const createRunner = gitProcess.createGitRunner;
+    vi.spyOn(gitProcess, "createGitRunner").mockImplementation((options) => {
+      const run = createRunner(options);
+      return async (input) => {
+        if (input.args[0] === "init" && input.args.includes("--ref-format=reftable")) {
+          throw new GitCommandError({ args: input.args, exitCode: 129, signal: null, stderr });
+        }
+        return run(input);
+      };
+    });
+
+    const error = await openComponentHistoryStore({ workspaceRoot }).catch(
+      (caught: unknown) => caught
+    );
+
+    expect(error).toBeInstanceOf(ComponentHistoryError);
+    expect((error as Error).message).toContain("use Git 2.45 or newer with reftable support");
+    expect((error as Error).message).toContain(stderr);
+    expect((error as Error).cause).toBeInstanceOf(GitCommandError);
+    expect(await isDirectory(resolveComponentStorePath(workspaceRoot))).toBe(false);
+  });
+
+  it.each(["mutable", "read-only"])("rejects files stores on %s opens without modifying them", async (mode) => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const gitDir = resolveComponentStorePath(workspaceRoot);
+    await createGitRunner()({ args: ["init", "--bare", "--quiet", "--ref-format=files", gitDir] });
+    const run = createGitRunner({ gitDir });
+    const blob = await runGitLine(run, ["hash-object", "-w", "--stdin"]);
+    await run({ args: ["update-ref", "refs/test/preserved", blob] });
+    const config = await readFile(path.join(gitDir, "config"), "utf8");
+
+    const opening = mode === "mutable"
+      ? openComponentHistoryStore({ workspaceRoot })
+      : openRecordedHistory(workspaceRoot);
+    await expect(opening).rejects.toThrow(/unsupported Git ref format "files".*must use reftable/);
+
+    expect(await readFile(path.join(gitDir, "config"), "utf8")).toBe(config);
+    expect(await runGitLine(run, ["rev-parse", "--show-ref-format"])).toBe("files");
+    expect(await runGitLine(run, ["for-each-ref", "--format=%(refname) %(objectname)"]))
+      .toBe(`refs/test/preserved ${blob}`);
+  });
+
+  it("preserves an unsupported repository extension error when opening a store", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    await openComponentHistoryStore({ workspaceRoot });
+    const stderr = "fatal: unknown repository extension found:\n\trefstorage\n";
+    const createRunner = gitProcess.createGitRunner;
+    vi.spyOn(gitProcess, "createGitRunner").mockImplementation((options) => {
+      const run = createRunner(options);
+      return async (input) => {
+        if (input.args[0] === "rev-parse" && input.args[1] === "--is-bare-repository") {
+          return { exitCode: 128, signal: null, stdout: Buffer.alloc(0), stderr };
+        }
+        return run(input);
+      };
+    });
+
+    await expect(openRecordedHistory(workspaceRoot)).rejects.toThrow(
+      /use Git 2\.45 or newer with reftable support\.[\s\S]*unknown repository extension found:[\s\S]*refstorage/
+    );
   });
 
   it("creates no refs when it initializes the store", async () => {
@@ -97,7 +170,7 @@ describe("component history store", () => {
     await writeFile(path.join(storePath, "stray.txt"), "not a repository");
 
     await expect(openComponentHistoryStore({ workspaceRoot })).rejects.toThrow(
-      /is not a Git repository/
+      /could not open .* as a Git repository/
     );
   });
 

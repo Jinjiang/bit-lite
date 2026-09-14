@@ -4,13 +4,21 @@ Git-backed component version history. This package owns the durable store, the
 snapshot boundary, ref layout, and every Git invocation; the CLI owns argument
 parsing, component selection, and human-readable output.
 
-It backs the `snap`, `tag`, and `sync` commands. No other Bit Lite command loads
-it, so `install`, `link`, `compile`, `test`, `preview`, `start`, and `watch`
-never require Git and never open the store.
+It backs the `snap`, `tag`, and `sync` commands and the read-only `status`, `log`,
+and `diff` commands. Opening or creating a history store requires **Git 2.45 or
+newer with reftable support**. Commands such as `install`, `link`, `compile`,
+`test`, `preview`, `start`, and `watch` never require Git and never open the store.
 
 ## The store
 
-Component history lives in a bare Git repository at `<workspace>/.bit-lite-store.git`.
+Component history lives in a bare Git repository using the **reftable** ref
+backend at `<workspace>/.bit-lite-store.git`. Initialization explicitly selects
+reftable regardless of Git's configured default. Unsupported Git installations
+fail with a diagnostic containing the requirement and the underlying Git error;
+Bit Lite never falls back to the `files` backend.
+
+Every existing store must also use reftable. Mutable and read-only operations
+reject another ref backend without modifying, reinitializing, or migrating it.
 
 It is created lazily by the first versioning command and is **not** part of the
 disposable `.bit-lite` cache. Cleanup routines that delete `.bit-lite` must leave
@@ -95,6 +103,10 @@ The encoding is reversible and collision-free, and its alphabet cannot express a
 ref separator, so a component ID containing `/`, `..`, or spaces can never
 escape its namespace.
 
+Base64url is case-sensitive: for example, `aaa` and `aaG` encode to `YWFh` and
+`YWFH`. Reftable preserves these as separate refs even on case-insensitive
+filesystems, keeping component heads, tags, and fetched tracking refs independent.
+
 Each component has one linear history: every snap commit has the component's
 previous snap as its sole parent, or no parent for the first snap. There is no
 workspace-wide commit and no cross-component parent, so
@@ -127,6 +139,11 @@ never creates a snap.
 
 `sync` talks to a remote configured as `origin` **inside the store**. The
 workspace's own remotes are never read or written.
+
+The remote can use either Git's `files` or reftable ref backend; fetch and push
+exchange the same objects and ref names across both. The remote's own backend
+and filesystem must be able to represent the exchanged refs: a `files` remote
+on a case-insensitive filesystem can still alias names that differ only in case.
 
 The first `--remote <url>` configures it; later runs reuse it. A different URL is
 rejected rather than applied, so component history cannot be silently redirected.

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { isDirectory } from "bit-lite-utils/node";
-import { ComponentHistoryError } from "./errors.js";
+import { ComponentHistoryError, GitCommandError } from "./errors.js";
 import {
   createGitRunner,
   runGitLine,
@@ -80,6 +80,7 @@ export async function openComponentHistoryStore(
 
   const run = createGitRunner({ gitDir, gitPath });
   await assertBareRepository(run, gitDir);
+  await assertReftableRepository(run, gitDir);
   return { gitDir, objectFormat: await readObjectFormat(run, gitDir), run };
 }
 
@@ -110,7 +111,18 @@ async function initializeBareStore(gitPath: string, gitDir: string): Promise<voi
   // `git init --bare <path>` takes the directory as a positional argument, so
   // this runner intentionally carries no --git-dir.
   const run = createGitRunner({ gitPath });
-  await run({ args: ["init", "--bare", "--quiet", gitDir] });
+  try {
+    // Component keys are case-sensitive. Reftable keeps ref identity independent
+    // of filesystem case handling, even when Git's configured default is files.
+    await run({ args: ["init", "--bare", "--quiet", "--ref-format=reftable", gitDir] });
+  } catch (error) {
+    if (!(error instanceof GitCommandError)) throw error;
+    throw new ComponentHistoryError(
+      `could not initialize component history at ${gitDir}; ` +
+        `use Git 2.45 or newer with reftable support.\n${error.message}`,
+      { cause: error }
+    );
+  }
 }
 
 async function assertBareRepository(run: GitRunner, gitDir: string): Promise<void> {
@@ -129,13 +141,24 @@ async function assertBareRepository(run: GitRunner, gitDir: string): Promise<voi
       );
     }
     throw new ComponentHistoryError(
-      `${gitDir} exists but is not a Git repository; move or remove it and rerun the command`
+      `could not open ${gitDir} as a Git repository; check the store path and ` +
+        `use Git 2.45 or newer with reftable support.\n${result.stderr.trim()}`
     );
   }
 
   if (result.stdout.toString("utf8").trim() !== "true") {
     throw new ComponentHistoryError(
       `${gitDir} must be a bare Git repository, but it has a worktree`
+    );
+  }
+}
+
+async function assertReftableRepository(run: GitRunner, gitDir: string): Promise<void> {
+  const format = await runGitLine(run, ["rev-parse", "--show-ref-format"]);
+  if (format !== "reftable") {
+    throw new ComponentHistoryError(
+      `${gitDir} uses unsupported Git ref format "${format}"; ` +
+        `component history stores must use reftable`
     );
   }
 }
