@@ -202,6 +202,52 @@ describe("component history shape", () => {
     expect(cardHistory.split("\n")).toHaveLength(1);
     expect(cardHistory).not.toContain(buttonHead.hex);
   });
+
+  it.each(["sequential", "batch"])(
+    "keeps case-distinct ref keys independent through %s snaps",
+    async (mode) => {
+      const { workspaceRoot, store } = await createWorkspace();
+      // These IDs encode as YWFh and YWFH, which alias with files refs on
+      // case-insensitive filesystems despite being different component IDs.
+      const components = [
+        await createComponent(workspaceRoot, "aaa", "first"),
+        await createComponent(workspaceRoot, "aaG", "second"),
+      ];
+      expect(await runGitLine(store.run, ["rev-parse", "--show-ref-format"])).toBe("reftable");
+
+      if (mode === "batch") {
+        await snapComponents(store, components);
+      } else {
+        for (const component of components) await snapComponents(store, [component]);
+      }
+
+      const roots = await Promise.all(
+        components.map(async ({ componentId }) => (await readComponentHead(store, componentId))!)
+      );
+      expect(roots[0]!.hex).not.toBe(roots[1]!.hex);
+      for (const root of roots) {
+        expect((await readComponentCommit(store, root)).parentIds).toEqual([]);
+      }
+
+      const heads = [...roots];
+      for (const [index, component] of components.entries()) {
+        await writeComponentFile(component.rootDir, "src/index.ts", "changed");
+        const result = await snapComponents(store, [component]);
+        const next = parseObjectId(result.components[0]!.snapId);
+        expect((await readComponentCommit(store, next)).parentIds).toEqual([roots[index]]);
+        heads[index] = next;
+        for (const [otherIndex, other] of components.entries()) {
+          expect(await readComponentHead(store, other.componentId)).toEqual(heads[otherIndex]);
+        }
+      }
+
+      for (const [index, { componentId }] of components.entries()) {
+        expect(
+          await runGitLine(store.run, ["rev-list", componentHeadRef(componentId)])
+        ).toBe(`${heads[index]!.hex}\n${roots[index]!.hex}`);
+      }
+    }
+  );
 });
 
 describe("content-aware publication", () => {

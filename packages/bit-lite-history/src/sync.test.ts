@@ -6,7 +6,12 @@ import { readComponentHead } from "./commits.js";
 import { ComponentHistoryError, GitCommandError } from "./errors.js";
 import { createGitRunner, runGitLine, type GitCommandInput } from "./git-process.js";
 import { parseObjectId } from "./object-id.js";
-import { componentHeadRef, componentTagRef, remoteComponentHeadRef } from "./refs.js";
+import {
+  componentHeadRef,
+  componentTagRef,
+  remoteComponentHeadRef,
+  remoteComponentTagRef,
+} from "./refs.js";
 import { readStoreRemoteUrl, resolveStoreRemote } from "./remote.js";
 import { snapComponents, type SnapRequest } from "./snap.js";
 import { openComponentHistoryStore, type ComponentHistoryStore } from "./store.js";
@@ -28,10 +33,12 @@ async function createTemporaryRoot(prefix: string): Promise<string> {
 }
 
 /** A bare repository on disk is a deterministic stand-in for a real remote. */
-async function createRemote(): Promise<string> {
+async function createRemote(refFormat: "files" | "reftable" = "files"): Promise<string> {
   const root = await createTemporaryRoot("bit-lite-history-remote-");
   const remotePath = path.join(root, "components.git");
-  await createGitRunner()({ args: ["init", "--bare", "--quiet", remotePath] });
+  await createGitRunner()({
+    args: ["init", "--bare", `--ref-format=${refFormat}`, "--quiet", remotePath],
+  });
   return remotePath;
 }
 
@@ -281,6 +288,63 @@ describe("tag reconciliation", () => {
     expect(
       await runGitLine(consumer.store.run, ["cat-file", "-t", componentTagRef("ui/button", "1.0.0")])
     ).toBe("tag");
+  });
+
+  it("preserves case-distinct component heads, annotated tags, and tracking refs", async () => {
+    const remotePath = await createRemote("reftable");
+    const publisher = await createPeer();
+    const components = [
+      await createComponent(publisher, "aaa", "first", "first"),
+      await createComponent(publisher, "aaG", "second", "second"),
+    ];
+    const snap = await snapComponents(publisher.store, components);
+    expect(snap.components[0]!.snapId).not.toBe(snap.components[1]!.snapId);
+    for (const { componentId } of components) {
+      await tagComponent(publisher.store, { componentId, version: "1.0.0" });
+    }
+    const published = await syncComponentHistory(publisher.store, { requestedUrl: remotePath });
+    expect(published.conflicts).toEqual([]);
+    expect(published.published).toBe(true);
+
+    const consumer = await createPeer();
+    const imported = await syncComponentHistory(consumer.store, { requestedUrl: remotePath });
+    expect(imported.conflicts).toEqual([]);
+    expect(
+      imported.heads.map(({ componentId, outcome }) => [componentId, outcome]).sort()
+    ).toEqual([
+      ["aaG", "imported"],
+      ["aaa", "imported"],
+    ]);
+    expect(
+      imported.tags.map(({ componentId, version, outcome }) => [componentId, version, outcome]).sort()
+    ).toEqual([
+      ["aaG", "1.0.0", "imported"],
+      ["aaa", "1.0.0", "imported"],
+    ]);
+
+    const remoteRun = createGitRunner({ gitDir: remotePath });
+    for (const run of [publisher.store.run, remoteRun, consumer.store.run]) {
+      expect(await runGitLine(run, ["rev-parse", "--show-ref-format"])).toBe("reftable");
+    }
+    for (const { componentId, snapId } of snap.components) {
+      const headHex = parseObjectId(snapId).hex;
+      const tagRef = componentTagRef(componentId, "1.0.0");
+      const tagHex = await runGitLine(publisher.store.run, ["rev-parse", tagRef]);
+      expect((await readComponentHead(consumer.store, componentId))?.hex).toBe(headHex);
+      expect(await runGitLine(remoteRun, ["rev-parse", componentHeadRef(componentId)])).toBe(headHex);
+      expect(await runGitLine(remoteRun, ["rev-parse", tagRef])).toBe(tagHex);
+      expect(
+        await runGitLine(consumer.store.run, [
+          "rev-parse",
+          remoteComponentHeadRef("origin", componentId),
+        ])
+      ).toBe(headHex);
+      for (const ref of [tagRef, remoteComponentTagRef("origin", componentId, "1.0.0")]) {
+        expect(await runGitLine(consumer.store.run, ["rev-parse", ref])).toBe(tagHex);
+        expect(await runGitLine(consumer.store.run, ["cat-file", "-t", ref])).toBe("tag");
+        expect(await runGitLine(consumer.store.run, ["rev-parse", `${ref}^{commit}`])).toBe(headHex);
+      }
+    }
   });
 
   it("reports an immutable-tag conflict without changing anything", async () => {

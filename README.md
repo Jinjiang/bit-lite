@@ -164,6 +164,9 @@ The repository is a pnpm monorepo containing the CLI, its internal libraries, re
 
 The expected package manager is `pnpm@12.0.0-rc.0`.
 
+Component history commands require Git 2.45 or newer with reftable support when
+they open or create `.bit-lite-store.git`. Other commands do not require Git.
+
 ```bash
 pnpm i
 pnpm build
@@ -271,6 +274,12 @@ it selects components. The table below says what each command is *for*; help say
 | `diff` | Emits a unified diff of the selected components between working state and recorded versions |
 
 `snap`, `tag`, `sync`, `status`, `log`, and `diff` use a durable store at `.bit-lite-store.git`; every other command works without Git and never opens that store. The three inspection commands only ever read: they never create the store, never add an object to it, and need no install, so `status` answers in a workspace that has just been cloned.
+
+Local history stores use Git's reftable ref backend so component refs remain
+distinct on case-insensitive filesystems. New stores explicitly use reftable;
+existing stores using another ref backend are rejected without modification or
+automatic migration. A sync remote can use either `files` or reftable, provided
+its filesystem and backend can represent the exchanged refs.
 
 `snap` and `tag` process components in dependency order, so a component's workspace dependencies and its env carry a version before the component naming them is recorded. What they record for a component is a **projection** of workspace state rather than the `.comp.json` on disk: `workspace:*` dependency specifiers are resolved to real versions and the component's env reference is injected. The working `.comp.json` is never modified; the version each component is based on is written back to its `bit-lite.json` entry.
 
